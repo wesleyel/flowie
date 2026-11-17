@@ -102,14 +102,18 @@ impl Outline {
         let head = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
             .into_iter()
             .map(|w| div().w(px(36.)).flex().justify_center().text_size(px(11.)).text_color(theme.muted).child(w));
-        let nav = |label: &'static str, delta: i32, cx: &mut Context<Self>| {
+        let nav = |icon: &'static str, delta: i32, cx: &mut Context<Self>| {
             div()
-                .id(label)
-                .px_2()
+                .id(icon)
+                .flex_none()
+                .size(px(26.))
+                .flex()
+                .items_center()
+                .justify_center()
                 .rounded_md()
                 .cursor_pointer()
                 .hover(|s| s.bg(theme.hover))
-                .child(label)
+                .child(crate::icons::icon(icon, crate::icons::MD, theme.muted))
                 .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
                     this.shift_month(delta, cx);
@@ -143,9 +147,9 @@ impl Outline {
                                 .items_center()
                                 .justify_between()
                                 .pb_2()
-                                .child(nav("‹", -1, cx))
+                                .child(nav("chevron-left", -1, cx))
                                 .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
-                                .child(nav("›", 1, cx)),
+                                .child(nav("chevron-right", 1, cx)),
                         )
                         .child(div().flex().children(head))
                         .child(div().flex().flex_wrap().children(cells))

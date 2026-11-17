@@ -2,6 +2,7 @@ mod anim;
 mod calendar;
 mod commands;
 mod editor;
+mod icons;
 mod inline;
 mod keymap;
 mod palette;
@@ -26,18 +27,13 @@ use outline::*;
 
 struct Assets;
 
-const CHEVRON: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M3 1.5 L7 5 L3 8.5" fill="none" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
-
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
-        Ok(match path {
-            "icons/chevron.svg" => Some(Cow::Borrowed(CHEVRON.as_bytes())),
-            _ => None,
-        })
+        Ok(icons::ICONS.iter().find(|(p, _)| *p == path).map(|(_, b)| Cow::Borrowed(*b)))
     }
 
-    fn list(&self, _: &str) -> gpui::Result<Vec<SharedString>> {
-        Ok(vec!["icons/chevron.svg".into()])
+    fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
+        Ok(icons::ICONS.iter().filter(|(p, _)| p.starts_with(path)).map(|(p, _)| SharedString::from(*p)).collect())
     }
 }
 

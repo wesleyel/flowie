@@ -146,32 +146,32 @@ impl Outline {
         match &mode {
             Mode::Jump => {
                 if q.trim().is_empty() {
-                    entries.push(Entry { label: "Home".into(), detail: String::new(), icon: "⌂", action: Action::Node(ROOT) });
+                    entries.push(Entry { label: "Home".into(), detail: String::new(), icon: "house", action: Action::Node(ROOT) });
                     for &id in &self.starred {
                         if self.tree.contains(id) {
-                            entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "★", action: Action::Node(id) });
+                            entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "star", action: Action::Node(id) });
                         }
                     }
                     for s in &self.saved_searches {
-                        entries.push(Entry { label: s.clone(), detail: "Saved search".into(), icon: "⌕", action: Action::Search(s.clone()) });
+                        entries.push(Entry { label: s.clone(), detail: "Saved search".into(), icon: "search", action: Action::Search(s.clone()) });
                     }
                 } else {
                     for s in self.saved_searches.iter().filter(|s| s.to_lowercase().contains(&q.to_lowercase())) {
-                        entries.push(Entry { label: s.clone(), detail: "Saved search".into(), icon: "⌕", action: Action::Search(s.clone()) });
+                        entries.push(Entry { label: s.clone(), detail: "Saved search".into(), icon: "search", action: Action::Search(s.clone()) });
                     }
                     for id in self.search_nodes(&q, 40, &[]) {
-                        let icon = if self.starred.contains(&id) { "★" } else { "•" };
+                        let icon = if self.starred.contains(&id) { "star" } else { "dot" };
                         entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon, action: Action::Node(id) });
                     }
-                    entries.push(Entry { label: format!("Search for “{q}”"), detail: "Filter the outline".into(), icon: "⌕", action: Action::Search(q.clone()) });
+                    entries.push(Entry { label: format!("Search for “{q}”"), detail: "Filter the outline".into(), icon: "search", action: Action::Search(q.clone()) });
                 }
             }
             Mode::MoveTo(ids) => {
                 if q.trim().is_empty() || "home".contains(&q.to_lowercase()) {
-                    entries.push(Entry { label: "Home".into(), detail: "Top level".into(), icon: "⌂", action: Action::Node(ROOT) });
+                    entries.push(Entry { label: "Home".into(), detail: "Top level".into(), icon: "house", action: Action::Node(ROOT) });
                 }
                 for id in self.search_nodes(&q, 40, ids) {
-                    entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "→", action: Action::Node(id) });
+                    entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "corner-down-right", action: Action::Node(id) });
                 }
             }
             Mode::LinkTo { .. } | Mode::Mirror { .. } => {
@@ -185,7 +185,7 @@ impl Outline {
                     self.search_nodes(&q, 40, &[])
                 };
                 for id in ids.into_iter().filter(|id| !exclude.contains(id)) {
-                    entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "↗", action: Action::Node(id) });
+                    entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "link", action: Action::Node(id) });
                 }
             }
         }
@@ -298,13 +298,13 @@ impl Outline {
                 .flex()
                 .items_center()
                 .gap_2()
-                .px_3()
-                .py(px(5.))
+                .px_2()
+                .h(px(32.))
                 .rounded_md()
                 .cursor_pointer()
                 .when(i == selected, |d| d.bg(theme.row_selected))
                 .hover(|s| s.bg(theme.hover))
-                .child(div().w(px(16.)).text_color(theme.muted).child(e.icon))
+                .child(crate::icons::slot(e.icon, crate::icons::MD, if e.icon == "star" { theme.colors[2] } else { theme.muted }))
                 .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(e.label))
                 .child(div().max_w(px(220.)).overflow_hidden().whitespace_nowrap().text_size(px(12.)).text_color(theme.muted).child(e.detail))
                 .on_click(cx.listener(move |this, _, window, cx| this.palette_click(i, window, cx)))

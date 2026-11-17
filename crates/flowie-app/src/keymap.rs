@@ -200,50 +200,6 @@ pub fn rows() -> Vec<&'static Binding> {
     BINDINGS.iter().filter(|b| seen.insert(b.id)).collect()
 }
 
-/// "cmd-shift-up" -> "⌘⇧↑"
-pub fn pretty(keys: &str) -> String {
-    keys.split_whitespace()
-        .map(|stroke| {
-            let parts: Vec<&str> = stroke.split('-').collect();
-            // A trailing "-" key (e.g. "cmd--") splits into an empty part.
-            let (mods, key) = if stroke.ends_with("--") {
-                (&parts[..parts.len().saturating_sub(2)], "-")
-            } else {
-                (&parts[..parts.len() - 1], *parts.last().unwrap_or(&""))
-            };
-            let mut s = String::new();
-            for m in ["ctrl", "alt", "shift", "cmd", "fn"] {
-                if mods.contains(&m) {
-                    s.push_str(match m {
-                        "ctrl" => "⌃",
-                        "alt" => "⌥",
-                        "shift" => "⇧",
-                        "cmd" => "⌘",
-                        _ => "fn ",
-                    });
-                }
-            }
-            s.push_str(&match key {
-                "enter" => "↩".to_string(),
-                "backspace" => "⌫".to_string(),
-                "delete" => "⌦".to_string(),
-                "escape" => "Esc".to_string(),
-                "tab" => "⇥".to_string(),
-                "space" => "Space".to_string(),
-                "up" => "↑".to_string(),
-                "down" => "↓".to_string(),
-                "left" => "←".to_string(),
-                "right" => "→".to_string(),
-                "home" => "Home".to_string(),
-                "end" => "End".to_string(),
-                k => k.to_uppercase(),
-            });
-            s
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 pub fn set_menus(cx: &mut App) {
     cx.set_menus(vec![
         Menu {

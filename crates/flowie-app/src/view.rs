@@ -317,12 +317,13 @@ impl Outline {
                     div()
                         .id(("backlink", id as usize))
                         .flex()
+                        .items_center()
                         .gap_2()
-                        .py(px(2.))
+                        .h(px(26.))
                         .cursor_pointer()
                         .text_size(px(13.))
                         .hover(|s| s.text_color(theme.link))
-                        .child(div().text_color(theme.faint).child("↖"))
+                        .child(crate::icons::slot(if title == "Mirrored in" { "copy" } else { "link" }, crate::icons::SM, theme.faint))
                         .child(div().overflow_hidden().whitespace_nowrap().child(label))
                         .child(div().text_color(theme.faint).whitespace_nowrap().child(format!("in {path}")))
                         .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(target, cx)))
@@ -384,9 +385,7 @@ impl Outline {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .text_size(px(10.))
-                            .text_color(theme.bg)
-                            .child(if completed { "✓" } else { "" }),
+                            .when(completed, |d| d.child(crate::icons::icon("check", 11., theme.bg))),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_checkbox(id, cx)))
                     .on_drag(DragNode { id, label }, move |drag, _, _, cx| cx.new(|_| DragPreview { label: drag.label.clone().into(), theme }))
@@ -557,7 +556,7 @@ impl Outline {
             .when(has_kids, |d| d.group_hover("row", |s| s.opacity(1.)))
             .child(
                 svg()
-                    .path("icons/chevron.svg")
+                    .path(crate::icons::path("chevron-right"))
                     .size(px(10.))
                     .text_color(theme.muted)
                     .with_transformation(Transformation::rotate(radians(angle.to_radians()))),
@@ -670,7 +669,7 @@ impl Outline {
                             .child(label)
                             .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(id, cx))),
                     )
-                    .when(i + 1 < n || zoomed, |d| d.child(div().text_color(theme.faint).child("›")))
+                    .when(i + 1 < n || zoomed, |d| d.child(crate::icons::icon("chevron-right", crate::icons::SM, theme.faint)))
             }),
         )
     }
@@ -692,22 +691,35 @@ impl Outline {
             let ed = self.editor_element(q, vec![run], theme.caret, theme.selection, cx);
             self.editor_mouse(cx).child(ed).into_any_element()
         } else if self.query.is_empty() {
-            div().text_color(theme.faint).child("Search   ⌘F").into_any_element()
+            let find_keys = crate::keymap::keys_for("find", &self.config.keys).into_iter().next().unwrap_or_default();
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .text_color(theme.faint)
+                .child("Search")
+                .child(crate::icons::key_chip(&find_keys, theme.faint, theme.input_bg, theme.input_bg))
+                .into_any_element()
         } else {
             div().text_color(theme.text).child(self.query.clone()).into_any_element()
         };
         div()
             .id("search")
             .w(px(240.))
-            .px_3()
-            .py(px(4.))
+            .h(px(28.))
+            .flex()
+            .items_center()
+            .gap_2()
+            .pl_2()
+            .pr_2()
             .rounded_md()
             .bg(theme.input_bg)
             .text_size(px(13.))
             .cursor_text()
             .when(editing, |d| d.border_1().border_color(theme.accent.opacity(0.5)))
             .when(!editing, |d| d.border_1().border_color(gpui::transparent_black()))
-            .child(inner)
+            .child(crate::icons::icon("search", crate::icons::SM, theme.muted))
+            .child(div().flex_1().min_w_0().child(inner))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
@@ -778,16 +790,19 @@ impl Render for Outline {
 
         let zoom_p = self.zoom_tween.map(|t| ease_out(t.t())).unwrap_or(1.0);
         let starred = self.zoom != ROOT && self.starred.contains(&self.zoom);
-        let tool = |id: &'static str, label: &'static str| {
+        // Toolbar buttons: a 28px square with a 16px icon.
+        let tool = |id: &'static str, icon: &'static str, color: gpui::Hsla| {
             div()
                 .id(id)
-                .px(px(7.))
-                .py(px(2.))
+                .flex_none()
+                .size(px(28.))
+                .flex()
+                .items_center()
+                .justify_center()
                 .rounded_md()
                 .cursor_pointer()
-                .text_color(theme.muted)
-                .hover(|s| s.bg(theme.hover).text_color(theme.text))
-                .child(label)
+                .hover(|s| s.bg(theme.hover))
+                .child(crate::icons::icon(icon, crate::icons::MD, color))
         };
         let saved = !self.query.trim().is_empty() && self.saved_searches.iter().any(|q| q == self.query.trim());
         let tools = div()
@@ -796,8 +811,7 @@ impl Render for Outline {
             .gap_1()
             .when(self.zoom != ROOT, |d| {
                 d.child(
-                    tool("star", if starred { "★" } else { "☆" })
-                        .when(starred, |s| s.text_color(theme.colors[2]))
+                    tool("star", "star", if starred { theme.colors[2] } else { theme.muted })
                         .on_click(cx.listener(|this, _, _, cx| {
                             let z = this.zoom;
                             this.star(z, cx);
@@ -806,12 +820,12 @@ impl Render for Outline {
             })
             .when(!self.query.trim().is_empty(), |d| {
                 d.child(
-                    tool("save-search", if saved { "Saved ✓" } else { "Save search" })
-                        .text_size(px(12.))
+                    tool("save-search", if saved { "bookmark-check" } else { "bookmark" }, if saved { theme.accent } else { theme.muted })
                         .on_click(cx.listener(|this, _, window, cx| this.save_search(&SaveSearch, window, cx))),
                 )
             })
-            .child(tool("calendar", "◷").on_click(cx.listener(|this, _, window, cx| this.show_calendar(&ShowCalendar, window, cx))))
+            .child(tool("calendar", "calendar", theme.muted).on_click(cx.listener(|this, _, window, cx| this.show_calendar(&ShowCalendar, window, cx))))
+            .child(div().w(px(6.)))
             .child(self.render_search(window, cx));
         let header = div()
             .flex()
@@ -1036,6 +1050,11 @@ impl Outline {
                         .cursor_pointer()
                         .text_color(theme.link)
                         .hover(|s| s.bg(theme.hover))
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .h(px(26.))
+                        .child(crate::icons::icon("rotate-ccw", crate::icons::SM, theme.link))
                         .child("Restore")
                         .on_click(cx.listener(move |this, _, _, cx| this.restore_trash(seq, cx))),
                 )
@@ -1047,6 +1066,11 @@ impl Outline {
                         .cursor_pointer()
                         .text_color(theme.muted)
                         .hover(|s| s.bg(theme.hover).text_color(theme.colors[0]))
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .h(px(26.))
+                        .child(crate::icons::icon("trash-2", crate::icons::SM, theme.muted))
                         .child("Delete forever")
                         .on_click(cx.listener(move |this, _, _, cx| this.purge_trash(seq, cx))),
                 )
@@ -1073,7 +1097,12 @@ impl Outline {
                             .cursor_pointer()
                             .text_color(theme.muted)
                             .hover(|s| s.bg(theme.hover))
-                            .child("Back (Esc)")
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .h(px(26.))
+                            .child(crate::icons::icon("arrow-left", crate::icons::SM, theme.muted))
+                            .child("Back")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.trash = None;
                                 cx.notify();

@@ -194,7 +194,7 @@ impl Outline {
         let ui = self.settings.as_ref()?;
         let theme = self.theme;
         let tab = ui.tab;
-        let tabs = [(Tab::Shortcuts, "Shortcuts", "⌨"), (Tab::Appearance, "Appearance", "◐"), (Tab::About, "About", "ⓘ")];
+        let tabs = [(Tab::Shortcuts, "Shortcuts", "keyboard"), (Tab::Appearance, "Appearance", "sun-moon"), (Tab::About, "About", "info")];
         let sidebar = div()
             .w(px(170.))
             .flex_none()
@@ -212,13 +212,13 @@ impl Outline {
                     .items_center()
                     .gap_2()
                     .px_2()
-                    .py(px(5.))
+                    .h(px(30.))
                     .rounded_md()
                     .cursor_pointer()
                     .when(t == tab, |d| d.bg(theme.row_selected).text_color(theme.text))
                     .when(t != tab, |d| d.text_color(theme.muted))
                     .hover(|s| s.bg(theme.hover))
-                    .child(div().w(px(16.)).child(icon))
+                    .child(crate::icons::slot(icon, crate::icons::MD, if t == tab { theme.text } else { theme.muted }))
                     .child(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(s) = this.settings.as_mut() {
@@ -288,24 +288,12 @@ impl Outline {
                 let conflict = conflicts.contains(id);
                 let is_rec = recording == Some(id);
                 let chips: Vec<AnyElement> = if is_rec {
-                    vec![div().px_2().py(px(1.)).rounded_md().border_1().border_color(theme.accent).text_color(theme.accent).child("Press keys…").into_any_element()]
+                    vec![div().h(px(20.)).flex().items_center().px_2().rounded(px(5.)).border_1().border_color(theme.accent).text_size(px(12.)).text_color(theme.accent).child("Press keys…").into_any_element()]
                 } else if keys.is_empty() {
                     vec![div().px_2().text_color(theme.faint).child("—").into_any_element()]
                 } else {
                     keys.iter()
-                        .map(|k| {
-                            div()
-                                .px_2()
-                                .py(px(1.))
-                                .rounded_md()
-                                .bg(theme.code_bg)
-                                .border_1()
-                                .border_color(if conflict { theme.colors[0].opacity(0.6) } else { theme.border })
-                                .font_family("Menlo")
-                                .text_size(px(12.))
-                                .child(keymap::pretty(k))
-                                .into_any_element()
-                        })
+                        .map(|k| crate::icons::key_chip(k, theme.text, theme.code_bg, if conflict { theme.colors[0].opacity(0.6) } else { theme.border }))
                         .collect()
                 };
                 sections.push(
@@ -315,7 +303,7 @@ impl Outline {
                         .items_center()
                         .gap_2()
                         .px_2()
-                        .py(px(4.))
+                        .h(px(30.))
                         .rounded_md()
                         .cursor_pointer()
                         .when(is_rec, |d| d.bg(theme.row_selected))
@@ -326,9 +314,13 @@ impl Outline {
                         .child(
                             div()
                                 .id(SharedString::from(format!("reset-{id}")))
-                                .w(px(18.))
-                                .text_color(theme.muted)
-                                .when(custom, |d| d.child("↺").hover(|s| s.text_color(theme.text)))
+                                .flex_none()
+                                .size(px(20.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_md()
+                                .when(custom, |d| d.cursor_pointer().hover(|s| s.bg(theme.hover)).child(crate::icons::icon("rotate-ccw", crate::icons::SM, theme.muted)))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.reset_binding(id, cx);

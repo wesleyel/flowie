@@ -17,35 +17,35 @@ struct Cmd {
 }
 
 const SLASH: &[Cmd] = &[
-    Cmd { label: "Bullet", aliases: "list item normal", icon: "•", action: || Action::Kind(BlockKind::Bullet) },
-    Cmd { label: "Text", aliases: "paragraph plain", icon: "¶", action: || Action::Kind(BlockKind::Paragraph) },
-    Cmd { label: "Heading 1", aliases: "h1 title", icon: "H1", action: || Action::Kind(BlockKind::H1) },
-    Cmd { label: "Heading 2", aliases: "h2", icon: "H2", action: || Action::Kind(BlockKind::H2) },
-    Cmd { label: "Heading 3", aliases: "h3", icon: "H3", action: || Action::Kind(BlockKind::H3) },
-    Cmd { label: "To-do", aliases: "todo checkbox task", icon: "☐", action: || Action::Kind(BlockKind::Todo) },
-    Cmd { label: "Numbered", aliases: "ordered list number", icon: "1.", action: || Action::Kind(BlockKind::Numbered) },
-    Cmd { label: "Quote", aliases: "blockquote", icon: "❝", action: || Action::Kind(BlockKind::Quote) },
-    Cmd { label: "Code block", aliases: "pre monospace", icon: "{}", action: || Action::Kind(BlockKind::Code) },
-    Cmd { label: "Highlight", aliases: "mark", icon: "▍", action: || Action::Wrap("==", "==") },
-    Cmd { label: "Bold", aliases: "strong", icon: "B", action: || Action::Wrap("**", "**") },
-    Cmd { label: "Italic", aliases: "emphasis", icon: "I", action: || Action::Wrap("*", "*") },
-    Cmd { label: "Strikethrough", aliases: "strike", icon: "S", action: || Action::Wrap("~~", "~~") },
-    Cmd { label: "Inline code", aliases: "code", icon: "`", action: || Action::Wrap("`", "`") },
-    Cmd { label: "Math", aliases: "latex formula equation katex", icon: "∑", action: || Action::Wrap("$", "$") },
-    Cmd { label: "Display math", aliases: "latex block equation", icon: "∫", action: || Action::Wrap("$$", "$$") },
-    Cmd { label: "Red", aliases: "color", icon: "●", action: || Action::Color("red") },
-    Cmd { label: "Orange", aliases: "color", icon: "●", action: || Action::Color("orange") },
-    Cmd { label: "Yellow", aliases: "color", icon: "●", action: || Action::Color("yellow") },
-    Cmd { label: "Green", aliases: "color", icon: "●", action: || Action::Color("green") },
-    Cmd { label: "Blue", aliases: "color", icon: "●", action: || Action::Color("blue") },
-    Cmd { label: "Purple", aliases: "color", icon: "●", action: || Action::Color("purple") },
-    Cmd { label: "Gray", aliases: "color grey", icon: "●", action: || Action::Color("gray") },
-    Cmd { label: "Today", aliases: "date now", icon: "◷", action: || Action::Today },
-    Cmd { label: "Link to bullet", aliases: "internal reference", icon: "↗", action: || Action::OpenLink },
-    Cmd { label: "Mirror", aliases: "clone live copy", icon: "⧉", action: || Action::OpenMirror },
-    Cmd { label: "Move to…", aliases: "relocate", icon: "→", action: || Action::OpenMove },
-    Cmd { label: "Complete", aliases: "done check", icon: "✓", action: || Action::Complete },
-    Cmd { label: "Add note", aliases: "description", icon: "✎", action: || Action::Note },
+    Cmd { label: "Bullet", aliases: "list item normal", icon: "list", action: || Action::Kind(BlockKind::Bullet) },
+    Cmd { label: "Text", aliases: "paragraph plain", icon: "pilcrow", action: || Action::Kind(BlockKind::Paragraph) },
+    Cmd { label: "Heading 1", aliases: "h1 title", icon: "heading-1", action: || Action::Kind(BlockKind::H1) },
+    Cmd { label: "Heading 2", aliases: "h2", icon: "heading-2", action: || Action::Kind(BlockKind::H2) },
+    Cmd { label: "Heading 3", aliases: "h3", icon: "heading-3", action: || Action::Kind(BlockKind::H3) },
+    Cmd { label: "To-do", aliases: "todo checkbox task", icon: "square-check", action: || Action::Kind(BlockKind::Todo) },
+    Cmd { label: "Numbered", aliases: "ordered list number", icon: "list-ordered", action: || Action::Kind(BlockKind::Numbered) },
+    Cmd { label: "Quote", aliases: "blockquote", icon: "quote", action: || Action::Kind(BlockKind::Quote) },
+    Cmd { label: "Code block", aliases: "pre monospace", icon: "square-code", action: || Action::Kind(BlockKind::Code) },
+    Cmd { label: "Highlight", aliases: "mark", icon: "highlighter", action: || Action::Wrap("==", "==") },
+    Cmd { label: "Bold", aliases: "strong", icon: "bold", action: || Action::Wrap("**", "**") },
+    Cmd { label: "Italic", aliases: "emphasis", icon: "italic", action: || Action::Wrap("*", "*") },
+    Cmd { label: "Strikethrough", aliases: "strike", icon: "strikethrough", action: || Action::Wrap("~~", "~~") },
+    Cmd { label: "Inline code", aliases: "code", icon: "code", action: || Action::Wrap("`", "`") },
+    Cmd { label: "Math", aliases: "latex formula equation katex", icon: "sigma", action: || Action::Wrap("$", "$") },
+    Cmd { label: "Display math", aliases: "latex block equation", icon: "square-sigma", action: || Action::Wrap("$$", "$$") },
+    Cmd { label: "Red", aliases: "color", icon: "circle", action: || Action::Color("red") },
+    Cmd { label: "Orange", aliases: "color", icon: "circle", action: || Action::Color("orange") },
+    Cmd { label: "Yellow", aliases: "color", icon: "circle", action: || Action::Color("yellow") },
+    Cmd { label: "Green", aliases: "color", icon: "circle", action: || Action::Color("green") },
+    Cmd { label: "Blue", aliases: "color", icon: "circle", action: || Action::Color("blue") },
+    Cmd { label: "Purple", aliases: "color", icon: "circle", action: || Action::Color("purple") },
+    Cmd { label: "Gray", aliases: "color grey", icon: "circle", action: || Action::Color("gray") },
+    Cmd { label: "Today", aliases: "date now", icon: "calendar-days", action: || Action::Today },
+    Cmd { label: "Link to bullet", aliases: "internal reference", icon: "link", action: || Action::OpenLink },
+    Cmd { label: "Mirror", aliases: "clone live copy", icon: "copy", action: || Action::OpenMirror },
+    Cmd { label: "Move to…", aliases: "relocate", icon: "corner-down-right", action: || Action::OpenMove },
+    Cmd { label: "Complete", aliases: "done check", icon: "check", action: || Action::Complete },
+    Cmd { label: "Add note", aliases: "description", icon: "notebook-pen", action: || Action::Note },
 ];
 
 fn trigger_len(kind: InlineKind) -> usize {
@@ -97,14 +97,14 @@ impl Outline {
                 .into_iter()
                 .filter(|(t, _)| t[1..].to_lowercase().starts_with(&q) && t.len() > q.len() + 1)
                 .take(8)
-                .map(|(t, n)| Entry { label: t.clone(), detail: format!("{n}"), icon: "#", action: Action::InsertText(format!("{t} ")) })
+                .map(|(t, n)| Entry { label: t.clone(), detail: format!("{n}"), icon: if sigil == '@' { "at-sign" } else { "hash" }, action: Action::InsertText(format!("{t} ")) })
                 .collect(),
             InlineKind::Link => self
                 .search_nodes(&q, 9, &[])
                 .into_iter()
                 .filter(|id| *id != i.node)
                 .take(8)
-                .map(|id| Entry { label: node_label(self, id), detail: String::new(), icon: "↗", action: Action::Node(id) })
+                .map(|id| Entry { label: node_label(self, id), detail: String::new(), icon: "link", action: Action::Node(id) })
                 .collect(),
         }
     }
@@ -271,12 +271,25 @@ impl Outline {
                 .items_center()
                 .gap_2()
                 .px_2()
-                .py(px(3.))
+                .h(px(28.))
                 .rounded_md()
                 .cursor_pointer()
                 .when(ix == i.selected, |d| d.bg(theme.row_selected))
                 .hover(|s| s.bg(theme.hover))
-                .child(div().w(px(22.)).text_size(px(12.)).text_color(theme.muted).child(en.icon))
+                .child(match &en.action {
+                    // Color commands show a filled swatch in that color, same slot size as icons.
+                    Action::Color(name) => {
+                        let c = flowie_core::markup::COLORS.iter().position(|c| c == name).map(|i| theme.colors[i]).unwrap_or(theme.muted);
+                        div()
+                            .flex_none()
+                            .size(px(crate::icons::MD + 4.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(div().size(px(12.)).rounded_full().bg(c))
+                    }
+                    _ => crate::icons::slot(en.icon, crate::icons::MD, theme.muted),
+                })
                 .child(div().flex_1().whitespace_nowrap().overflow_hidden().child(en.label))
                 .child(div().text_size(px(11.)).text_color(theme.faint).child(en.detail))
                 .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {

@@ -68,3 +68,7 @@ crates/flowie-app    the GPUI application
 cargo test -p flowie-core
 cargo run -p flowie-math --example math_demo
 ```
+
+## Credits
+
+Icons: [Lucide](https://lucide.dev) (ISC license, `crates/flowie-app/assets/icons/LICENSE`).

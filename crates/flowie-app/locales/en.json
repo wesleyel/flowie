@@ -187,7 +187,9 @@
     "help": {
       "title": "Help",
       "tutorial": "Flowie Tutorial",
-      "feedback": "Send Feedback…"
+      "feedback": "Send Feedback…",
+      "privacy": "Privacy Policy",
+      "terms": "Terms of Use"
     },
     "file": {
       "title": "File",

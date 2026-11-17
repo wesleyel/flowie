@@ -175,7 +175,9 @@
     "help": {
       "title": "帮助",
       "tutorial": "Flowie 教程",
-      "feedback": "发送反馈…"
+      "feedback": "发送反馈…",
+      "privacy": "隐私政策",
+      "terms": "使用条款"
     },
     "file": {
       "title": "文件",

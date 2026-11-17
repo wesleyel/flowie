@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::i18n::{self, t};
 use crate::keymap;
-use crate::outline::{Outline, OpenAbout, OpenSettings, SendFeedback};
+use crate::outline::{Outline, OpenAbout, OpenPrivacyPolicy, OpenSettings, OpenTerms, SendFeedback};
 use crate::theme::{Theme, ACCENTS};
 
 const ABOUT_BOX_W: f32 = 500.0;
@@ -112,6 +112,14 @@ impl Outline {
 
     pub fn send_feedback(&mut self, _: &SendFeedback, _: &mut Window, cx: &mut Context<Self>) {
         cx.open_url(&feedback_url());
+    }
+
+    pub fn open_privacy_policy(&mut self, _: &OpenPrivacyPolicy, _: &mut Window, cx: &mut Context<Self>) {
+        cx.open_url(&format!("{SITE_URL}/privacy"));
+    }
+
+    pub fn open_terms(&mut self, _: &OpenTerms, _: &mut Window, cx: &mut Context<Self>) {
+        cx.open_url(&format!("{SITE_URL}/terms"));
     }
 
     fn show_settings(&mut self, tab: Tab, cx: &mut Context<Self>) {
@@ -759,6 +767,8 @@ impl Outline {
 
 /// Where feedback mail goes.
 pub const FEEDBACK_EMAIL: &str = "wesleyel@icloud.com";
+/// Support site with the privacy policy (/privacy) and terms of use (/terms); source in site/.
+pub const SITE_URL: &str = "https://flowie.423324.xyz";
 
 /// A `mailto:` link with the app version and macOS version filled in.
 fn feedback_url() -> String {

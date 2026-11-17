@@ -343,6 +343,9 @@ pub fn set_menus(cx: &mut App) {
             items: vec![
                 MenuItem::action(t!("menu.help.tutorial"), OpenTutorial),
                 MenuItem::action(t!("menu.help.feedback"), SendFeedback),
+                MenuItem::separator(),
+                MenuItem::action(t!("menu.help.privacy"), OpenPrivacyPolicy),
+                MenuItem::action(t!("menu.help.terms"), OpenTerms),
             ],
         },
     ]);

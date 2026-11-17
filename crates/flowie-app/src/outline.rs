@@ -102,6 +102,8 @@ actions!(
         OpenAbout,
         SendFeedback,
         OpenTutorial,
+        OpenPrivacyPolicy,
+        OpenTerms,
     ]
 );
 

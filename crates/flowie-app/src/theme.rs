@@ -34,7 +34,42 @@ fn rgb(hex: u32) -> Hsla {
     gpui::rgb(hex).into()
 }
 
+/// Accent choices: (name, light hex, dark hex).
+pub const ACCENTS: [(&str, u32, u32); 6] = [
+    ("Blue", 0x3b82f6, 0x60a5fa),
+    ("Purple", 0x8b5cf6, 0xa78bfa),
+    ("Green", 0x10b981, 0x34d399),
+    ("Orange", 0xf97316, 0xfb923c),
+    ("Pink", 0xec4899, 0xf472b6),
+    ("Graphite", 0x6b7280, 0x9ca3af),
+];
+
 impl Theme {
+    /// Theme for the window's appearance and the user's settings.
+    pub fn build(a: WindowAppearance, config: &crate::settings::Config) -> Theme {
+        use crate::settings::ThemeMode;
+        let dark = match config.theme {
+            ThemeMode::Light => false,
+            ThemeMode::Dark => true,
+            ThemeMode::System => match std::env::var("FLOWIE_THEME").as_deref() {
+                Ok("dark") => true,
+                Ok("light") => false,
+                _ => matches!(a, WindowAppearance::Dark | WindowAppearance::VibrantDark),
+            },
+        };
+        let mut t = if dark { Theme::dark() } else { Theme::light() };
+        if let Some((_, l, d)) = ACCENTS.iter().find(|(n, _, _)| *n == config.accent) {
+            let c: Hsla = gpui::rgb(if dark { *d } else { *l }).into();
+            t.accent = c;
+            t.caret = c;
+            t.link = c;
+            t.selection = c.opacity(if dark { 0.32 } else { 0.25 });
+            t.row_selected = c.opacity(if dark { 0.16 } else { 0.12 });
+        }
+        t
+    }
+
+    #[allow(dead_code)]
     pub fn for_appearance(a: WindowAppearance) -> Theme {
         match std::env::var("FLOWIE_THEME").as_deref() {
             Ok("dark") => return Theme::dark(),

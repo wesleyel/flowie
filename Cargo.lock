@@ -1727,6 +1727,8 @@ dependencies = [
  "flowie-core",
  "flowie-math",
  "gpui",
+ "serde",
+ "serde_json",
  "unicode-segmentation",
 ]
 

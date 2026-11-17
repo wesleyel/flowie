@@ -96,6 +96,8 @@ actions!(
         NextMatch,
         PrevMatch,
         ShowCalendar,
+        OpenSettings,
+        OpenAbout,
     ]
 );
 
@@ -199,6 +201,10 @@ pub struct Outline {
     pub ghosts: std::collections::HashMap<NodeId, flowie_core::Node>,
     /// Scroll position of the open popup list (palette or inline menu).
     pub popup_scroll: gpui::ScrollHandle,
+    pub settings: Option<crate::settings::SettingsUi>,
+    pub settings_return: Option<(Target, usize)>,
+    pub config: crate::settings::Config,
+    pub config_path: std::path::PathBuf,
     pub toast: Option<(String, Tween)>,
 }
 
@@ -211,9 +217,11 @@ impl Outline {
         writer: Option<Writer>,
         db_path: Option<std::path::PathBuf>,
         meta: Vec<(String, String)>,
+        config: crate::settings::Config,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let db_path_for_config = db_path.clone();
         let mut zoom = ROOT;
         let mut hide_completed = false;
         let mut starred = Vec::new();
@@ -247,7 +255,7 @@ impl Outline {
             block: None,
             anims: Anims::default(),
             zoom_tween: None,
-            theme: Theme::for_appearance(window.appearance()),
+            theme: Theme::build(window.appearance(), &config),
             drop: None,
             highlight_terms: Vec::new(),
             palette: None,
@@ -265,6 +273,10 @@ impl Outline {
             mouse_block: false,
             ghosts: Default::default(),
             popup_scroll: gpui::ScrollHandle::new(),
+            settings: None,
+            settings_return: None,
+            config_path: crate::settings::Config::path(db_path_for_config.as_ref()),
+            config,
         };
         if this.tree.children(ROOT).is_empty() {
             this.seed_welcome();
@@ -274,7 +286,7 @@ impl Outline {
             this.edit = Some(Edit::new(Target::Text(first.id), this.tree.node(first.id).text.len()));
         }
         cx.observe_window_appearance(window, |this, window, cx| {
-            this.theme = Theme::for_appearance(window.appearance());
+            this.apply_theme(window);
             cx.notify();
         })
         .detach();

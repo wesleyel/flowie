@@ -14,7 +14,7 @@ No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at l
 
 - Data: `~/Library/Application Support/Flowie/flowie.sqlite` (override with `FLOWIE_DB=/path/file.sqlite`).
 - `--stress 50000`: opens an in-memory outline of 50k bullets (not saved) and logs timings.
-- `FLOWIE_THEME=dark|light` forces a theme; otherwise it follows the system.
+- Settings (⌘,) are saved in `settings.json` next to the database: theme, accent color and shortcut overrides.
 
 ## Keys
 
@@ -46,6 +46,7 @@ No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at l
 | ⌘O | Show / hide completed |
 | ⌘Z / ⌘⇧Z | Undo / redo |
 | ⌘⇧I / ⌘⇧E | Import (OPML, Markdown, text — Workflowy exports work) / export Markdown |
+| ⌘, | Settings: rebind any shortcut, theme (system / light / dark) and accent color, about |
 
 File menu: export as OPML, Markdown or plain text (selected bullets, or the whole page), and the Trash.
 

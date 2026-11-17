@@ -755,12 +755,15 @@ impl Render for Outline {
         let theme = self.theme;
 
         let mut kc = KeyContext::new_with_defaults();
-        kc.add("Outline");
-        if self.edit.is_some() {
-            kc.add("editing");
-        }
-        if self.block.is_some() {
-            kc.add("selecting");
+        // While settings are open, only global shortcuts apply (so keys can be recorded).
+        if self.settings.is_none() {
+            kc.add("Outline");
+            if self.edit.is_some() {
+                kc.add("editing");
+            }
+            if self.block.is_some() {
+                kc.add("selecting");
+            }
         }
 
         let title = window_title(self);
@@ -824,6 +827,7 @@ impl Render for Outline {
                 .into_any_element()
         };
         let palette = self.render_palette(window, cx);
+        let settings = self.render_settings(window, cx);
         let inline = self.render_inline(cx);
         let calendar = self.render_calendar(cx);
         let toast = self.toast.as_ref().filter(|(_, t)| !t.done()).map(|(msg, t)| {
@@ -946,6 +950,13 @@ impl Render for Outline {
             .on_action(cx.listener(Self::next_match))
             .on_action(cx.listener(Self::prev_match))
             .on_action(cx.listener(Self::show_calendar))
+            .on_action(cx.listener(Self::open_settings))
+            .on_action(cx.listener(Self::open_about))
+            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
+                if this.settings.is_some() {
+                    this.settings_key(ev, window, cx);
+                }
+            }))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| {
                 this.mouse_block = false;
                 if let Some(e) = this.edit.as_mut() {
@@ -971,6 +982,7 @@ impl Render for Outline {
             .children(inline)
             .children(calendar)
             .children(palette)
+            .children(settings)
             .children(toast)
     }
 }

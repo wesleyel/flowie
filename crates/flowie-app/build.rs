@@ -1,5 +1,6 @@
 // - Record the git commit for the About panel.
 // - Embed every SVG in assets/icons (Lucide, ISC license) as `icons/<name>.svg`.
+// - Embed every locales/<code>.json (English first: the source and fallback).
 use std::fmt::Write;
 
 fn main() {
@@ -28,5 +29,22 @@ fn main() {
     }
     src.push_str("];\n");
     let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("icons.rs");
+    std::fs::write(out, src).unwrap();
+
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("locales");
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let mut codes: Vec<String> = std::fs::read_dir(&dir)
+        .expect("locales")
+        .filter_map(|e| e.ok())
+        .filter_map(|e| e.file_name().to_string_lossy().strip_suffix(".json").map(String::from))
+        .collect();
+    codes.sort_by_key(|c| (c != "en", c.clone()));
+    assert_eq!(codes.first().map(String::as_str), Some("en"), "locales/en.json is required");
+    let mut src = String::from("pub static LOCALES: &[(&str, &str)] = &[\n");
+    for c in &codes {
+        writeln!(src, "    (\"{c}\", include_str!(\"{}\")),", dir.join(format!("{c}.json")).display()).unwrap();
+    }
+    src.push_str("];\n");
+    let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("locales.rs");
     std::fs::write(out, src).unwrap();
 }

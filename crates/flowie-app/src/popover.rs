@@ -17,6 +17,7 @@ use gpui::{
     Stateful, Task, Window,
 };
 
+use crate::i18n::t;
 use crate::outline::Outline;
 
 const HOVER_OPEN: Duration = Duration::from_millis(280);
@@ -147,7 +148,7 @@ impl Outline {
                 if ids.is_empty() {
                     return None;
                 }
-                let mut out = vec![div().pb_2().px_2().text_color(theme.muted).child(format!("Linked from · {}", ids.len())).into_any_element()];
+                let mut out = vec![div().pb_2().px_2().text_color(theme.muted).child(t!("outline.link_count", count = ids.len())).into_any_element()];
                 for src in ids {
                     let (text, note) = self.plain_text_and_note(src);
                     let path = self.render_path(src, 392., false, window, cx);
@@ -230,15 +231,15 @@ impl Outline {
     pub fn plain_text_and_note(&self, id: NodeId) -> (String, String) {
         let src = self.tree.node(self.tree.source(id));
         let text = markup::plain_text(&src.text);
-        (if text.trim().is_empty() { "Untitled".into() } else { text }, markup::plain_text(&src.note))
+        (if text.trim().is_empty() { t!("common.untitled").into() } else { text }, markup::plain_text(&src.note))
     }
 
     /// One path level's label: "Home", or the node's plain text on one line.
     pub fn crumb_label(&self, id: NodeId) -> String {
         if id == ROOT {
-            return "Home".into();
+            return t!("common.home").into();
         }
         let text = markup::plain_text(&self.tree.node(self.tree.source(id)).text).replace(['\n', '\r'], " ");
-        if text.trim().is_empty() { "Untitled".into() } else { text }
+        if text.trim().is_empty() { t!("common.untitled").into() } else { text }
     }
 }

@@ -8,6 +8,7 @@ use gpui::{
 };
 
 use crate::anim::{self, ease_in_out, ease_out, Channel};
+use crate::i18n::t;
 use crate::outline::*;
 use crate::popover::PopoverKind;
 use crate::rich::{self, Click, Piece, Style};
@@ -85,7 +86,7 @@ impl Outline {
                 if self.tree.contains(n) {
                     return self.zoom_to(n, cx);
                 }
-                self.toast("That bullet was deleted (see Trash)");
+                self.toast(t!("toast.bullet_deleted"));
                 return cx.notify();
             }
             Some(Click::Date(date)) => return self.search_for(&format!("date:{date}"), cx),
@@ -338,7 +339,7 @@ impl Outline {
         let src = self.tree.source(self.zoom);
         let (links, mirrors) = if self.zoom != ROOT { (self.tree.backlinks(src), self.tree.mirrors_of(src)) } else { Default::default() };
         let mut section = Vec::new();
-        for (title, ids) in [("Linked from", links), ("Mirrored in", mirrors)] {
+        for (mirror, title, ids) in [(false, t!("outline.linked_from"), links), (true, t!("outline.mirrored_in"), mirrors)] {
             if ids.is_empty() {
                 continue;
             }
@@ -355,7 +356,7 @@ impl Outline {
             for id in ids {
                 let (label, note) = self.plain_text_and_note(id);
                 let path = self.render_path(id, f32::from(window.viewport_size().width) - 156., true, window, cx);
-                let target = if title == "Mirrored in" { self.tree.parent(id) } else { id };
+                let target = if mirror { self.tree.parent(id) } else { id };
                 section.push(
                     div()
                         .id(("backlink", id as usize))
@@ -798,7 +799,7 @@ impl Outline {
                 .items_center()
                 .justify_between()
                 .text_color(theme.faint)
-                .child("Search")
+                .child(t!("common.search"))
                 .child(crate::icons::key_chip(&find_keys, theme.faint, theme.input_bg, theme.input_bg))
                 .into_any_element()
         } else {
@@ -1012,7 +1013,7 @@ impl Render for Outline {
         });
 
         let empty_hint = (self.rows.is_empty() && !self.query.is_empty()).then(|| {
-            div().px(px(PAD_X + 24.)).py_4().text_color(theme.muted).child(format!("No bullets match “{}”", self.query))
+            div().px(px(PAD_X + 24.)).py_4().text_color(theme.muted).child(t!("outline.no_match", query = self.query))
         });
 
         if self.is_animating() {
@@ -1163,13 +1164,13 @@ impl Outline {
         let ago = |t: i64| {
             let m = (now - t) / 60_000;
             if m < 1 {
-                "just now".to_string()
+                crate::i18n::t!("time.just_now").to_string()
             } else if m < 60 {
-                format!("{m} min ago")
+                t!("time.minutes_ago", count = m)
             } else if m < 60 * 24 {
-                format!("{} h ago", m / 60)
+                t!("time.hours_ago", count = m / 60)
             } else {
-                format!("{} days ago", m / 60 / 24)
+                t!("time.days_ago", count = m / 60 / 24)
             }
         };
         let rows = entries.into_iter().map(|e| {
@@ -1182,13 +1183,8 @@ impl Outline {
                 .py(px(6.))
                 .border_b_1()
                 .border_color(theme.border)
-                .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(if e.label.is_empty() { "Untitled".to_string() } else { e.label.clone() }))
-                .child(div().text_size(px(12.)).text_color(theme.muted).whitespace_nowrap().child(format!(
-                    "{} bullet{} · {}",
-                    count,
-                    if count == 1 { "" } else { "s" },
-                    ago(e.deleted_at)
-                )))
+                .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(if e.label.is_empty() { t!("common.untitled").to_string() } else { e.label.clone() }))
+                .child(div().text_size(px(12.)).text_color(theme.muted).whitespace_nowrap().child(t!("trash.entry", count = count, ago = ago(e.deleted_at))))
                 .child(
                     div()
                         .id(("restore", seq as usize))
@@ -1202,7 +1198,7 @@ impl Outline {
                         .gap_1()
                         .h(px(26.))
                         .child(crate::icons::icon("rotate-ccw", crate::icons::SM, theme.link))
-                        .child("Restore")
+                        .child(t!("trash.restore"))
                         .on_click(cx.listener(move |this, _, _, cx| this.restore_trash(seq, cx))),
                 )
                 .child(
@@ -1218,7 +1214,7 @@ impl Outline {
                         .gap_1()
                         .h(px(26.))
                         .child(crate::icons::icon("trash-2", crate::icons::SM, theme.muted))
-                        .child("Delete forever")
+                        .child(t!("trash.delete_forever"))
                         .on_click(cx.listener(move |this, _, _, cx| this.purge_trash(seq, cx))),
                 )
         });
@@ -1235,7 +1231,7 @@ impl Outline {
                     .justify_between()
                     .pt_2()
                     .pb_3()
-                    .child(div().text_size(px(TITLE_SIZE)).font_weight(FontWeight::BOLD).child("Trash"))
+                    .child(div().text_size(px(TITLE_SIZE)).font_weight(FontWeight::BOLD).child(t!("trash.title")))
                     .child(
                         div()
                             .id("trash-back")
@@ -1249,15 +1245,15 @@ impl Outline {
                             .gap_1()
                             .h(px(26.))
                             .child(crate::icons::icon("arrow-left", crate::icons::SM, theme.muted))
-                            .child("Back")
+                            .child(t!("common.back"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.trash = None;
                                 cx.notify();
                             })),
                     ),
             )
-            .child(div().text_size(px(12.)).text_color(theme.muted).pb_2().child("Deleted bullets are kept for 30 days."))
-            .when(empty, |d| d.child(div().py_4().text_color(theme.muted).child("Trash is empty.")))
+            .child(div().text_size(px(12.)).text_color(theme.muted).pb_2().child(t!("trash.retention")))
+            .when(empty, |d| d.child(div().py_4().text_color(theme.muted).child(t!("trash.empty"))))
             .children(rows)
             .into_any_element()
     }
@@ -1267,11 +1263,11 @@ fn window_title(o: &Outline) -> String {
     if o.zoom == ROOT {
         "Flowie".into()
     } else {
-        let t = markup::plain_text(&o.tree.node(o.zoom).text);
-        if t.is_empty() {
-            "Untitled — Flowie".into()
+        let text = markup::plain_text(&o.tree.node(o.zoom).text);
+        if text.is_empty() {
+            format!("{} — Flowie", t!("common.untitled"))
         } else {
-            format!("{t} — Flowie")
+            format!("{text} — Flowie")
         }
     }
 }

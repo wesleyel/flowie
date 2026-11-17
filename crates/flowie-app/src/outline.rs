@@ -1497,7 +1497,7 @@ impl Outline {
         self.copy(&Copy, window, cx);
         if self.block.is_some() {
             self.delete_node(&DeleteNode, window, cx);
-            self.toast("Cut — also kept in Trash");
+            self.toast(crate::i18n::t!("toast.cut_kept_in_trash"));
         } else if let Some(e) = &self.edit {
             if !e.sel.is_empty() {
                 let r = e.sel.clone();

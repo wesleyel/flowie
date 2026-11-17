@@ -4,6 +4,7 @@
 use flowie_core::{markup, BlockKind, NodeId, ROOT};
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, SharedString, Window};
 
+use crate::i18n::t;
 use crate::outline::{Edit, Outline, Target};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,7 +78,7 @@ fn path_label(o: &Outline, id: NodeId) -> String {
         .map(|a| markup::plain_text(&o.tree.node(o.tree.source(a)).text).chars().take(24).collect::<String>())
         .collect();
     if parts.is_empty() {
-        "Home".into()
+        t!("common.home").into()
     } else {
         parts.join(" › ")
     }
@@ -85,11 +86,11 @@ fn path_label(o: &Outline, id: NodeId) -> String {
 
 pub fn node_label(o: &Outline, id: NodeId) -> String {
     if id == ROOT {
-        return "Home".into();
+        return t!("common.home").into();
     }
     let t = markup::plain_text(&o.tree.node(o.tree.source(id)).text);
     if t.trim().is_empty() {
-        "Untitled".into()
+        t!("common.untitled").into()
     } else {
         t
     }
@@ -146,29 +147,29 @@ impl Outline {
         match &mode {
             Mode::Jump => {
                 if q.trim().is_empty() {
-                    entries.push(Entry { label: "Home".into(), detail: String::new(), icon: "house", action: Action::Node(ROOT) });
+                    entries.push(Entry { label: t!("common.home").into(), detail: String::new(), icon: "house", action: Action::Node(ROOT) });
                     for &id in &self.starred {
                         if self.tree.contains(id) {
                             entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "star", action: Action::Node(id) });
                         }
                     }
                     for s in &self.saved_searches {
-                        entries.push(Entry { label: s.clone(), detail: "Saved search".into(), icon: "search", action: Action::Search(s.clone()) });
+                        entries.push(Entry { label: s.clone(), detail: t!("palette.saved_search").into(), icon: "search", action: Action::Search(s.clone()) });
                     }
                 } else {
                     for s in self.saved_searches.iter().filter(|s| s.to_lowercase().contains(&q.to_lowercase())) {
-                        entries.push(Entry { label: s.clone(), detail: "Saved search".into(), icon: "search", action: Action::Search(s.clone()) });
+                        entries.push(Entry { label: s.clone(), detail: t!("palette.saved_search").into(), icon: "search", action: Action::Search(s.clone()) });
                     }
                     for id in self.search_nodes(&q, 40, &[]) {
                         let icon = if self.starred.contains(&id) { "star" } else { "dot" };
                         entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon, action: Action::Node(id) });
                     }
-                    entries.push(Entry { label: format!("Search for “{q}”"), detail: "Filter the outline".into(), icon: "search", action: Action::Search(q.clone()) });
+                    entries.push(Entry { label: t!("palette.search_for", query = q), detail: t!("palette.filter_outline").into(), icon: "search", action: Action::Search(q.clone()) });
                 }
             }
             Mode::MoveTo(ids) => {
-                if q.trim().is_empty() || "home".contains(&q.to_lowercase()) {
-                    entries.push(Entry { label: "Home".into(), detail: "Top level".into(), icon: "house", action: Action::Node(ROOT) });
+                if q.trim().is_empty() || ("home".contains(&q.to_lowercase()) || t!("common.home").contains(q.trim())) {
+                    entries.push(Entry { label: t!("common.home").into(), detail: t!("palette.top_level").into(), icon: "house", action: Action::Node(ROOT) });
                 }
                 for id in self.search_nodes(&q, 40, ids) {
                     entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "corner-down-right", action: Action::Node(id) });
@@ -280,10 +281,10 @@ impl Outline {
         let p = self.palette.as_ref()?;
         let theme = self.theme;
         let title = match p.mode {
-            Mode::Jump => "Go to",
-            Mode::MoveTo(_) => "Move to",
-            Mode::LinkTo { .. } => "Link to bullet",
-            Mode::Mirror { .. } => "Mirror bullet",
+            Mode::Jump => t!("palette.title.jump"),
+            Mode::MoveTo(_) => t!("palette.title.move"),
+            Mode::LinkTo { .. } => t!("palette.title.link"),
+            Mode::Mirror { .. } => t!("palette.title.mirror"),
         };
         let selected = p.selected;
         let entries = p.entries.clone();
@@ -291,7 +292,7 @@ impl Outline {
         let (font, _) = (window.text_style().font(), ());
         let run = gpui::TextRun { len: query.len(), font, color: theme.text, background_color: None, underline: None, strikethrough: None };
         let input = self.editor_element(query.clone(), vec![run], theme.caret, theme.selection, cx);
-        let placeholder = query.is_empty().then(|| div().absolute().top_0().left_0().text_color(theme.faint).child("Type to search bullets…"));
+        let placeholder = query.is_empty().then(|| div().absolute().top_0().left_0().text_color(theme.faint).child(t!("palette.placeholder")));
         let rows = entries.into_iter().enumerate().map(|(i, e)| {
             div()
                 .id(("palette", i))

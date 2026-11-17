@@ -7,6 +7,7 @@ use flowie_core::{io, markup, search::today, store, BlockKind, NodeId, Query, RO
 use gpui::{ClipboardItem, Context, PathPromptOptions, Window};
 
 use crate::anim::{self, Channel};
+use crate::i18n::t;
 use crate::outline::*;
 use crate::palette::{node_label, Mode};
 
@@ -71,7 +72,7 @@ impl Outline {
             self.tree.set_collapsed(target, false);
             self.block = None;
             self.edit = fallback.filter(|f| self.tree.contains(*f)).map(|f| Edit::new(Target::Text(f), 0));
-            self.toast(format!("Moved {moved} bullet{} to “{}”", if moved == 1 { "" } else { "s" }, node_label(self, target)));
+            self.toast(t!("toast.moved", count = moved, target = node_label(self, target)));
             self.commit_structure(before, cx);
         }
     }
@@ -93,7 +94,7 @@ impl Outline {
                 self.commit_structure(before, cx);
             }
             None => {
-                self.toast("Can't mirror a bullet inside itself");
+                self.toast(t!("toast.mirror_into_self"));
                 cx.notify();
             }
         }
@@ -117,10 +118,10 @@ impl Outline {
     pub fn star(&mut self, id: NodeId, cx: &mut Context<Self>) {
         if let Some(pos) = self.starred.iter().position(|s| *s == id) {
             self.starred.remove(pos);
-            self.toast(format!("Unstarred “{}”", node_label(self, id)));
+            self.toast(t!("toast.unstarred", name = node_label(self, id)));
         } else {
             self.starred.push(id);
-            self.toast(format!("Starred “{}” — ⌘P to jump to it", node_label(self, id)));
+            self.toast(t!("toast.starred", name = node_label(self, id)));
         }
         let v = self.starred.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
         self.set_meta("starred", &v);
@@ -225,7 +226,7 @@ impl Outline {
             files: true,
             directories: false,
             multiple: true,
-            prompt: Some("Import".into()),
+            prompt: Some(t!("import.prompt").into()),
         });
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
@@ -242,7 +243,7 @@ impl Outline {
 
     pub fn import_items(&mut self, items: Vec<io::Item>, cx: &mut Context<Self>) {
         if items.is_empty() {
-            self.toast("Nothing to import");
+            self.toast(t!("toast.nothing_to_import"));
             cx.notify();
             return;
         }
@@ -254,7 +255,7 @@ impl Outline {
         let top = self.tree.insert_items(parent, index, &items);
         self.edit = None;
         self.block = top.first().zip(top.last()).map(|(a, h)| BlockSel { anchor: *a, head: *h });
-        self.toast(format!("Imported {count} bullets"));
+        self.toast(t!("toast.imported", count = count));
         self.commit_structure(None, cx);
     }
 
@@ -274,8 +275,8 @@ impl Outline {
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(path))) = rx.await else { return };
             let msg = match std::fs::write(&path, content) {
-                Ok(()) => format!("Exported to {}", path.display()),
-                Err(e) => format!("Export failed: {e}"),
+                Ok(()) => t!("toast.exported", path = path.display()),
+                Err(e) => t!("toast.export_failed", error = e),
             };
             this.update(cx, |this, cx| {
                 this.toast(msg);
@@ -335,7 +336,7 @@ impl Outline {
             if let Some(w) = &self.writer {
                 w.untrash(seq);
             }
-            self.toast(format!("Restored “{}”", entry.label));
+            self.toast(t!("toast.restored", name = entry.label));
             self.trash = None;
             let parent = self.tree.parent(root);
             self.commit_structure(None, cx);
@@ -364,10 +365,10 @@ impl Outline {
         }
         if let Some(pos) = self.saved_searches.iter().position(|s| *s == q) {
             self.saved_searches.remove(pos);
-            self.toast(format!("Removed saved search “{q}”"));
+            self.toast(t!("toast.search_removed", query = q));
         } else {
             self.saved_searches.push(q.clone());
-            self.toast(format!("Saved search “{q}” — ⌘P to run it"));
+            self.toast(t!("toast.search_saved", query = q));
         }
         self.set_meta("saved_searches", &self.saved_searches.join("\n"));
         cx.notify();
@@ -391,7 +392,7 @@ impl Outline {
         let id = hits[next];
         let len = self.tree.node(self.tree.source(id)).text.len();
         self.start_edit(Target::Text(id), len, cx);
-        self.toast(format!("Match {} of {}", next + 1, hits.len()));
+        self.toast(t!("toast.match", index = next + 1, total = hits.len()));
     }
 
     pub fn next_match(&mut self, _: &NextMatch, _: &mut Window, cx: &mut Context<Self>) {

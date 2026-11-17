@@ -9,43 +9,50 @@ use gpui::{div, point, prelude::*, px, AnyElement, Context, MouseButton, Window}
 use crate::outline::{Edit, Outline, Target};
 use crate::palette::{node_label, Action, Entry, Inline, InlineKind, Mode};
 
-struct Cmd {
-    label: &'static str,
+pub(crate) struct Cmd {
+    /// Label key: `slash.<id>` in the locale files.
+    pub(crate) id: &'static str,
     aliases: &'static str,
     icon: &'static str,
     action: fn() -> Action,
 }
 
-const SLASH: &[Cmd] = &[
-    Cmd { label: "Bullet", aliases: "list item normal", icon: "list", action: || Action::Kind(BlockKind::Bullet) },
-    Cmd { label: "Text", aliases: "paragraph plain", icon: "pilcrow", action: || Action::Kind(BlockKind::Paragraph) },
-    Cmd { label: "Heading 1", aliases: "h1 title", icon: "heading-1", action: || Action::Kind(BlockKind::H1) },
-    Cmd { label: "Heading 2", aliases: "h2", icon: "heading-2", action: || Action::Kind(BlockKind::H2) },
-    Cmd { label: "Heading 3", aliases: "h3", icon: "heading-3", action: || Action::Kind(BlockKind::H3) },
-    Cmd { label: "To-do", aliases: "todo checkbox task", icon: "square-check", action: || Action::Kind(BlockKind::Todo) },
-    Cmd { label: "Numbered", aliases: "ordered list number", icon: "list-ordered", action: || Action::Kind(BlockKind::Numbered) },
-    Cmd { label: "Quote", aliases: "blockquote", icon: "quote", action: || Action::Kind(BlockKind::Quote) },
-    Cmd { label: "Code block", aliases: "pre monospace", icon: "square-code", action: || Action::Kind(BlockKind::Code) },
-    Cmd { label: "Highlight", aliases: "mark", icon: "highlighter", action: || Action::Wrap("==", "==") },
-    Cmd { label: "Bold", aliases: "strong", icon: "bold", action: || Action::Wrap("**", "**") },
-    Cmd { label: "Italic", aliases: "emphasis", icon: "italic", action: || Action::Wrap("*", "*") },
-    Cmd { label: "Strikethrough", aliases: "strike", icon: "strikethrough", action: || Action::Wrap("~~", "~~") },
-    Cmd { label: "Inline code", aliases: "code", icon: "code", action: || Action::Wrap("`", "`") },
-    Cmd { label: "Math", aliases: "latex formula equation katex", icon: "sigma", action: || Action::Wrap("$", "$") },
-    Cmd { label: "Display math", aliases: "latex block equation", icon: "square-sigma", action: || Action::Wrap("$$", "$$") },
-    Cmd { label: "Red", aliases: "color", icon: "circle", action: || Action::Color("red") },
-    Cmd { label: "Orange", aliases: "color", icon: "circle", action: || Action::Color("orange") },
-    Cmd { label: "Yellow", aliases: "color", icon: "circle", action: || Action::Color("yellow") },
-    Cmd { label: "Green", aliases: "color", icon: "circle", action: || Action::Color("green") },
-    Cmd { label: "Blue", aliases: "color", icon: "circle", action: || Action::Color("blue") },
-    Cmd { label: "Purple", aliases: "color", icon: "circle", action: || Action::Color("purple") },
-    Cmd { label: "Gray", aliases: "color grey", icon: "circle", action: || Action::Color("gray") },
-    Cmd { label: "Today", aliases: "date now", icon: "calendar-days", action: || Action::Today },
-    Cmd { label: "Link to bullet", aliases: "internal reference", icon: "link", action: || Action::OpenLink },
-    Cmd { label: "Mirror", aliases: "clone live copy", icon: "copy", action: || Action::OpenMirror },
-    Cmd { label: "Move to…", aliases: "relocate", icon: "corner-down-right", action: || Action::OpenMove },
-    Cmd { label: "Complete", aliases: "done check", icon: "check", action: || Action::Complete },
-    Cmd { label: "Add note", aliases: "description", icon: "notebook-pen", action: || Action::Note },
+impl Cmd {
+    fn label(&self) -> &'static str {
+        crate::i18n::text(&format!("slash.{}", self.id))
+    }
+}
+
+pub(crate) const SLASH: &[Cmd] = &[
+    Cmd { id: "bullet", aliases: "list item normal", icon: "list", action: || Action::Kind(BlockKind::Bullet) },
+    Cmd { id: "text", aliases: "paragraph plain", icon: "pilcrow", action: || Action::Kind(BlockKind::Paragraph) },
+    Cmd { id: "h1", aliases: "h1 title", icon: "heading-1", action: || Action::Kind(BlockKind::H1) },
+    Cmd { id: "h2", aliases: "h2", icon: "heading-2", action: || Action::Kind(BlockKind::H2) },
+    Cmd { id: "h3", aliases: "h3", icon: "heading-3", action: || Action::Kind(BlockKind::H3) },
+    Cmd { id: "todo", aliases: "todo checkbox task", icon: "square-check", action: || Action::Kind(BlockKind::Todo) },
+    Cmd { id: "numbered", aliases: "ordered list number", icon: "list-ordered", action: || Action::Kind(BlockKind::Numbered) },
+    Cmd { id: "quote", aliases: "blockquote", icon: "quote", action: || Action::Kind(BlockKind::Quote) },
+    Cmd { id: "code_block", aliases: "pre monospace", icon: "square-code", action: || Action::Kind(BlockKind::Code) },
+    Cmd { id: "highlight", aliases: "mark", icon: "highlighter", action: || Action::Wrap("==", "==") },
+    Cmd { id: "bold", aliases: "strong", icon: "bold", action: || Action::Wrap("**", "**") },
+    Cmd { id: "italic", aliases: "emphasis", icon: "italic", action: || Action::Wrap("*", "*") },
+    Cmd { id: "strikethrough", aliases: "strike", icon: "strikethrough", action: || Action::Wrap("~~", "~~") },
+    Cmd { id: "inline_code", aliases: "code", icon: "code", action: || Action::Wrap("`", "`") },
+    Cmd { id: "math", aliases: "latex formula equation katex", icon: "sigma", action: || Action::Wrap("$", "$") },
+    Cmd { id: "display_math", aliases: "latex block equation", icon: "square-sigma", action: || Action::Wrap("$$", "$$") },
+    Cmd { id: "red", aliases: "color", icon: "circle", action: || Action::Color("red") },
+    Cmd { id: "orange", aliases: "color", icon: "circle", action: || Action::Color("orange") },
+    Cmd { id: "yellow", aliases: "color", icon: "circle", action: || Action::Color("yellow") },
+    Cmd { id: "green", aliases: "color", icon: "circle", action: || Action::Color("green") },
+    Cmd { id: "blue", aliases: "color", icon: "circle", action: || Action::Color("blue") },
+    Cmd { id: "purple", aliases: "color", icon: "circle", action: || Action::Color("purple") },
+    Cmd { id: "gray", aliases: "color grey", icon: "circle", action: || Action::Color("gray") },
+    Cmd { id: "today", aliases: "date now", icon: "calendar-days", action: || Action::Today },
+    Cmd { id: "link", aliases: "internal reference", icon: "link", action: || Action::OpenLink },
+    Cmd { id: "mirror", aliases: "clone live copy", icon: "copy", action: || Action::OpenMirror },
+    Cmd { id: "move", aliases: "relocate", icon: "corner-down-right", action: || Action::OpenMove },
+    Cmd { id: "complete", aliases: "done check", icon: "check", action: || Action::Complete },
+    Cmd { id: "note", aliases: "description", icon: "notebook-pen", action: || Action::Note },
 ];
 
 fn trigger_len(kind: InlineKind) -> usize {
@@ -89,8 +96,8 @@ impl Outline {
         match i.kind {
             InlineKind::Slash => SLASH
                 .iter()
-                .filter(|c| q.is_empty() || c.label.to_lowercase().contains(&q) || c.aliases.contains(&q))
-                .map(|c| Entry { label: c.label.into(), detail: String::new(), icon: c.icon, action: (c.action)() })
+                .filter(|c| q.is_empty() || c.label().to_lowercase().contains(&q) || c.id.contains(&q) || c.aliases.contains(&q))
+                .map(|c| Entry { label: c.label().into(), detail: String::new(), icon: c.icon, action: (c.action)() })
                 .collect(),
             InlineKind::Tag(sigil) => self
                 .tags(sigil)

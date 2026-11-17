@@ -14,7 +14,7 @@ No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at l
 
 - Data: `~/Library/Application Support/Flowie/flowie.sqlite` (override with `FLOWIE_DB=/path/file.sqlite`).
 - `--stress 50000`: opens an in-memory outline of 50k bullets (not saved) and logs timings.
-- Settings (⌘,) are saved in `settings.json` next to the database: theme, accent color and shortcut overrides. Click a shortcut to replace it, use `+` to add another keyboard or mouse side-button binding, and press Backspace while recording to remove that binding.
+- Settings (⌘,) are saved in `settings.json` next to the database: theme, accent color, language (follow macOS or any bundled locale) and shortcut overrides. Click a shortcut to replace it, use `+` to add another keyboard or mouse side-button binding, and press Backspace while recording to remove that binding.
 
 ## Keys
 
@@ -47,7 +47,7 @@ No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at l
 | ⌘O | Show / hide completed |
 | ⌘Z / ⌘⇧Z | Undo / redo |
 | ⌘⇧I / ⌘⇧E | Import (OPML, Markdown, text — Workflowy exports work) / export Markdown |
-| ⌘, | Settings: rebind any shortcut, theme (system / light / dark) and accent color, about |
+| ⌘, | Settings: rebind any shortcut, theme (system / light / dark), accent color, language, about |
 
 File menu: export as OPML, Markdown or plain text (selected bullets, or the whole page), and the Trash.
 
@@ -80,6 +80,14 @@ crates/flowie-app    the GPUI application
 ```bash
 cargo test -p flowie-core
 cargo run -p flowie-math --example math_demo
+```
+
+## Translations
+
+UI text lives in `crates/flowie-app/locales/<code>.json` (nested JSON; a key is its dotted path, e.g. `menu.file.title`). `en.json` is the source and fallback. To add a language, drop in a new file with `meta.name` set to the language's own name; build.rs picks it up and it appears in Settings → Appearance → Language. Messages take `{name}` placeholders and plural objects (`{"one": …, "other": …}`, chosen by `count`). In code: `t!("menu.file.title")`, `t!("toast.moved", count = n, target = name)`.
+
+```bash
+cargo test -p flowie-app i18n -- --nocapture   # coverage report + key/placeholder checks
 ```
 
 ## Credits

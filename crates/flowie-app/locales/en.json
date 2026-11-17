@@ -1,0 +1,367 @@
+{
+  "meta": {
+    "name": "English"
+  },
+  "common": {
+    "home": "Home",
+    "untitled": "Untitled",
+    "search": "Search",
+    "back": "Back"
+  },
+  "outline": {
+    "linked_from": "Linked from",
+    "mirrored_in": "Mirrored in",
+    "no_match": "No bullets match “{query}”",
+    "link_count": "Linked from · {count}"
+  },
+  "toast": {
+    "mirror_into_self": "Can't mirror a bullet inside itself",
+    "nothing_to_import": "Nothing to import",
+    "bullet_deleted": "That bullet was deleted (see Trash)",
+    "cut_kept_in_trash": "Cut — also kept in Trash",
+    "moved": {
+      "one": "Moved {count} bullet to “{target}”",
+      "other": "Moved {count} bullets to “{target}”"
+    },
+    "starred": "Starred “{name}” — ⌘P to jump to it",
+    "unstarred": "Unstarred “{name}”",
+    "imported": {
+      "one": "Imported {count} bullet",
+      "other": "Imported {count} bullets"
+    },
+    "exported": "Exported to {path}",
+    "export_failed": "Export failed: {error}",
+    "restored": "Restored “{name}”",
+    "search_saved": "Saved search “{query}” — ⌘P to run it",
+    "search_removed": "Removed saved search “{query}”",
+    "match": "Match {index} of {total}"
+  },
+  "import": {
+    "prompt": "Import"
+  },
+  "palette": {
+    "title": {
+      "jump": "Go to",
+      "move": "Move to",
+      "link": "Link to bullet",
+      "mirror": "Mirror bullet"
+    },
+    "placeholder": "Type to search bullets…",
+    "saved_search": "Saved search",
+    "search_for": "Search for “{query}”",
+    "filter_outline": "Filter the outline",
+    "top_level": "Top level"
+  },
+  "calendar": {
+    "title": "{month} {year}",
+    "hint": "Click: open that day's page · ⌥-click: bullets dated that day",
+    "weekday": {
+      "mon": "Mo",
+      "tue": "Tu",
+      "wed": "We",
+      "thu": "Th",
+      "fri": "Fr",
+      "sat": "Sa",
+      "sun": "Su"
+    },
+    "month": {
+      "jan": "January",
+      "feb": "February",
+      "mar": "March",
+      "apr": "April",
+      "may": "May",
+      "jun": "June",
+      "jul": "July",
+      "aug": "August",
+      "sep": "September",
+      "oct": "October",
+      "nov": "November",
+      "dec": "December"
+    }
+  },
+  "time": {
+    "just_now": "just now",
+    "minutes_ago": "{count} min ago",
+    "hours_ago": "{count} h ago",
+    "days_ago": {
+      "one": "{count} day ago",
+      "other": "{count} days ago"
+    }
+  },
+  "trash": {
+    "title": "Trash",
+    "restore": "Restore",
+    "delete_forever": "Delete forever",
+    "retention": "Deleted bullets are kept for 30 days.",
+    "empty": "Trash is empty.",
+    "entry": {
+      "one": "{count} bullet · {ago}",
+      "other": "{count} bullets · {ago}"
+    }
+  },
+  "settings": {
+    "heading": "Settings",
+    "tab": {
+      "shortcuts": "Shortcuts",
+      "appearance": "Appearance",
+      "agent": "Agent",
+      "about": "About"
+    },
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "reset_all": "Reset all",
+      "press_keys": "Press keys…",
+      "conflict": "conflict"
+    },
+    "appearance": {
+      "title": "Appearance",
+      "theme": {
+        "label": "Theme",
+        "hint": "Follow macOS, or always use light or dark.",
+        "system": "System",
+        "light": "Light",
+        "dark": "Dark"
+      },
+      "accent": {
+        "label": "Accent color",
+        "hint": "Caret, selection, links and highlights.",
+        "blue": "Blue",
+        "purple": "Purple",
+        "green": "Green",
+        "orange": "Orange",
+        "pink": "Pink",
+        "graphite": "Graphite"
+      },
+      "language": {
+        "label": "Language",
+        "hint": "Follow macOS, or always use one language.",
+        "system": "System"
+      },
+      "preview": {
+        "before_link": "A bullet with a ",
+        "link": "link",
+        "before_tag": " and a ",
+        "selected": "selected text"
+      }
+    },
+    "agent": {
+      "title": "Agent access",
+      "intro": "AI agents (Claude Code, Claude Desktop, other MCP clients) can work with your outline through Flowie's MCP server. Flowie starts in the background if it isn't open.",
+      "mode": {
+        "off": "Off",
+        "read_only": "Read only",
+        "read_write": "Read & write"
+      },
+      "desc": {
+        "off": "Agents can't connect.",
+        "read_only": "Agents can read and search your outline but not change it.",
+        "read_write": "Agents can also add, edit, move, complete and delete bullets. Each change is one ⌘Z undo step, changed bullets briefly light up, and deletions go to the Trash."
+      },
+      "other_clients": "Other MCP clients",
+      "tools": "Tools: search, read, starred, create, update, complete, move, delete, journal, open."
+    },
+    "about": {
+      "tagline": "A fast outliner for thinking in lists.",
+      "version": "Version {version} ({commit})",
+      "bullets": "Bullets",
+      "data": "Data",
+      "settings": "Settings",
+      "built_with": "Built with",
+      "license": "License",
+      "in_memory": "In memory (not saved)",
+      "reveal": "Show data in Finder"
+    }
+  },
+  "menu": {
+    "app": {
+      "about": "About Flowie",
+      "settings": "Settings…",
+      "quit": "Quit Flowie"
+    },
+    "file": {
+      "title": "File",
+      "import": "Import…",
+      "export_markdown": "Export as Markdown…",
+      "export_opml": "Export as OPML…",
+      "export_text": "Export as Plain Text…",
+      "trash": "Trash"
+    },
+    "edit": {
+      "title": "Edit",
+      "undo": "Undo",
+      "redo": "Redo",
+      "cut": "Cut",
+      "copy": "Copy",
+      "paste": "Paste",
+      "select_all": "Select All",
+      "find": "Find",
+      "find_next": "Find Next",
+      "find_previous": "Find Previous",
+      "save_search": "Save Search"
+    },
+    "format": {
+      "title": "Format",
+      "bold": "Bold",
+      "italic": "Italic",
+      "code": "Code",
+      "math": "Math",
+      "highlight": "Highlight",
+      "link": "Link",
+      "link_to_bullet": "Link to Bullet…",
+      "bullet": "Bullet",
+      "h1": "Heading 1",
+      "h2": "Heading 2",
+      "h3": "Heading 3",
+      "text": "Text",
+      "todo": "To-do",
+      "numbered": "Numbered",
+      "quote": "Quote",
+      "code_block": "Code Block"
+    },
+    "outline": {
+      "title": "Outline",
+      "complete": "Complete",
+      "note": "Add Note",
+      "indent": "Indent",
+      "outdent": "Outdent",
+      "move_up": "Move Up",
+      "move_down": "Move Down",
+      "delete": "Delete Bullet",
+      "move_to": "Move To…",
+      "mirror": "Mirror…",
+      "collapse": "Collapse",
+      "expand": "Expand",
+      "zoom_in": "Zoom In",
+      "zoom_out": "Zoom Out",
+      "home": "Go Home",
+      "jump": "Go To…",
+      "star": "Star Page",
+      "today": "Today's Journal",
+      "calendar": "Calendar",
+      "expand_all": "Expand All",
+      "level_1": "Show 1 Level",
+      "level_2": "Show 2 Levels",
+      "level_3": "Show 3 Levels",
+      "level_4": "Show 4 Levels",
+      "toggle_completed": "Show/Hide Completed"
+    }
+  },
+  "shortcut": {
+    "newline": "New bullet / split",
+    "note": "Edit note",
+    "indent": "Indent",
+    "outdent": "Outdent",
+    "backspace": "Delete backward",
+    "delete": "Delete forward",
+    "delete-word": "Delete word",
+    "left": "Caret left",
+    "right": "Caret right",
+    "up": "Up",
+    "down": "Down",
+    "word-left": "Word left",
+    "word-right": "Word right",
+    "select-left": "Select left",
+    "select-right": "Select right",
+    "select-word-left": "Select word left",
+    "select-word-right": "Select word right",
+    "select-up": "Select up / extend",
+    "select-down": "Select down / extend",
+    "home": "Line start",
+    "end": "Line end",
+    "select-home": "Select to line start",
+    "select-end": "Select to line end",
+    "select-all": "Select all",
+    "copy": "Copy",
+    "cut": "Cut",
+    "paste": "Paste",
+    "undo": "Undo",
+    "redo": "Redo",
+    "bold": "Bold",
+    "italic": "Italic",
+    "code": "Inline code",
+    "math": "Math",
+    "link": "Link",
+    "highlight": "Highlight",
+    "kind-bullet": "Bullet",
+    "kind-h1": "Heading 1",
+    "kind-h2": "Heading 2",
+    "kind-h3": "Heading 3",
+    "kind-text": "Text",
+    "kind-todo": "To-do",
+    "kind-numbered": "Numbered",
+    "kind-quote": "Quote",
+    "kind-code": "Code block",
+    "complete": "Complete",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "expand-all": "Expand all",
+    "level-1": "Show 1 level",
+    "level-2": "Show 2 levels",
+    "level-3": "Show 3 levels",
+    "level-4": "Show 4 levels",
+    "move-up": "Move up",
+    "move-down": "Move down",
+    "move-to": "Move to…",
+    "mirror": "Mirror…",
+    "link-to": "Link to bullet…",
+    "delete-bullet": "Delete bullet",
+    "toggle-completed": "Show / hide completed",
+    "page-back": "Page back",
+    "page-forward": "Page forward",
+    "zoom-in": "Zoom in",
+    "zoom-out": "Zoom out",
+    "home-page": "Go home",
+    "jump": "Go to…",
+    "star": "Star page",
+    "today": "Today's journal",
+    "calendar": "Calendar",
+    "find": "Search",
+    "next-match": "Next match",
+    "prev-match": "Previous match",
+    "escape": "Escape / select bullet",
+    "import": "Import…",
+    "export-md": "Export Markdown…",
+    "trash": "Trash",
+    "settings": "Settings",
+    "quit": "Quit"
+  },
+  "slash": {
+    "bullet": "Bullet",
+    "text": "Text",
+    "h1": "Heading 1",
+    "h2": "Heading 2",
+    "h3": "Heading 3",
+    "todo": "To-do",
+    "numbered": "Numbered",
+    "quote": "Quote",
+    "code_block": "Code block",
+    "highlight": "Highlight",
+    "bold": "Bold",
+    "italic": "Italic",
+    "strikethrough": "Strikethrough",
+    "inline_code": "Inline code",
+    "math": "Math",
+    "display_math": "Display math",
+    "red": "Red",
+    "orange": "Orange",
+    "yellow": "Yellow",
+    "green": "Green",
+    "blue": "Blue",
+    "purple": "Purple",
+    "gray": "Gray",
+    "today": "Today",
+    "link": "Link to bullet",
+    "mirror": "Mirror",
+    "move": "Move to…",
+    "complete": "Complete",
+    "note": "Add note"
+  },
+  "group": {
+    "editing": "Editing",
+    "formatting": "Formatting",
+    "outline": "Outline",
+    "navigation": "Navigation",
+    "search": "Search",
+    "app": "App"
+  }
+}

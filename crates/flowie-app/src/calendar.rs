@@ -8,6 +8,7 @@ use chrono::{Datelike, Local, NaiveDate};
 use flowie_core::{markup, search::today};
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, MouseDownEvent, SharedString, Window};
 
+use crate::i18n::t;
 use crate::outline::{Outline, ShowCalendar};
 
 pub struct Calendar {
@@ -61,7 +62,14 @@ impl Outline {
         let lead = first.weekday().num_days_from_monday();
         let today = today();
         let journal = self.journal_days();
-        let title: SharedString = first.format("%B %Y").to_string().into();
+        let title: SharedString = {
+            let months = [
+                t!("calendar.month.jan"), t!("calendar.month.feb"), t!("calendar.month.mar"), t!("calendar.month.apr"),
+                t!("calendar.month.may"), t!("calendar.month.jun"), t!("calendar.month.jul"), t!("calendar.month.aug"),
+                t!("calendar.month.sep"), t!("calendar.month.oct"), t!("calendar.month.nov"), t!("calendar.month.dec"),
+            ];
+            t!("calendar.title", month = months[c.month as usize - 1], year = c.year).into()
+        };
         let mut cells: Vec<AnyElement> = Vec::new();
         for _ in 0..lead {
             cells.push(div().size(px(36.)).into_any_element());
@@ -99,7 +107,7 @@ impl Outline {
                     .into_any_element(),
             );
         }
-        let head = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+        let head = [t!("calendar.weekday.mon"), t!("calendar.weekday.tue"), t!("calendar.weekday.wed"), t!("calendar.weekday.thu"), t!("calendar.weekday.fri"), t!("calendar.weekday.sat"), t!("calendar.weekday.sun")]
             .into_iter()
             .map(|w| div().w(px(36.)).flex().justify_center().text_size(px(11.)).text_color(theme.muted).child(w));
         let nav = |icon: &'static str, delta: i32, cx: &mut Context<Self>| {
@@ -159,7 +167,7 @@ impl Outline {
                                 .pt_2()
                                 .text_size(px(11.))
                                 .text_color(theme.muted)
-                                .child("Click: open that day's page · ⌥-click: bullets dated that day"),
+                                .child(t!("calendar.hint")),
                         ),
                 )
                 .into_any_element(),

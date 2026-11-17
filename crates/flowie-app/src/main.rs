@@ -3,6 +3,7 @@ mod anim;
 mod calendar;
 mod commands;
 mod editor;
+mod i18n;
 mod icons;
 mod inline;
 mod keymap;
@@ -99,6 +100,7 @@ fn main() {
     };
     let n = tree.len();
     let config = settings::Config::load(&settings::Config::path(db_path.as_ref()));
+    i18n::set(&config.language);
     let agent_db = db_path.clone();
     let keys = config.keys.clone();
     if stress.is_some() {

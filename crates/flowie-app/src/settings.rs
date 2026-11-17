@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, KeyDownEvent, MouseButton, SharedString, Window};
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::{self, t};
 use crate::keymap;
 use crate::outline::{Outline, OpenAbout, OpenSettings};
 use crate::theme::{Theme, ACCENTS};
@@ -38,6 +39,9 @@ pub struct Config {
     /// What AI agents may do through `flowie mcp`.
     #[serde(default)]
     pub agent: crate::agent::AgentMode,
+    /// UI language: a locale code from `locales/`; empty = follow macOS.
+    #[serde(default)]
+    pub language: String,
 }
 
 #[cfg(test)]
@@ -257,10 +261,10 @@ impl Outline {
         let theme = self.theme;
         let tab = ui.tab;
         let tabs = [
-            (Tab::Shortcuts, "Shortcuts", "keyboard"),
-            (Tab::Appearance, "Appearance", "sun-moon"),
-            (Tab::Agent, "Agent", "bot"),
-            (Tab::About, "About", "info"),
+            (Tab::Shortcuts, t!("settings.tab.shortcuts"), "keyboard"),
+            (Tab::Appearance, t!("settings.tab.appearance"), "sun-moon"),
+            (Tab::Agent, t!("settings.tab.agent"), "bot"),
+            (Tab::About, t!("settings.tab.about"), "info"),
         ];
         let sidebar = div()
             .w(px(170.))
@@ -271,10 +275,10 @@ impl Outline {
             .gap_1()
             .border_r_1()
             .border_color(theme.border)
-            .child(div().px_2().pt_1().pb_2().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted).child("SETTINGS"))
+            .child(div().px_2().pt_1().pb_2().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted).child(t!("settings.heading").to_uppercase()))
             .children(tabs.into_iter().map(|(t, label, icon)| {
                 div()
-                    .id(label)
+                    .id(icon)
                     .flex()
                     .items_center()
                     .gap_2()
@@ -347,7 +351,7 @@ impl Outline {
                     .text_size(px(11.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.muted)
-                    .child(group.to_uppercase())
+                    .child(keymap::group_label(group).to_uppercase())
                     .into_any_element(),
             );
             for row in keymap::rows().into_iter().filter(|r| r.group == group) {
@@ -361,7 +365,7 @@ impl Outline {
                     div()
                         .id(SharedString::from(format!("key-{id}-{index}")))
                         .cursor_pointer()
-                        .child(crate::icons::key_chip(if active { "Press keys…" } else { key }, theme.text, theme.code_bg,
+                        .child(crate::icons::key_chip(if active { t!("settings.shortcuts.press_keys") } else { key }, theme.text, theme.code_bg,
                             if active { theme.accent } else if conflict { theme.colors[0].opacity(0.6) } else { theme.border }))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
@@ -376,7 +380,7 @@ impl Outline {
                     .id(SharedString::from(format!("add-{id}")))
                     .px_2().rounded_sm().cursor_pointer().text_color(theme.link)
                     .hover(|s| s.bg(theme.hover))
-                    .child(if is_rec && recording.is_some_and(|r| r.index.is_none()) { "Press keys…" } else { "+" })
+                    .child(if is_rec && recording.is_some_and(|r| r.index.is_none()) { t!("settings.shortcuts.press_keys") } else { "+" })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         if let Some(s) = this.settings.as_mut() {
@@ -398,8 +402,8 @@ impl Outline {
                         .cursor_pointer()
                         .when(is_rec, |d| d.bg(theme.row_selected))
                         .hover(|s| s.bg(theme.hover))
-                        .child(div().flex_1().min_w_0().child(row.label))
-                        .when(conflict && !is_rec, |d| d.child(div().text_size(px(11.)).text_color(theme.colors[0]).child("conflict")))
+                        .child(div().flex_1().min_w_0().child(row.label()))
+                        .when(conflict && !is_rec, |d| d.child(div().text_size(px(11.)).text_color(theme.colors[0]).child(t!("settings.shortcuts.conflict"))))
                         .child(div().flex().flex_wrap().justify_end().max_w(gpui::relative(0.6)).gap_1().children(chips))
                         .child(
                             div()
@@ -445,7 +449,7 @@ impl Outline {
                         div()
                             .flex()
                             .flex_col()
-                            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child("Keyboard shortcuts"))
+                            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(t!("settings.shortcuts.title")))
                             .child(div().text_size(px(12.)).text_color(theme.muted).child(if recording.is_some() {
                                 "Press keys or a mouse side button · Esc cancels · ⌫ removes"
                             } else {
@@ -462,7 +466,7 @@ impl Outline {
                                 .cursor_pointer()
                                 .text_color(theme.link)
                                 .hover(|s| s.bg(theme.hover))
-                                .child("Reset all")
+                                .child(t!("settings.shortcuts.reset_all"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.config.keys.clear();
                                     this.rebind(cx);
@@ -480,15 +484,15 @@ impl Outline {
         let mode = self.config.theme;
         let accent = if self.config.accent.is_empty() { "Blue".to_string() } else { self.config.accent.clone() };
         let dark = matches!(window.appearance(), gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark);
-        let modes = [(ThemeMode::System, "System"), (ThemeMode::Light, "Light"), (ThemeMode::Dark, "Dark")];
+        let modes = [(ThemeMode::System, "system", t!("settings.appearance.theme.system")), (ThemeMode::Light, "light", t!("settings.appearance.theme.light")), (ThemeMode::Dark, "dark", t!("settings.appearance.theme.dark"))];
         let segmented = div()
             .flex()
             .p(px(2.))
             .rounded_lg()
             .bg(theme.input_bg)
-            .children(modes.into_iter().map(|(m, label)| {
+            .children(modes.into_iter().map(|(m, id, label)| {
                 div()
-                    .id(label)
+                    .id(id)
                     .px_4()
                     .py(px(4.))
                     .rounded_md()
@@ -522,7 +526,7 @@ impl Outline {
                         .border_2()
                         .border_color(if selected { theme.text } else { gpui::transparent_black() }),
                 )
-                .child(div().text_size(px(11.)).text_color(if selected { theme.text } else { theme.muted }).child(name))
+                .child(div().text_size(px(11.)).text_color(if selected { theme.text } else { theme.muted }).child(i18n::text(&format!("settings.appearance.accent.{}", name.to_lowercase()))))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.config.accent = name.to_string();
                     this.save_config();
@@ -530,6 +534,28 @@ impl Outline {
                     cx.notify();
                 }))
         }));
+        let language = self.config.language.clone();
+        let choices = std::iter::once(("", t!("settings.appearance.language.system"))).chain(i18n::languages());
+        let languages = div().flex().flex_wrap().p(px(2.)).rounded_lg().bg(theme.input_bg).children(
+            choices.map(|(code, label)| {
+                div()
+                    .id(SharedString::from(format!("lang-{code}")))
+                    .px_4()
+                    .py(px(4.))
+                    .rounded_md()
+                    .cursor_pointer()
+                    .when(code == language, |d| d.bg(theme.bg).shadow_sm().font_weight(FontWeight::SEMIBOLD))
+                    .when(code != language, |d| d.text_color(theme.muted))
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.config.language = code.to_string();
+                        this.save_config();
+                        i18n::set(code);
+                        keymap::set_menus(cx);
+                        cx.notify();
+                    }))
+            }),
+        );
         let field = |label: &'static str, hint: &'static str, control: AnyElement| {
             div()
                 .flex()
@@ -550,17 +576,18 @@ impl Outline {
             .flex()
             .flex_col()
             .gap_1()
-            .child(div().flex().items_center().gap_2().child(div().size(px(6.)).rounded_full().bg(theme.bullet)).child("A bullet with a ").child(div().text_color(theme.link).child("link")).child(" and a ").child(div().px_1().rounded_sm().bg(theme.tag_bg).text_color(theme.tag).child("#tag")))
-            .child(div().flex().items_center().gap_2().pl(px(20.)).child(div().size(px(6.)).rounded_full().bg(theme.bullet)).child(div().px_1().bg(theme.selection).child("selected text")).child(div().w(px(2.)).h(px(16.)).bg(theme.caret)));
+            .child(div().flex().items_center().gap_2().child(div().size(px(6.)).rounded_full().bg(theme.bullet)).child(t!("settings.appearance.preview.before_link")).child(div().text_color(theme.link).child(t!("settings.appearance.preview.link"))).child(t!("settings.appearance.preview.before_tag")).child(div().px_1().rounded_sm().bg(theme.tag_bg).text_color(theme.tag).child("#tag")))
+            .child(div().flex().items_center().gap_2().pl(px(20.)).child(div().size(px(6.)).rounded_full().bg(theme.bullet)).child(div().px_1().bg(theme.selection).child(t!("settings.appearance.preview.selected"))).child(div().w(px(2.)).h(px(16.)).bg(theme.caret)));
         div()
             .id("appearance")
             .size_full()
             .overflow_y_scroll()
             .px_4()
             .pt_3()
-            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).pb_1().child("Appearance"))
-            .child(field("Theme", "Follow macOS, or always use light or dark.", segmented.into_any_element()))
-            .child(field("Accent color", "Caret, selection, links and highlights.", swatches.into_any_element()))
+            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).pb_1().child(t!("settings.appearance.title")))
+            .child(field(t!("settings.appearance.theme.label"), t!("settings.appearance.theme.hint"), segmented.into_any_element()))
+            .child(field(t!("settings.appearance.accent.label"), t!("settings.appearance.accent.hint"), swatches.into_any_element()))
+            .child(field(t!("settings.appearance.language.label"), t!("settings.appearance.language.hint"), languages.into_any_element()))
             .child(preview)
             .into_any_element()
     }
@@ -569,10 +596,10 @@ impl Outline {
         use crate::agent::AgentMode;
         let theme = self.theme;
         let mode = self.config.agent;
-        let modes = [(AgentMode::Off, "Off"), (AgentMode::ReadOnly, "Read only"), (AgentMode::ReadWrite, "Read & write")];
-        let segmented = div().flex().p(px(2.)).rounded_lg().bg(theme.input_bg).children(modes.into_iter().map(|(m, label)| {
+        let modes = [(AgentMode::Off, "off", t!("settings.agent.mode.off")), (AgentMode::ReadOnly, "read-only", t!("settings.agent.mode.read_only")), (AgentMode::ReadWrite, "read-write", t!("settings.agent.mode.read_write"))];
+        let segmented = div().flex().p(px(2.)).rounded_lg().bg(theme.input_bg).children(modes.into_iter().map(|(m, id, label)| {
             div()
-                .id(label)
+                .id(id)
                 .px_4()
                 .h(px(26.))
                 .flex()
@@ -603,9 +630,9 @@ impl Outline {
             div().p_2().rounded_md().bg(theme.code_bg).font_family("Menlo").text_size(px(12.)).child(label)
         };
         let desc = match mode {
-            AgentMode::Off => "Agents can't connect.",
-            AgentMode::ReadOnly => "Agents can read and search your outline but not change it.",
-            AgentMode::ReadWrite => "Agents can also add, edit, move, complete and delete bullets. Each change is one ⌘Z undo step, changed bullets briefly light up, and deletions go to the Trash.",
+            AgentMode::Off => t!("settings.agent.desc.off"),
+            AgentMode::ReadOnly => t!("settings.agent.desc.read_only"),
+            AgentMode::ReadWrite => t!("settings.agent.desc.read_write"),
         };
         div()
             .id("agent")
@@ -614,18 +641,14 @@ impl Outline {
             .px_4()
             .pt_3()
             .pb_4()
-            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).pb_1().child("Agent access"))
-            .child(div().text_size(px(12.)).text_color(theme.muted).pb_3().child(
-                "AI agents (Claude Code, Claude Desktop, other MCP clients) can work with your outline through Flowie's MCP server. Flowie starts in the background if it isn't open.",
-            ))
+            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).pb_1().child(t!("settings.agent.title")))
+            .child(div().text_size(px(12.)).text_color(theme.muted).pb_3().child(t!("settings.agent.intro")))
             .child(div().flex().flex_col().gap_2().pb_3().border_b_1().border_color(theme.border).child(segmented).child(div().text_size(px(12.)).text_color(theme.muted).child(desc)))
             .child(div().pt_3().pb_1().font_weight(FontWeight::SEMIBOLD).child("Claude Code"))
             .child(block(claude_label))
-            .child(div().pt_3().pb_1().font_weight(FontWeight::SEMIBOLD).child("Other MCP clients"))
+            .child(div().pt_3().pb_1().font_weight(FontWeight::SEMIBOLD).child(t!("settings.agent.other_clients")))
             .child(block(json_label))
-            .child(div().pt_3().text_size(px(12.)).text_color(theme.muted).child(
-                "Tools: search, read, starred, create, update, complete, move, delete, journal, open.",
-            ))
+            .child(div().pt_3().text_size(px(12.)).text_color(theme.muted).child(t!("settings.agent.tools")))
             .into_any_element()
     }
 
@@ -634,15 +657,15 @@ impl Outline {
         let version = env!("CARGO_PKG_VERSION");
         let commit = option_env!("FLOWIE_COMMIT").unwrap_or("dev");
         let db = self.db_path.clone();
-        let db_label = db.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "In memory (not saved)".into());
+        let db_label = db.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| t!("settings.about.in_memory").into());
         let nodes = self.tree.len();
-        let version_label = self.label("version", format!("Version {version} ({commit})"), cx);
+        let version_label = self.label("version", t!("settings.about.version", version = version, commit = commit), cx);
         let values = [
-            ("Bullets", self.label("bullets", format!("{nodes}"), cx)),
-            ("Data", self.label("data", db_label, cx)),
-            ("Settings", self.label("settings", self.config_path.display().to_string(), cx)),
-            ("Built with", self.label("built", "GPUI · RaTeX (KaTeX-compatible math) · SQLite".into(), cx)),
-            ("License", self.label("license", "MIT".into(), cx)),
+            (t!("settings.about.bullets"), self.label("bullets", format!("{nodes}"), cx)),
+            (t!("settings.about.data"), self.label("data", db_label, cx)),
+            (t!("settings.about.settings"), self.label("settings", self.config_path.display().to_string(), cx)),
+            (t!("settings.about.built_with"), self.label("built", "GPUI · RaTeX (KaTeX-compatible math) · SQLite".into(), cx)),
+            (t!("settings.about.license"), self.label("license", "MIT".into(), cx)),
         ];
         let line = |k: &'static str, v: gpui::Entity<crate::selectable::SelectableText>| {
             // Fixed widths so wrapped values are measured at the width they render at.
@@ -687,7 +710,7 @@ impl Outline {
             )
             .child(div().flex_none().pt_3().text_size(px(22.)).font_weight(FontWeight::BOLD).child("Flowie"))
             .child(div().flex_none().text_color(theme.muted).child(version_label))
-            .child(div().flex_none().pt_2().pb_4().text_color(theme.muted).child("A fast outliner for thinking in lists."))
+            .child(div().flex_none().pt_2().pb_4().text_color(theme.muted).child(t!("settings.about.tagline")))
             .child(
                 div()
                     .w(px(ABOUT_BOX_W))
@@ -710,7 +733,7 @@ impl Outline {
                         .border_1()
                         .border_color(theme.border)
                         .hover(|s| s.bg(theme.hover))
-                        .child("Show data in Finder")
+                        .child(t!("settings.about.reveal"))
                         .on_click(cx.listener(move |_, _, _, cx| cx.reveal_path(&path))),
                 )
             })

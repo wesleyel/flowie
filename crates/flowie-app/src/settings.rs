@@ -35,6 +35,9 @@ pub struct Config {
     /// Shortcut overrides: binding id -> keystrokes ("" = unbound).
     #[serde(default)]
     pub keys: HashMap<String, String>,
+    /// What AI agents may do through `flowie mcp`.
+    #[serde(default)]
+    pub agent: crate::agent::AgentMode,
 }
 
 impl Config {
@@ -63,6 +66,7 @@ impl Config {
 pub enum Tab {
     Shortcuts,
     Appearance,
+    Agent,
     About,
 }
 
@@ -199,7 +203,12 @@ impl Outline {
         let ui = self.settings.as_ref()?;
         let theme = self.theme;
         let tab = ui.tab;
-        let tabs = [(Tab::Shortcuts, "Shortcuts", "keyboard"), (Tab::Appearance, "Appearance", "sun-moon"), (Tab::About, "About", "info")];
+        let tabs = [
+            (Tab::Shortcuts, "Shortcuts", "keyboard"),
+            (Tab::Appearance, "Appearance", "sun-moon"),
+            (Tab::Agent, "Agent", "bot"),
+            (Tab::About, "About", "info"),
+        ];
         let sidebar = div()
             .w(px(170.))
             .flex_none()
@@ -236,6 +245,7 @@ impl Outline {
         let content = match tab {
             Tab::Shortcuts => self.render_shortcuts(cx),
             Tab::Appearance => self.render_appearance(window, cx),
+            Tab::Agent => self.render_agent(cx),
             Tab::About => self.render_about(cx),
         };
         Some(
@@ -477,6 +487,70 @@ impl Outline {
             .child(field("Theme", "Follow macOS, or always use light or dark.", segmented.into_any_element()))
             .child(field("Accent color", "Caret, selection, links and highlights.", swatches.into_any_element()))
             .child(preview)
+            .into_any_element()
+    }
+
+    fn render_agent(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::agent::AgentMode;
+        let theme = self.theme;
+        let mode = self.config.agent;
+        let modes = [(AgentMode::Off, "Off"), (AgentMode::ReadOnly, "Read only"), (AgentMode::ReadWrite, "Read & write")];
+        let segmented = div().flex().p(px(2.)).rounded_lg().bg(theme.input_bg).children(modes.into_iter().map(|(m, label)| {
+            div()
+                .id(label)
+                .px_4()
+                .h(px(26.))
+                .flex()
+                .items_center()
+                .rounded_md()
+                .cursor_pointer()
+                .when(m == mode, |d| d.bg(theme.bg).shadow_sm().font_weight(FontWeight::SEMIBOLD))
+                .when(m != mode, |d| d.text_color(theme.muted))
+                .child(label)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.config.agent = m;
+                    this.save_config();
+                    cx.notify();
+                }))
+        }));
+        let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "Flowie".into());
+        let db_env = self
+            .db_path
+            .as_ref()
+            .filter(|p| **p != crate::data_path())
+            .map(|p| format!("FLOWIE_DB=\"{}\" ", p.display()))
+            .unwrap_or_default();
+        let claude = format!("claude mcp add flowie -- {db_env}\"{exe}\" mcp");
+        let json_cfg = format!("{{\n  \"mcpServers\": {{\n    \"flowie\": {{ \"command\": \"{exe}\", \"args\": [\"mcp\"] }}\n  }}\n}}");
+        let claude_label = self.label("mcp-claude", claude, cx);
+        let json_label = self.label("mcp-json", json_cfg, cx);
+        let block = |label: gpui::Entity<crate::selectable::SelectableText>| {
+            div().p_2().rounded_md().bg(theme.code_bg).font_family("Menlo").text_size(px(12.)).child(label)
+        };
+        let desc = match mode {
+            AgentMode::Off => "Agents can't connect.",
+            AgentMode::ReadOnly => "Agents can read and search your outline but not change it.",
+            AgentMode::ReadWrite => "Agents can also add, edit, move, complete and delete bullets. Each change is one ⌘Z undo step, changed bullets briefly light up, and deletions go to the Trash.",
+        };
+        div()
+            .id("agent")
+            .size_full()
+            .overflow_y_scroll()
+            .px_4()
+            .pt_3()
+            .pb_4()
+            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).pb_1().child("Agent access"))
+            .child(div().text_size(px(12.)).text_color(theme.muted).pb_3().child(
+                "AI agents (Claude Code, Claude Desktop, other MCP clients) can work with your outline through Flowie's MCP server. Flowie starts in the background if it isn't open.",
+            ))
+            .child(div().flex().flex_col().gap_2().pb_3().border_b_1().border_color(theme.border).child(segmented).child(div().text_size(px(12.)).text_color(theme.muted).child(desc)))
+            .child(div().pt_3().pb_1().font_weight(FontWeight::SEMIBOLD).child("Claude Code"))
+            .child(block(claude_label))
+            .child(div().pt_3().pb_1().font_weight(FontWeight::SEMIBOLD).child("Other MCP clients"))
+            .child(block(json_label))
+            .child(div().pt_3().text_size(px(12.)).text_color(theme.muted).child(
+                "Tools: search, read, starred, create, update, complete, move, delete, journal, open.",
+            ))
             .into_any_element()
     }
 

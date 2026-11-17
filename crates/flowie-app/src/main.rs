@@ -1,3 +1,4 @@
+mod agent;
 mod anim;
 mod calendar;
 mod commands;
@@ -74,6 +75,11 @@ fn stress_tree(n: usize) -> Tree {
 fn main() {
     let t0 = Instant::now();
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("mcp") {
+        agent::mcp::run(&data_path());
+        return;
+    }
+    let background = args.iter().any(|a| a == "--background");
     let stress = args.iter().position(|a| a == "--stress").and_then(|i| args.get(i + 1)).and_then(|n| n.parse::<usize>().ok());
 
     let (tree, writer, db_path, meta) = match stress {
@@ -92,6 +98,7 @@ fn main() {
     };
     let n = tree.len();
     let config = settings::Config::load(&settings::Config::path(db_path.as_ref()));
+    let agent_db = db_path.clone();
     let keys = config.keys.clone();
     if stress.is_some() {
         // Rough timings for the hot paths on a big outline.
@@ -136,7 +143,12 @@ fn main() {
                 window.focus(&o.focus);
             })
             .ok();
-        cx.activate(true);
+        if !background {
+            cx.activate(true);
+        }
+        if let Some(db) = &agent_db {
+            agent::start(db, view.clone(), cx);
+        }
 
         // Flush pending writes before quitting.
         let v = view.clone();

@@ -1726,6 +1726,7 @@ dependencies = [
  "chrono",
  "flowie-core",
  "flowie-math",
+ "futures",
  "gpui",
  "serde",
  "serde_json",

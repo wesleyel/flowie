@@ -10,6 +10,8 @@ pub const ROW_IN: Duration = Duration::from_millis(190);
 pub const ROW_OUT: Duration = Duration::from_millis(150);
 pub const ZOOM: Duration = Duration::from_millis(230);
 pub const FLAG: Duration = Duration::from_millis(200);
+/// Highlight on rows an agent just changed.
+pub const FLASH: Duration = Duration::from_millis(1600);
 
 /// Ease-out cubic.
 pub fn ease_out(t: f32) -> f32 {
@@ -58,6 +60,8 @@ pub enum Channel {
     Fold,
     /// Completed state change (strike + fade).
     Complete,
+    /// Background highlight fading out (rows changed by an agent).
+    Flash,
 }
 
 #[derive(Default)]

@@ -56,6 +56,18 @@ Search terms: words, `"phrases"`, `-exclude`, `#tag`, `@person`, `is:done`, `is:
 
 `**bold**`, `*italic*`, `~~strike~~`, `` `code` ``, `==highlight==`, `{red}colored{/}` (red, orange, yellow, green, blue, purple, gray), `[label](url)`, `[label](flowie:ID)` (link to a bullet), bare URLs, `#tags`, `@mentions`, dates `2026-11-17` (click to find bullets with that date), inline math `$e^{i\pi}+1=0$` and display math `$$\int_0^1 x\,dx$$` (previewed under the line while editing). Markup characters are hidden except on the bullet being edited. `$5 and $6` stays plain text.
 
+## Agents (MCP)
+
+Flowie includes an MCP server so AI agents can read and edit your outline. Allow it in **Settings → Agent** (Off / Read only / Read & write; default read only), then register it, e.g. for Claude Code:
+
+```bash
+claude mcp add flowie -- /path/to/Flowie.app/Contents/MacOS/Flowie mcp
+```
+
+`flowie mcp` speaks MCP over stdio and forwards to the running app through an owner-only Unix socket, starting Flowie in the background if needed. Edits go through the app, so they appear live, are saved normally, briefly highlight the changed bullets, and each tool call is one ⌘Z undo step; deletions go to the Trash.
+
+Tools: `search`, `read` (Markdown with `[id:N]` per bullet), `starred`, `create` (Markdown list under a parent / after a bullet), `update`, `complete`, `move`, `delete`, `journal`, `open`.
+
 ## Layout
 
 ```

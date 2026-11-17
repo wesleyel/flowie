@@ -405,7 +405,7 @@ impl Outline {
     // --------------------------------------------------------- journal
 
     /// The "Journal" bullet (created on first use).
-    fn journal_root(&mut self) -> NodeId {
+    pub fn journal_root(&mut self) -> NodeId {
         if let Some(id) = self.journal_id.filter(|id| self.tree.contains(*id)) {
             return id;
         }
@@ -420,10 +420,11 @@ impl Outline {
     }
 
     /// Zoom into the daily note for `date` (YYYY-MM-DD), creating it if needed.
-    pub fn open_day(&mut self, date: &str, cx: &mut Context<Self>) {
+    /// The journal page for `date` (YYYY-MM-DD), created if needed (not committed).
+    pub fn ensure_day(&mut self, date: &str, with_blank: bool) -> NodeId {
         let journal = self.journal_root();
         let existing = self.tree.children(journal).iter().copied().find(|id| self.tree.node(*id).text.starts_with(date));
-        let day = match existing {
+        match existing {
             Some(d) => d,
             None => {
                 // Keep days sorted newest first.
@@ -434,10 +435,16 @@ impl Outline {
                     .position(|id| self.tree.node(*id).text.as_str() < date)
                     .unwrap_or(self.tree.children(journal).len());
                 let d = self.tree.create_at(journal, index, date);
-                self.tree.create_at(d, 0, "");
+                if with_blank {
+                    self.tree.create_at(d, 0, "");
+                }
                 d
             }
-        };
+        }
+    }
+
+    pub fn open_day(&mut self, date: &str, cx: &mut Context<Self>) {
+        let day = self.ensure_day(date, true);
         self.commit_structure(None, cx);
         self.calendar = None;
         self.zoom_to(day, cx);

@@ -596,6 +596,7 @@ impl Outline {
                     .pt(px(top_pad))
                     .pb(px(3.))
                     .when(selected, |d| d.bg(theme.row_selected))
+                    .when_some(self.anims.t(id, Channel::Flash), |d, t| d.bg(theme.accent.opacity(0.18 * (1.0 - ease_in_out(t)))))
                     .child(chevron)
                     .child(marker)
                     .child(content),

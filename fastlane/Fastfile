@@ -217,6 +217,25 @@ platform :mac do
     upload_pkg(pkg)
   end
 
+  desc "Build, upload and hand the build to TestFlight's internal group (it sees every build)"
+  lane :beta do
+    build
+    upload
+    authenticate
+    _, number = pkg_versions(latest_pkg)
+    60.times do
+      b = asc.get("v1/builds", { "filter[app]" => APP_STORE_ID, "filter[version]" => number }).body["data"].first
+      state = b && b["attributes"]["processingState"]
+      UI.user_error!("Build #{number} is #{state}") if state == "INVALID" || state == "FAILED"
+      if state == "VALID"
+        UI.success("Build #{number} is on TestFlight for the Internal group")
+        break
+      end
+      UI.message("Build #{number}: #{state || 'not listed yet'}…")
+      sleep(20)
+    end
+  end
+
   desc "Push listing text, categories, copyright and review information (no screenshots, no binary)"
   lane :metadata do
     authenticate

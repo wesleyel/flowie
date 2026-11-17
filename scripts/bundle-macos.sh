@@ -4,6 +4,10 @@
 set -euo pipefail
 BIN="$1"; NAME="$2"; BID="$3"; OUT="${4:-build}"
 APP="$OUT/$NAME.app"
+# The marketing version is the workspace version in Cargo.toml, the same one the app shows
+# in Settings → About and App Store Connect lists; package-appstore.sh sets the build number.
+VERSION="${FLOWIE_VERSION:-$(cargo metadata --no-deps --format-version 1 \
+  | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="flowie-app"))')}"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$NAME"
@@ -17,7 +21,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>$BID</string>
   <key>CFBundleExecutable</key><string>$NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>

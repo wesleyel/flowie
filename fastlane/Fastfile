@@ -154,6 +154,27 @@ def upload_pkg(pkg)
   UI.important("Upload not finished after 10 minutes — check TestFlight in App Store Connect")
 end
 
+# The App Store version still open for changes (not live, not in review), if any.
+def editable_version
+  asc.get("v1/apps/#{APP_STORE_ID}/appStoreVersions", {
+    "filter[platform]" => "MAC_OS",
+    "filter[appStoreState]" => "PREPARE_FOR_SUBMISSION,DEVELOPER_REJECTED,REJECTED,METADATA_REJECTED,INVALID_BINARY",
+    "limit" => 1
+  }).body["data"].first
+end
+
+# The app, its package and the store must all say the same version: Cargo.toml's
+# workspace version is the source, the package and the store version follow it.
+def ensure_versions_match(pkg_version)
+  cargo = marketing_version
+  UI.user_error!("Package is #{pkg_version} but Cargo.toml says #{cargo} — run `fastlane mac build`") unless pkg_version == cargo
+  store = editable_version
+  UI.user_error!("No App Store version is open for #{cargo} — create it in App Store Connect") unless store
+  store_version = store["attributes"]["versionString"]
+  UI.user_error!("App Store Connect's version is #{store_version} but the app is #{cargo}") unless store_version == cargo
+  UI.message("Versions agree: app, package and App Store are #{cargo}")
+end
+
 def price_point_id(territory, price)
   url = "v1/apps/#{APP_STORE_ID}/appPricePoints"
   params = { "filter[territory]" => territory, "limit" => 200 }
@@ -190,7 +211,10 @@ platform :mac do
   desc "Upload the newest package in build/appstore to App Store Connect"
   lane :upload do
     authenticate
-    upload_pkg(latest_pkg)
+    pkg = latest_pkg
+    UI.user_error!("#{File.basename(pkg)} doesn't match Cargo.toml's #{marketing_version}") unless
+      pkg_versions(pkg)[0] == marketing_version
+    upload_pkg(pkg)
   end
 
   desc "Push listing text, categories, copyright and review information (no screenshots, no binary)"
@@ -270,10 +294,28 @@ platform :mac do
     precheck(platform: "osx", include_in_app_purchases: false)
   end
 
+  desc "Withdraw the submission waiting for review, so the version can be changed and submitted again"
+  lane :cancel do
+    authenticate
+    submissions = asc.get("v1/reviewSubmissions", {
+      "filter[app]" => APP_STORE_ID,
+      "filter[platform]" => "MAC_OS",
+      "filter[state]" => "WAITING_FOR_REVIEW,IN_REVIEW,UNRESOLVED_ISSUES"
+    }).body["data"]
+    UI.user_error!("Nothing is waiting for review") if submissions.empty?
+    submissions.each do |s|
+      asc.patch("v1/reviewSubmissions/#{s['id']}", {
+        data: { type: "reviewSubmissions", id: s["id"], attributes: { canceled: true } }
+      })
+      UI.success("Canceled submission #{s['id']} (was #{s['attributes']['state']})")
+    end
+  end
+
   desc "Attach the newest uploaded build to the version and submit it for review"
   lane :submit do
     authenticate
     version, build = pkg_versions(latest_pkg)
+    ensure_versions_match(version)
     upload_to_app_store(
       platform: "osx",
       app_version: version,

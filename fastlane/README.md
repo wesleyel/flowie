@@ -63,6 +63,14 @@ Set the price (US$4.99, equalized) and sell everywhere except CHN
 
 Check the listing for anything App Review flags, without uploading
 
+### mac cancel
+
+```sh
+[bundle exec] fastlane mac cancel
+```
+
+Withdraw the submission waiting for review, so the version can be changed and submitted again
+
 ### mac submit
 
 ```sh

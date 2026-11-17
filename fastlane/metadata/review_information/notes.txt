@@ -1,0 +1,5 @@
+Flowie is a local outliner; no account or sign-in is needed and it makes no network requests.
+
+Optional feature: an MCP server for AI assistants. The app listens on a Unix domain socket inside its own sandbox container (owner-only permissions). Assistants connect by running the app's own executable with the argument `mcp` (stdio). Access is read-only by default and can be turned off in Settings → Agent. Nothing is exposed over the network.
+
+To try the app: type to add bullets, Tab / Shift-Tab to indent, click a bullet to zoom in, ⌘P to jump, right-click selected text for styles. A built-in tutorial opens on first launch (also Help → Flowie Tutorial).

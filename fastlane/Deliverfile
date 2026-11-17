@@ -1,0 +1,7 @@
+# Shared by every upload_to_app_store call in the Fastfile.
+platform "osx"
+
+# Flowie has no in-app purchases, and precheck can't inspect them with an API key.
+# `fastlane mac check` runs precheck on its own.
+run_precheck_before_submit false
+precheck_include_in_app_purchases false

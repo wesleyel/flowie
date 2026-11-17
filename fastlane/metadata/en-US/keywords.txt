@@ -1,0 +1,1 @@
+outline,outliner,notes,lists,bullet,journal,markdown,opml,math,latex,todo,zettelkasten,mind,writing

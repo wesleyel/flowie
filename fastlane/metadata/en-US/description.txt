@@ -1,0 +1,29 @@
+Flowie is a fast, keyboard-first outliner for thinking in lists. Every bullet can be a page: zoom in to focus, zoom out to see the big picture.
+
+WRITE AND ORGANIZE
+• Nest, indent, collapse and drag bullets with smooth animations
+• Headings, to-dos, numbered lists, quotes and code blocks
+• Bold, italic, highlight, colors and links — from the keyboard, the / menu or a right-click
+• Math with LaTeX syntax, rendered as you type
+
+CONNECT YOUR IDEAS
+• Link to any bullet with [[ and see backlinks on its page
+• Mirrors: one bullet in several places, edits show everywhere
+• Tags and mentions with completion
+• Daily journal pages and a calendar
+
+FIND ANYTHING
+• ⌘P to jump to any bullet or create a new page
+• Search with filters: tags, dates, completed, changed in the last days
+• Star pages and save searches
+
+YOUR DATA, ON YOUR MAC
+• Everything is stored locally; nothing is sent anywhere
+• Import OPML, Markdown and text (Workflowy exports work)
+• Export Markdown, OPML or plain text
+• Undo for everything, and a Trash that keeps deleted bullets for 30 days
+
+FOR AI AGENTS
+• A built-in MCP server lets AI assistants such as Claude read your outline — and edit it if you allow it in Settings. Off, read-only or read & write; every agent change is one undo step.
+
+Every shortcut can be changed. English and Simplified Chinese.

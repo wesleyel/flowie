@@ -2,3 +2,6 @@
 /build
 .DS_Store
 /packaging/macos/embedded.provisionprofile
+/fastlane/.env
+/fastlane/report.xml
+/fastlane/README.md.bak

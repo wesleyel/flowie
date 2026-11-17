@@ -1,0 +1,290 @@
+default_platform(:mac)
+
+BUNDLE_ID = "flowie.spokey.cn"
+APP_STORE_ID = "6835913837"
+ROOT = File.expand_path("..", __dir__)
+PKG_DIR = File.join(ROOT, "build/appstore")
+
+# US$4.99 in the United States; Apple derives every other storefront's price from it
+# (equalized pricing). Mainland China is left out: distributing there needs an ICP filing.
+BASE_TERRITORY = "USA"
+BASE_PRICE = "4.99"
+EXCLUDED_TERRITORIES = %w[CHN].freeze
+
+# Answers App Review asks at submission; Info.plist already declares
+# ITSAppUsesNonExemptEncryption = false.
+SUBMISSION_INFORMATION = {
+  add_id_info_uses_idfa: false,
+  export_compliance_uses_encryption: false,
+  content_rights_contains_third_party_content: false
+}.freeze
+
+# An App Store Connect API key: no password, no 2FA, no session that expires mid-upload.
+def authenticate
+  %w[ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH].each do |key|
+    UI.user_error!("#{key} is not set — see fastlane/README.md") if ENV[key].to_s.strip.empty?
+  end
+  UI.user_error!("ASC_KEY_PATH points at nothing: #{ENV['ASC_KEY_PATH']}") unless
+    File.exist?(File.expand_path(ENV["ASC_KEY_PATH"]))
+
+  app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"],
+    issuer_id: ENV["ASC_ISSUER_ID"],
+    key_filepath: File.expand_path(ENV["ASC_KEY_PATH"]),
+    in_house: false
+  )
+end
+
+def asc
+  require "spaceship"
+  Spaceship::ConnectAPI.client.tunes_request_client
+end
+
+# Marketing version from the workspace Cargo.toml (what the package script stamps).
+def marketing_version
+  Dir.chdir(ROOT) do
+    `cargo metadata --no-deps --format-version 1`.then do |json|
+      require "json"
+      JSON.parse(json)["packages"].find { |p| p["name"] == "flowie-app" }["version"]
+    end
+  end
+end
+
+# The newest package the build lane produced: build/appstore/Flowie-<version>-<build>.pkg
+def latest_pkg
+  pkgs = Dir.glob(File.join(PKG_DIR, "Flowie-*-*.pkg"))
+  UI.user_error!("No package in #{PKG_DIR} — run `fastlane mac build` first") if pkgs.empty?
+  pkgs.max_by { |p| p[/-(\d+)\.pkg\z/, 1].to_i }
+end
+
+def pkg_versions(pkg)
+  m = File.basename(pkg).match(/\AFlowie-(.+)-(\d+)\.pkg\z/)
+  UI.user_error!("Unexpected package name #{pkg}") unless m
+  [m[1], m[2]]
+end
+
+# Uploads a signed .pkg with the App Store Connect Build Upload API, so neither Xcode's
+# altool nor the Transporter app is needed: reserve the upload, PUT each part to the URLs
+# Apple hands back, then mark the file uploaded and wait for Apple to accept it.
+def upload_pkg(pkg)
+  require "digest/md5"
+  require "net/http"
+  require "uri"
+
+  version, build = pkg_versions(pkg)
+  size = File.size(pkg)
+  UI.message("Uploading #{File.basename(pkg)} (#{version} build #{build}, #{(size / 1e6).round(1)} MB)")
+
+  upload = asc.post("v1/buildUploads", {
+    data: {
+      type: "buildUploads",
+      attributes: {
+        cfBundleShortVersionString: version,
+        cfBundleVersion: build,
+        platform: "MAC_OS"
+      },
+      relationships: { app: { data: { type: "apps", id: APP_STORE_ID } } }
+    }
+  }).body["data"]
+
+  file = asc.post("v1/buildUploadFiles", {
+    data: {
+      type: "buildUploadFiles",
+      attributes: {
+        assetType: "ASSET",
+        fileName: File.basename(pkg),
+        fileSize: size,
+        uti: "com.apple.pkg"
+      },
+      relationships: { buildUpload: { data: { type: "buildUploads", id: upload["id"] } } }
+    }
+  }).body["data"]
+
+  operations = file["attributes"]["uploadOperations"].to_a
+  UI.user_error!("App Store Connect returned no upload operations") if operations.empty?
+
+  File.open(pkg, "rb") do |io|
+    operations.each_with_index do |op, i|
+      io.seek(op["offset"])
+      chunk = io.read(op["length"])
+      uri = URI(op["url"])
+      request = Net::HTTPGenericRequest.new(op["method"], true, true, uri.request_uri)
+      op["requestHeaders"].to_a.each { |h| request[h["name"]] = h["value"] }
+      request.body = chunk
+      tries = 0
+      begin
+        response = Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 300) do |http|
+          http.request(request)
+        end
+        raise "HTTP #{response.code}: #{response.body.to_s[0, 300]}" unless response.code.to_i.between?(200, 299)
+      rescue StandardError => e
+        tries += 1
+        retry if tries < 4
+        UI.user_error!("Part #{i + 1}/#{operations.count} failed: #{e.message}")
+      end
+      UI.message("Part #{i + 1}/#{operations.count} uploaded") if ((i + 1) % 10).zero? || i + 1 == operations.count
+    end
+  end
+
+  asc.patch("v1/buildUploadFiles/#{file['id']}", {
+    data: {
+      type: "buildUploadFiles",
+      id: file["id"],
+      attributes: {
+        sourceFileChecksums: { file: { hash: Digest::MD5.file(pkg).hexdigest, algorithm: "MD5" } },
+        uploaded: true
+      }
+    }
+  })
+
+  60.times do
+    attributes = asc.get("v1/buildUploads/#{upload['id']}").body["data"]["attributes"]
+    state = attributes["state"]
+    state = state["state"] if state.kind_of?(Hash)
+    case state
+    when "COMPLETE"
+      UI.success("#{version} (#{build}) accepted; App Store Connect is processing it")
+      return
+    when "FAILED"
+      UI.user_error!("Upload rejected: #{JSON.pretty_generate(attributes)}")
+    end
+    UI.message("Upload state: #{state}…")
+    sleep(10)
+  end
+  UI.important("Upload not finished after 10 minutes — check TestFlight in App Store Connect")
+end
+
+def price_point_id(territory, price)
+  url = "v1/apps/#{APP_STORE_ID}/appPricePoints"
+  params = { "filter[territory]" => territory, "limit" => 200 }
+  loop do
+    body = asc.get(url, params).body
+    point = body["data"].find { |p| p["attributes"]["customerPrice"] == price }
+    return point["id"] if point
+    url = body.dig("links", "next")
+    UI.user_error!("No #{territory} price point of #{price}") unless url
+    params = nil
+  end
+end
+
+def all_territories
+  ids = []
+  url = "v1/territories"
+  params = { "limit" => 200 }
+  while url
+    body = asc.get(url, params).body
+    ids.concat(body["data"].map { |t| t["id"] })
+    url = body.dig("links", "next")
+    params = nil
+  end
+  ids
+end
+
+platform :mac do
+  desc "Build and sign build/appstore/Flowie-<version>-<build>.pkg (build = git commit count)"
+  lane :build do
+    ensure_git_status_clean
+    sh("cd #{ROOT.shellescape} && scripts/package-appstore.sh")
+  end
+
+  desc "Upload the newest package in build/appstore to App Store Connect"
+  lane :upload do
+    authenticate
+    upload_pkg(latest_pkg)
+  end
+
+  desc "Push listing text, categories, copyright and review information (no screenshots, no binary)"
+  lane :metadata do
+    authenticate
+    upload_to_app_store(
+      platform: "osx",
+      app_version: marketing_version,
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      force: true
+    )
+  end
+
+  desc "Make the remote screenshots match fastlane/screenshots exactly"
+  lane :screenshots do
+    authenticate
+    ENV["FASTLANE_ENABLE_BETA_DELIVER_SYNC_SCREENSHOTS"] = "1"
+    upload_to_app_store(
+      platform: "osx",
+      app_version: marketing_version,
+      skip_binary_upload: true,
+      skip_metadata: true,
+      sync_screenshots: true,
+      force: true
+    )
+  end
+
+  desc "Set the price (US$#{BASE_PRICE}, equalized) and sell everywhere except #{EXCLUDED_TERRITORIES.join(', ')}"
+  lane :pricing do
+    authenticate
+    point = price_point_id(BASE_TERRITORY, BASE_PRICE)
+    asc.post("v1/appPriceSchedules", {
+      data: {
+        type: "appPriceSchedules",
+        relationships: {
+          app: { data: { type: "apps", id: APP_STORE_ID } },
+          baseTerritory: { data: { type: "territories", id: BASE_TERRITORY } },
+          manualPrices: { data: [{ type: "appPrices", id: "${price}" }] }
+        }
+      },
+      included: [{
+        type: "appPrices",
+        id: "${price}",
+        attributes: { startDate: nil },
+        relationships: { appPricePoint: { data: { type: "appPricePoints", id: point } } }
+      }]
+    })
+    UI.success("Price: US$#{BASE_PRICE} (other storefronts equalized by Apple)")
+
+    territories = all_territories
+    included = territories.map do |t|
+      {
+        type: "territoryAvailabilities",
+        id: "${#{t}}",
+        attributes: { available: !EXCLUDED_TERRITORIES.include?(t) },
+        relationships: { territory: { data: { type: "territories", id: t } } }
+      }
+    end
+    asc.post("v2/appAvailabilities", {
+      data: {
+        type: "appAvailabilities",
+        attributes: { availableInNewTerritories: true },
+        relationships: {
+          app: { data: { type: "apps", id: APP_STORE_ID } },
+          territoryAvailabilities: { data: included.map { |i| { type: i[:type], id: i[:id] } } }
+        }
+      },
+      included: included
+    })
+    UI.success("Available in #{territories.count - EXCLUDED_TERRITORIES.count} storefronts; not in #{EXCLUDED_TERRITORIES.join(', ')}")
+  end
+
+  desc "Check the listing for anything App Review flags, without uploading"
+  lane :check do
+    authenticate
+    precheck(platform: "osx", include_in_app_purchases: false)
+  end
+
+  desc "Attach the newest uploaded build to the version and submit it for review"
+  lane :submit do
+    authenticate
+    version, build = pkg_versions(latest_pkg)
+    upload_to_app_store(
+      platform: "osx",
+      app_version: version,
+      build_number: build,
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: true,
+      automatic_release: false,
+      submission_information: SUBMISSION_INFORMATION,
+      force: true
+    )
+  end
+end

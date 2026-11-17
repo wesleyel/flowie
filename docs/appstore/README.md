@@ -1,7 +1,7 @@
 # Mac App Store release
 
-Everything in the repo is ready; the steps marked **(you)** need your Apple
-Developer account and can't be scripted from here.
+App Store Connect is driven by fastlane (`fastlane/`): listing text, screenshots,
+review information, price, availability, the build upload and the submission.
 
 ## What the build does
 
@@ -47,34 +47,37 @@ after the first launch of the App Store version created the container):
 cp ~/Library/Application\ Support/Flowie/flowie.sqlite* ~/Library/Application\ Support/Flowie/settings.json ~/Library/Containers/flowie.spokey.cn/Data/Library/Application\ Support/Flowie/
 ```
 
-## Steps
+## Releasing with fastlane
 
-1. **(you)** developer.apple.com → Certificates, IDs & Profiles
-   - Identifiers → register the App ID `flowie.spokey.cn` (or pick another and
-     set `FLOWIE_BUNDLE_ID`). No extra capabilities needed.
-   - Profiles → **Mac App Store Connect** distribution profile for that App ID,
-     with the Apple Distribution certificate already in your keychain.
-     Download it to `packaging/macos/embedded.provisionprofile` (git-ignored).
-2. **(you)** App Store Connect → Apps → New App: platform macOS, name Flowie,
-   primary language, the bundle id, SKU (e.g. `flowie-mac`).
-3. Fill the listing from [`metadata.md`](metadata.md); host
-   [`privacy-policy.md`](privacy-policy.md) somewhere public and use its URL.
-   App Privacy questionnaire: **Data Not Collected**.
-4. Screenshots **(you)**: 1280×800, 1440×900, 2560×1600 or 2880×1800, 1–10
-   per localization. Suggested shots: an outline with headings and math, the
-   ⌘P palette, the right-click style menu, the calendar / journal, Settings →
-   Agent.
-5. Build and sign:
-   ```bash
-   scripts/package-appstore.sh
-   ```
-6. **(you)** Upload `build/appstore/Flowie-*.pkg` with the **Transporter** app
-   (Mac App Store; sign in with your Apple ID). Xcode isn't needed.
-7. **(you)** In App Store Connect pick the build, answer export compliance
-   (already declared in Info.plist: no non-exempt encryption), paste the review
-   notes from `metadata.md`, submit.
+App: **Flowie Outliner** (Apple ID 6835913837, bundle id `flowie.spokey.cn`,
+SKU `flowie-mac`). Support site: https://flowie.423324.xyz/ (source in `site/`,
+Cloudflare Pages project `flowie-site`); privacy policy at `/privacy`.
 
-Each upload needs a higher build number; the git commit count does that as long
-as you commit between uploads (or set `FLOWIE_BUILD`). Bump `version` in the
-workspace `Cargo.toml` for a new marketing version (e.g. 1.0.0 for the first
-release).
+Authentication is an App Store Connect API key, set in `fastlane/.env`
+(git-ignored):
+
+```
+ASC_KEY_ID=…
+ASC_ISSUER_ID=…
+ASC_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_….p8
+```
+
+| Lane | What it does |
+|---|---|
+| `fastlane mac metadata` | Push `fastlane/metadata` (name, subtitle, description, keywords, URLs, categories, copyright, review contact and notes) |
+| `fastlane mac screenshots` | Make the remote screenshots match `fastlane/screenshots/<locale>/` (2880×1800) |
+| `fastlane mac pricing` | US$4.99, other storefronts equalized by Apple; every storefront except mainland China |
+| `fastlane mac check` | precheck the listing (placeholder text, broken URLs, …) |
+| `fastlane mac build` | `scripts/package-appstore.sh` on a clean tree → `build/appstore/Flowie-<version>-<build>.pkg` |
+| `fastlane mac upload` | Upload the newest pkg with the App Store Connect Build Upload API (no Xcode or Transporter) |
+| `fastlane mac submit` | Attach that build to the version and submit for review (manual release after approval) |
+
+A new version: bump `version` in the workspace `Cargo.toml`, commit, then
+`build` → `upload` → wait for processing → `submit`. The build number is the git
+commit count, so commit between uploads.
+
+Set in App Store Connect once and not managed by fastlane: age rating (4+),
+App Privacy (Data Not Collected), content rights (no third-party content).
+
+Homebrew's fastlane on Ruby 4 needs `bigdecimal`, `digest-crc` and `nkf`
+installed into `~/.local/share/fastlane/4.0.0`, and `LC_ALL=en_US.UTF-8`.

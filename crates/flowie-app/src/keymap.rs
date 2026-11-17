@@ -96,6 +96,10 @@ pub static BINDINGS: &[Binding] = &[
     b!("delete-bullet", "Delete bullet", "Outline", "cmd-shift-backspace", O, DeleteNode),
     b!("toggle-completed", "Show / hide completed", "Outline", "cmd-o", O, ToggleCompletedVisible),
     // Navigation
+    b!("page-back", "Page back", "Navigation", "mouse-back", O, PageBack),
+    b!("page-back", "Page back", "Navigation", "cmd-alt-left", O, PageBack),
+    b!("page-forward", "Page forward", "Navigation", "mouse-forward", O, PageForward),
+    b!("page-forward", "Page forward", "Navigation", "cmd-alt-right", O, PageForward),
     b!("zoom-in", "Zoom in", "Navigation", "cmd-]", O, ZoomIn),
     b!("zoom-in", "Zoom in", "Navigation", "alt-right", S, ZoomIn),
     b!("zoom-out", "Zoom out", "Navigation", "cmd-[", O, ZoomOut),
@@ -118,10 +122,10 @@ pub static BINDINGS: &[Binding] = &[
     b!("quit", "Quit", "App", "cmd-q", None, Quit),
 ];
 
-/// The keys a binding id currently uses ("" = unbound).
-pub fn keys_for<'a>(id: &str, overrides: &'a HashMap<String, String>) -> Vec<String> {
+/// The keys a binding id currently uses (empty = unbound).
+pub fn keys_for(id: &str, overrides: &HashMap<String, Vec<String>>) -> Vec<String> {
     if let Some(k) = overrides.get(id) {
-        return if k.is_empty() { Vec::new() } else { vec![k.clone()] };
+        return k.clone();
     }
     let mut out: Vec<String> = BINDINGS.iter().filter(|b| b.id == id).map(|b| b.keys.to_string()).collect();
     out.dedup();
@@ -130,21 +134,20 @@ pub fn keys_for<'a>(id: &str, overrides: &'a HashMap<String, String>) -> Vec<Str
 
 /// (Re)install every binding, applying overrides. An override replaces all
 /// default keys of that id, in each of its contexts.
-pub fn install(cx: &mut App, overrides: &HashMap<String, String>) {
+pub fn install(cx: &mut App, overrides: &HashMap<String, Vec<String>>) {
     cx.clear_key_bindings();
     let mut out = Vec::new();
     for b in BINDINGS {
-        match overrides.get(b.id) {
-            Some(k) if k.is_empty() => {}
-            Some(k) => {
-                // Bind once per distinct context.
-                let first_in_ctx = BINDINGS.iter().position(|x| x.id == b.id && x.context == b.context)
-                    == BINDINGS.iter().position(|x| std::ptr::eq(x, b));
-                if first_in_ctx {
-                    out.push((b.make)(k, b.context));
+        if let Some(keys) = overrides.get(b.id) {
+            let first_in_ctx = BINDINGS.iter().position(|x| x.id == b.id && x.context == b.context)
+                == BINDINGS.iter().position(|x| std::ptr::eq(x, b));
+            if first_in_ctx {
+                for key in keys.iter().filter(|k| !k.starts_with("mouse-")) {
+                    out.push((b.make)(key, b.context));
                 }
             }
-            None => out.push((b.make)(b.keys, b.context)),
+        } else if !b.keys.starts_with("mouse-") {
+            out.push((b.make)(b.keys, b.context));
         }
     }
     // Read-only selectable labels (About panel).
@@ -155,16 +158,26 @@ pub fn install(cx: &mut App, overrides: &HashMap<String, String>) {
 }
 
 /// Effective (keys, context) pairs of a binding id after overrides.
-fn effective(id: &str, overrides: &HashMap<String, String>) -> Vec<(String, Option<&'static str>)> {
+fn effective(id: &str, overrides: &HashMap<String, Vec<String>>) -> Vec<(String, Option<&'static str>)> {
     BINDINGS
         .iter()
         .filter(|b| b.id == id)
-        .filter_map(|b| match overrides.get(id) {
-            Some(k) if k.is_empty() => None,
-            Some(k) => Some((k.clone(), b.context)),
-            None => Some((b.keys.to_string(), b.context)),
+        .flat_map(|b| match overrides.get(id) {
+            Some(keys) => keys.iter().map(|k| (k.clone(), b.context)).collect::<Vec<_>>(),
+            None => vec![(b.keys.to_string(), b.context)],
         })
         .collect()
+}
+
+pub fn mouse_action(key: &str, overrides: &HashMap<String, Vec<String>>, editing: bool, selecting: bool) -> Option<Box<dyn gpui::Action>> {
+    BINDINGS.iter().rev().find(|b| {
+        let active = match b.context {
+            Some("editing") => editing,
+            Some("selecting") => selecting,
+            _ => true,
+        };
+        active && keys_for(b.id, overrides).iter().any(|k| k == key)
+    }).map(|b| (b.make)("space", b.context).action().boxed_clone())
 }
 
 /// Whether two binding contexts can be active at the same time
@@ -177,7 +190,7 @@ fn overlap(a: Option<&str>, b: Option<&str>) -> bool {
 }
 
 /// Ids whose shortcut collides with another action's in an overlapping context.
-pub fn conflicts(overrides: &HashMap<String, String>) -> std::collections::HashSet<&'static str> {
+pub fn conflicts(overrides: &HashMap<String, Vec<String>>) -> std::collections::HashSet<&'static str> {
     let all: Vec<(&'static str, String, Option<&'static str>)> = rows()
         .into_iter()
         .flat_map(|r| effective(r.id, overrides).into_iter().map(move |(k, c)| (r.id, k, c)))
@@ -198,6 +211,23 @@ pub fn conflicts(overrides: &HashMap<String, String>) -> std::collections::HashS
 pub fn rows() -> Vec<&'static Binding> {
     let mut seen = std::collections::HashSet::new();
     BINDINGS.iter().filter(|b| seen.insert(b.id)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mouse_bindings_can_be_replaced_and_report_conflicts() {
+        let mut overrides = HashMap::new();
+        assert!(mouse_action("mouse-back", &overrides, true, false).unwrap().as_any().is::<PageBack>());
+        overrides.insert("page-back".into(), vec!["cmd-alt-left".into()]);
+        assert!(mouse_action("mouse-back", &overrides, true, false).is_none());
+        overrides.insert("page-forward".into(), vec!["mouse-forward".into(), "cmd-alt-left".into()]);
+        let conflicts = conflicts(&overrides);
+        assert!(conflicts.contains("page-back"));
+        assert!(conflicts.contains("page-forward"));
+    }
 }
 
 pub fn set_menus(cx: &mut App) {

@@ -10,6 +10,7 @@ mod palette;
 mod selectable;
 mod settings;
 mod outline;
+mod popover;
 mod rich;
 mod theme;
 mod view;

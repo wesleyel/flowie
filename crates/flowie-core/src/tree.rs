@@ -1,6 +1,6 @@
 //! In-memory outline tree with a change journal (for undo and persistence).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub type NodeId = u64;
 
@@ -144,6 +144,30 @@ pub struct Tree {
     revision: u64,
     /// Virtual row id -> real node id (rows inside mirrors).
     virtuals: HashMap<NodeId, NodeId>,
+    /// Derived reverse indexes, kept in sync by every mutation so lookups
+    /// never scan the tree: target -> nodes linking to it (`flowie:ID`),
+    /// source -> mirrors of it.
+    links: HashMap<NodeId, BTreeSet<NodeId>>,
+    mirrors: HashMap<NodeId, BTreeSet<NodeId>>,
+}
+
+/// Internal link targets (`flowie:ID`) in a node's text and note.
+fn link_targets(node: &Node) -> HashSet<NodeId> {
+    let mut out = HashSet::new();
+    for text in [&node.text, &node.note] {
+        // Cheap prefilter: almost no bullet contains a link.
+        if !text.contains("flowie:") {
+            continue;
+        }
+        for run in crate::markup::parse(text) {
+            if let crate::markup::Kind::Link { url } = run.kind {
+                if let Some(id) = url.strip_prefix("flowie:").and_then(|s| s.parse().ok()) {
+                    out.insert(id);
+                }
+            }
+        }
+    }
+    out
 }
 
 impl Tree {
@@ -175,7 +199,65 @@ impl Tree {
             list.sort_by(|a, b| nodes[a].rank.total_cmp(&nodes[b].rank).then(a.cmp(b)));
         }
         tree.break_cycles();
+        let all: Vec<Node> = tree.nodes.values().cloned().collect();
+        for n in &all {
+            tree.index(n, true);
+        }
         tree
+    }
+
+    /// Add (`add`) or remove a node's entries in the reverse indexes.
+    fn index(&mut self, node: &Node, add: bool) {
+        if node.id == ROOT {
+            return;
+        }
+        let edit = |map: &mut HashMap<NodeId, BTreeSet<NodeId>>, key: NodeId| {
+            if add {
+                map.entry(key).or_default().insert(node.id);
+            } else if let Some(set) = map.get_mut(&key) {
+                set.remove(&node.id);
+                if set.is_empty() {
+                    map.remove(&key);
+                }
+            }
+        };
+        for target in link_targets(node) {
+            edit(&mut self.links, target);
+        }
+        if node.mirror != 0 {
+            edit(&mut self.mirrors, node.mirror);
+        }
+    }
+
+    /// Re-index after `before` became `after` (skips the parse when the
+    /// indexed fields did not change, e.g. a move or a fold).
+    fn sync_index(&mut self, before: Option<&Node>, after: Option<&Node>) {
+        if let (Some(b), Some(a)) = (before, after) {
+            if b.text == a.text && b.note == a.note && b.mirror == a.mirror {
+                return;
+            }
+        }
+        if let Some(b) = before {
+            self.index(b, false);
+        }
+        if let Some(a) = after {
+            self.index(a, true);
+        }
+    }
+
+    /// Nodes whose text or note links to `id`, sorted by id.
+    pub fn links_to(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        self.links.get(&id).into_iter().flatten().copied()
+    }
+
+    /// Number of distinct nodes linking to `id`.
+    pub fn link_count(&self, id: NodeId) -> usize {
+        self.links.get(&id).map_or(0, |s| s.len())
+    }
+
+    /// Mirrors of `source`, sorted by id.
+    pub fn mirrors_of(&self, source: NodeId) -> Vec<NodeId> {
+        self.mirrors.get(&source).into_iter().flatten().copied().collect()
     }
 
     /// Defensive: any node unreachable from the root (a parent cycle in bad data) moves to the root.
@@ -384,6 +466,7 @@ impl Tree {
         self.insert_sorted(&node);
         self.children.entry(node.id).or_default();
         self.next_id = self.next_id.max(node.id + 1);
+        self.sync_index(before.as_ref(), Some(&node));
         self.journal.push(Change { id: node.id, before, after: Some(node.clone()) });
         self.dirty.insert(node.id);
         self.nodes.insert(node.id, node);
@@ -411,6 +494,7 @@ impl Tree {
             list.retain(|c| *c != id);
         }
         self.children.remove(&id);
+        self.sync_index(Some(&before), None);
         self.journal.push(Change { id, before: Some(before), after: None });
         self.dirty.insert(id);
         self.revision += 1;
@@ -418,7 +502,9 @@ impl Tree {
 
     /// Apply a node state without journaling (used by undo/redo, which journal themselves).
     fn apply_state(&mut self, id: NodeId, state: Option<Node>) {
-        if let Some(old) = self.nodes.remove(&id) {
+        let old = self.nodes.remove(&id);
+        self.sync_index(old.as_ref(), state.as_ref());
+        if let Some(old) = old {
             if let Some(list) = self.children.get_mut(&old.parent) {
                 list.retain(|c| *c != id);
             }

@@ -37,6 +37,11 @@ enum KeyToken {
 }
 
 fn tokens(stroke: &str) -> Vec<KeyToken> {
+    match stroke {
+        "mouse-back" => return vec![KeyToken::Text("Mouse Back".into())],
+        "mouse-forward" => return vec![KeyToken::Text("Mouse Forward".into())],
+        _ => {}
+    }
     let parts: Vec<&str> = stroke.split('-').collect();
     let (mods, key) = if stroke.ends_with("--") {
         (&parts[..parts.len().saturating_sub(2)], "-")

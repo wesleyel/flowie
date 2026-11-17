@@ -228,11 +228,6 @@ impl Tree {
         }
     }
 
-    /// Mirrors of `id` (nodes that show its content).
-    pub fn mirrors_of(&self, id: NodeId) -> Vec<NodeId> {
-        self.nodes().filter(|n| n.mirror == id).map(|n| n.id).collect()
-    }
-
     pub fn set_kind(&mut self, id: NodeId, kind: crate::tree::BlockKind) {
         if self.node(id).kind != kind {
             let mut node = self.node(id).clone();
@@ -299,9 +294,6 @@ impl Tree {
 
     /// Nodes whose text links to `id` (`[label](flowie:ID)`).
     pub fn backlinks(&self, id: NodeId) -> Vec<NodeId> {
-        let needle = format!("(flowie:{id})");
-        let mut out: Vec<NodeId> = self.nodes().filter(|n| n.text.contains(&needle) || n.note.contains(&needle)).map(|n| n.id).collect();
-        out.sort_unstable();
-        out
+        self.links_to(id).collect()
     }
 }

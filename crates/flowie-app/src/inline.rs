@@ -302,6 +302,7 @@ impl Outline {
                 .absolute()
                 .left(at.x)
                 .top(at.y)
+                .occlude()
                 .w(px(250.))
                 .p_1()
                 .bg(theme.bg)

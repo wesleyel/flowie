@@ -380,3 +380,35 @@ fn mirrors_show_and_edit_source() {
     let rows = flatten(&t, ROOT, &ViewOptions::default());
     assert!(rows.len() < 100);
 }
+
+#[test]
+fn link_and_mirror_index_follow_every_mutation() {
+    let (mut t, [a, b, c, _d]) = sample();
+    // text and note both count, once per source node; code spans don't
+    t.set_text(a, &format!("[x](flowie:{b}) and [y](flowie:{b}) `[z](flowie:{c})`"));
+    t.set_note(c, &format!("[n](flowie:{b})"));
+    assert_eq!(t.backlinks(b), vec![a, c]);
+    assert_eq!(t.link_count(c), 0);
+    // editing the link away updates the index
+    t.take_journal();
+    t.set_text(a, "plain");
+    assert_eq!(t.backlinks(b), vec![c]);
+    // undo restores it
+    let changes = t.take_journal();
+    let inverse = t.revert(&changes);
+    assert_eq!(t.backlinks(b), vec![a, c]);
+    t.revert(&inverse);
+    assert_eq!(t.backlinks(b), vec![c]);
+    // deleting the source drops it
+    t.delete(c);
+    assert_eq!(t.link_count(b), 0);
+    // mirrors
+    let m = t.create_mirror(b, ROOT, 0).unwrap();
+    assert_eq!(t.mirrors_of(b), vec![m]);
+    t.delete(m);
+    assert!(t.mirrors_of(b).is_empty());
+    // a tree loaded from nodes is indexed too
+    t.set_text(a, &format!("[x](flowie:{b})"));
+    let loaded = Tree::from_nodes(t.nodes().cloned().collect::<Vec<_>>());
+    assert_eq!(loaded.backlinks(b), vec![a]);
+}

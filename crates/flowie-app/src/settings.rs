@@ -32,12 +32,33 @@ pub struct Config {
     /// Accent name from `ACCENTS`; empty = default blue.
     #[serde(default)]
     pub accent: String,
-    /// Shortcut overrides: binding id -> keystrokes ("" = unbound).
+    /// Shortcut overrides: binding id -> shortcuts (empty = unbound).
     #[serde(default)]
-    pub keys: HashMap<String, String>,
+    pub keys: HashMap<String, Vec<String>>,
     /// What AI agents may do through `flowie mcp`.
     #[serde(default)]
     pub agent: crate::agent::AgentMode,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcut_settings_store_multiple_bindings() {
+        let config: Config = serde_json::from_str(r#"{"keys":{"bold":["cmd-b"],"italic":[],"page-back":["mouse-back","cmd-alt-left"]}}"#).unwrap();
+        assert_eq!(config.keys["bold"], vec!["cmd-b"]);
+        assert!(config.keys["italic"].is_empty());
+        assert_eq!(config.keys["page-back"], vec!["mouse-back", "cmd-alt-left"]);
+        let saved = serde_json::to_string(&config).unwrap();
+        assert_eq!(serde_json::from_str::<Config>(&saved).unwrap().keys, config.keys);
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Recording {
+    id: &'static str,
+    index: Option<usize>,
 }
 
 impl Config {
@@ -73,7 +94,7 @@ pub enum Tab {
 pub struct SettingsUi {
     pub tab: Tab,
     /// Binding id waiting for a new keystroke.
-    pub recording: Option<&'static str>,
+    pub recording: Option<Recording>,
 }
 
 impl Outline {
@@ -127,15 +148,14 @@ impl Outline {
         let Some(ui) = self.settings.as_mut() else { return };
         let ks = &ev.keystroke;
         match ui.recording {
-            Some(id) => {
+            Some(recording) => {
                 let m = &ks.modifiers;
                 let plain = !(m.platform || m.control || m.alt || m.shift);
                 if plain && ks.key == "escape" {
                     ui.recording = None;
                 } else if plain && ks.key == "backspace" {
                     ui.recording = None;
-                    self.config.keys.insert(id.to_string(), String::new());
-                    self.rebind(cx);
+                    self.finish_recording(recording, None, cx);
                 } else if !["shift", "control", "alt", "platform", "function", "fn"].contains(&ks.key.as_str()) {
                     ui.recording = None;
                     let mut stroke = String::new();
@@ -155,13 +175,7 @@ impl Outline {
                         stroke.push_str("fn-");
                     }
                     stroke.push_str(&ks.key);
-                    let default: Vec<String> = keymap::keys_for(id, &HashMap::new());
-                    if default == vec![stroke.clone()] {
-                        self.config.keys.remove(id);
-                    } else {
-                        self.config.keys.insert(id.to_string(), stroke);
-                    }
-                    self.rebind(cx);
+                    self.finish_recording(recording, Some(stroke), cx);
                 }
                 cx.stop_propagation();
             }
@@ -173,6 +187,45 @@ impl Outline {
             }
         }
         cx.notify();
+    }
+
+    fn finish_recording(&mut self, recording: Recording, stroke: Option<String>, cx: &mut Context<Self>) {
+        let mut keys = keymap::keys_for(recording.id, &self.config.keys);
+        if let Some(index) = recording.index {
+            if index < keys.len() {
+                keys.remove(index);
+                if let Some(stroke) = stroke {
+                    keys.insert(index, stroke);
+                }
+            }
+        } else if let Some(stroke) = stroke {
+            keys.push(stroke);
+        }
+        let mut seen = std::collections::HashSet::new();
+        keys.retain(|key| seen.insert(key.clone()));
+        if keys == keymap::keys_for(recording.id, &HashMap::new()) {
+            self.config.keys.remove(recording.id);
+        } else {
+            self.config.keys.insert(recording.id.to_string(), keys);
+        }
+        self.rebind(cx);
+    }
+
+    pub fn mouse_shortcut(&mut self, direction: gpui::NavigationDirection, window: &mut Window, cx: &mut Context<Self>) {
+        let key = match direction {
+            gpui::NavigationDirection::Back => "mouse-back",
+            gpui::NavigationDirection::Forward => "mouse-forward",
+        };
+        if let Some(ui) = self.settings.as_mut() {
+            if let Some(recording) = ui.recording.take() {
+                self.finish_recording(recording, Some(key.into()), cx);
+                cx.notify();
+            }
+            return;
+        }
+        if let Some(action) = keymap::mouse_action(key, &self.config.keys, self.edit.is_some(), self.block.is_some()) {
+            window.dispatch_action(action, cx);
+        }
     }
 
     /// A selectable label entity, created on first use and kept in sync.
@@ -256,6 +309,7 @@ impl Outline {
                 .items_center()
                 .justify_center()
                 .bg(gpui::black().opacity(0.18))
+                .occlude()
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.close_settings(window, cx)))
                 .child(
                     div()
@@ -301,16 +355,36 @@ impl Outline {
                 let keys = keymap::keys_for(id, &overrides);
                 let custom = overrides.contains_key(id);
                 let conflict = conflicts.contains(id);
-                let is_rec = recording == Some(id);
-                let chips: Vec<AnyElement> = if is_rec {
-                    vec![div().h(px(20.)).flex().items_center().px_2().rounded(px(5.)).border_1().border_color(theme.accent).text_size(px(12.)).text_color(theme.accent).child("Press keys…").into_any_element()]
-                } else if keys.is_empty() {
-                    vec![div().px_2().text_color(theme.faint).child("—").into_any_element()]
-                } else {
-                    keys.iter()
-                        .map(|k| crate::icons::key_chip(k, theme.text, theme.code_bg, if conflict { theme.colors[0].opacity(0.6) } else { theme.border }))
-                        .collect()
-                };
+                let is_rec = recording.is_some_and(|r| r.id == id);
+                let mut chips: Vec<AnyElement> = keys.iter().enumerate().map(|(index, key)| {
+                    let active = recording.is_some_and(|r| r.id == id && r.index == Some(index));
+                    div()
+                        .id(SharedString::from(format!("key-{id}-{index}")))
+                        .cursor_pointer()
+                        .child(crate::icons::key_chip(if active { "Press keys…" } else { key }, theme.text, theme.code_bg,
+                            if active { theme.accent } else if conflict { theme.colors[0].opacity(0.6) } else { theme.border }))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            if let Some(s) = this.settings.as_mut() {
+                                s.recording = Some(Recording { id, index: Some(index) });
+                            }
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                }).collect();
+                chips.push(div()
+                    .id(SharedString::from(format!("add-{id}")))
+                    .px_2().rounded_sm().cursor_pointer().text_color(theme.link)
+                    .hover(|s| s.bg(theme.hover))
+                    .child(if is_rec && recording.is_some_and(|r| r.index.is_none()) { "Press keys…" } else { "+" })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        if let Some(s) = this.settings.as_mut() {
+                            s.recording = Some(Recording { id, index: None });
+                        }
+                        cx.notify();
+                    }))
+                    .into_any_element());
                 sections.push(
                     div()
                         .id(SharedString::from(format!("key-{id}")))
@@ -318,14 +392,15 @@ impl Outline {
                         .items_center()
                         .gap_2()
                         .px_2()
-                        .h(px(30.))
+                        .min_h(px(30.))
+                        .py_1()
                         .rounded_md()
                         .cursor_pointer()
                         .when(is_rec, |d| d.bg(theme.row_selected))
                         .hover(|s| s.bg(theme.hover))
-                        .child(div().flex_1().child(row.label))
+                        .child(div().flex_1().min_w_0().child(row.label))
                         .when(conflict && !is_rec, |d| d.child(div().text_size(px(11.)).text_color(theme.colors[0]).child("conflict")))
-                        .children(chips)
+                        .child(div().flex().flex_wrap().justify_end().max_w(gpui::relative(0.6)).gap_1().children(chips))
                         .child(
                             div()
                                 .id(SharedString::from(format!("reset-{id}")))
@@ -343,7 +418,7 @@ impl Outline {
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(s) = this.settings.as_mut() {
-                                s.recording = if s.recording == Some(id) { None } else { Some(id) };
+                                s.recording = if s.recording.is_some_and(|r| r.id == id) { None } else { Some(Recording { id, index: None }) };
                             }
                             cx.notify();
                         }))
@@ -372,9 +447,9 @@ impl Outline {
                             .flex_col()
                             .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child("Keyboard shortcuts"))
                             .child(div().text_size(px(12.)).text_color(theme.muted).child(if recording.is_some() {
-                                "Press the new shortcut · Esc cancels · ⌫ removes it"
+                                "Press keys or a mouse side button · Esc cancels · ⌫ removes"
                             } else {
-                                "Click a shortcut to change it"
+                                "Click a shortcut to edit · + adds another"
                             })),
                     )
                     .when(any_custom, |d| {

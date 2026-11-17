@@ -9,6 +9,7 @@ use gpui::{
 
 use crate::anim::{self, ease_in_out, ease_out, Channel};
 use crate::outline::*;
+use crate::popover::PopoverKind;
 use crate::rich::{self, Click, Piece, Style};
 
 pub const FONT_SIZE: f32 = 15.0;
@@ -39,6 +40,72 @@ impl Render for DragPreview {
 }
 
 impl Outline {
+    /// Link count badge (row end / page title); opens who links here.
+    fn render_reference_count(&self, id: NodeId, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let id = self.tree.source(id);
+        let count = self.tree.link_count(id);
+        if count == 0 {
+            return None;
+        }
+        let theme = self.theme;
+        let kind = PopoverKind::References(id);
+        let open = self.popover.is_open(&kind);
+        let badge = div()
+            .id(("reference-count", id as usize))
+            .flex_none()
+            .ml_2()
+            .px_1()
+            .rounded_sm()
+            .flex()
+            .items_center()
+            .gap_1()
+            .text_size(px(12.))
+            .text_color(if open { theme.link } else { theme.muted })
+            .when(open, |d| d.bg(theme.hover))
+            .cursor_pointer()
+            .hover(|s| s.bg(theme.hover).text_color(theme.link))
+            .child(crate::icons::icon("link", crate::icons::SM, theme.muted))
+            .child(count.to_string());
+        Some(self.popover_anchor(badge, kind, true, cx).into_any_element())
+    }
+
+    /// The single entry point for a left press on displayed (not edited)
+    /// text: shift extends the block selection, a press on a link / tag /
+    /// date acts on it, anything else starts editing at `raw_ix` with drag
+    /// selection armed — so one press, drag and release selects text.
+    fn press_text(&mut self, id: NodeId, target: Target, raw_ix: usize, click: Option<Click>, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        if ev.modifiers.shift {
+            return self.shift_click(id, cx);
+        }
+        match click {
+            Some(Click::Tag(t)) => return self.search_for(&t, cx),
+            Some(Click::Link(u)) => return cx.open_url(&u),
+            Some(Click::Node(n)) => {
+                if self.tree.contains(n) {
+                    return self.zoom_to(n, cx);
+                }
+                self.toast("That bullet was deleted (see Trash)");
+                return cx.notify();
+            }
+            Some(Click::Date(date)) => return self.search_for(&format!("date:{date}"), cx),
+            None => {}
+        }
+        // The row is under the pointer, so it is visible: don't scroll.
+        self.begin_edit(target, raw_ix, false, cx);
+        window.focus(&self.focus);
+        let text = self.edit_text();
+        let sel = match ev.click_count {
+            2 => word_range(text, raw_ix),
+            3.. => 0..text.len(),
+            _ => raw_ix..raw_ix,
+        };
+        if let Some(edit) = self.edit.as_mut() {
+            edit.sel = sel;
+            edit.selecting_with_mouse = true;
+        }
+    }
+
     /// Mouse handling for the active editor: click to place the caret,
     /// drag / shift-click to select, double-click a word, triple-click all.
     pub fn editor_mouse(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -180,14 +247,7 @@ impl Outline {
                     .cursor_text()
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                            if ev.modifiers.shift {
-                                this.shift_click(id, cx);
-                            } else {
-                                this.start_edit(target, 0, cx);
-                            }
-                            cx.stop_propagation();
-                        }),
+                        cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.press_text(id, target, 0, None, ev, window, cx)),
                     )
                     .into_any_element();
             };
@@ -198,40 +258,14 @@ impl Outline {
                 .cursor_text()
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                        cx.stop_propagation();
-                        if ev.modifiers.shift {
-                            this.shift_click(id, cx);
-                            return;
-                        }
-                        let disp = match layout.index_for_position(ev.position) {
-                            Ok(i) => Some(i),
-                            Err(i) => {
-                                let _ = i;
-                                None
-                            }
+                    cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                        let (d, inside) = match layout.index_for_position(ev.position) {
+                            Ok(i) => (i, true),
+                            Err(i) => (i, false),
                         };
-                        if let Some(d) = disp {
-                            if let Some((_, c)) = clicks.iter().find(|(r, _)| r.contains(&d)) {
-                                match c {
-                                    Click::Tag(t) => return this.search_for(t, cx),
-                                    Click::Link(u) => return cx.open_url(u),
-                                    Click::Node(n) => {
-                                        if this.tree.contains(*n) {
-                                            return this.zoom_to(*n, cx);
-                                        }
-                                        this.toast("That bullet was deleted (see Trash)");
-                                        return cx.notify();
-                                    }
-                                    Click::Date(date) => return this.search_for(&format!("date:{date}"), cx),
-                                }
-                            }
-                        }
-                        let d = match layout.index_for_position(ev.position) {
-                            Ok(i) | Err(i) => i,
-                        };
+                        let click = inside.then(|| clicks.iter().find(|(r, _)| r.contains(&d)).map(|(_, c)| c.clone())).flatten();
                         let raw_ix = rich::display_to_raw(&map, d).min(raw_len);
-                        this.start_edit(target, raw_ix, cx);
+                        this.press_text(id, target, raw_ix, click, ev, window, cx);
                     }),
                 )
                 .child(styled)
@@ -248,11 +282,27 @@ impl Outline {
         let mut children: Vec<AnyElement> = Vec::new();
         for piece in pieces {
             match piece {
-                Piece::Text { text, runs, .. } => {
+                Piece::Text { text, runs, map, clicks } => {
+                    let map = std::rc::Rc::new(map);
+                    let clicks = std::rc::Rc::new(clicks);
                     for tok in rich::tokens(&text) {
                         let t = text[tok.clone()].to_string();
+                        let start = tok.start;
                         let r = rich::slice_runs(&runs, tok);
-                        children.push(div().h(px(LINE_H)).child(StyledText::new(t).with_runs(r).into_any_element()).into_any_element());
+                        let styled = StyledText::new(t).with_runs(r);
+                        let layout = styled.layout().clone();
+                        let (map, clicks) = (map.clone(), clicks.clone());
+                        children.push(div().h(px(LINE_H))
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                                let (d, inside) = match layout.index_for_position(ev.position) {
+                                    Ok(i) => (start + i, true),
+                                    Err(i) => (start + i, false),
+                                };
+                                let click = inside.then(|| clicks.iter().find(|(r, _)| r.contains(&d)).map(|(_, c)| c.clone())).flatten();
+                                let raw_ix = rich::display_to_raw(&map, d).min(raw_len);
+                                this.press_text(id, target, raw_ix, click, ev, window, cx);
+                            }))
+                            .child(styled).into_any_element());
                     }
                 }
                 Piece::Math { source, display } => {
@@ -277,23 +327,16 @@ impl Outline {
             .cursor_text()
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    if ev.modifiers.shift {
-                        this.shift_click(id, cx);
-                    } else {
-                        this.start_edit(target, raw_len, cx);
-                    }
-                }),
+                cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.press_text(id, target, raw_len, None, ev, window, cx)),
             )
             .children(children)
             .into_any_element()
     }
 
-    fn render_footer(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_footer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let links = if self.zoom != ROOT { self.tree.backlinks(self.zoom) } else { Vec::new() };
-        let mirrors = if self.zoom != ROOT { self.tree.mirrors_of(self.tree.source(self.zoom)) } else { Vec::new() };
+        let src = self.tree.source(self.zoom);
+        let (links, mirrors) = if self.zoom != ROOT { (self.tree.backlinks(src), self.tree.mirrors_of(src)) } else { Default::default() };
         let mut section = Vec::new();
         for (title, ids) in [("Linked from", links), ("Mirrored in", mirrors)] {
             if ids.is_empty() {
@@ -310,22 +353,27 @@ impl Outline {
                     .into_any_element(),
             );
             for id in ids {
-                let label = crate::palette::node_label(self, id);
+                let (label, note) = self.plain_text_and_note(id);
+                let path = self.render_path(id, f32::from(window.viewport_size().width) - 156., true, window, cx);
                 let target = if title == "Mirrored in" { self.tree.parent(id) } else { id };
-                let path = crate::palette::node_label(self, self.tree.parent(id));
                 section.push(
                     div()
                         .id(("backlink", id as usize))
                         .flex()
-                        .items_center()
+                        .items_start()
                         .gap_2()
-                        .h(px(26.))
+                        .py_2()
+                        .w_full()
                         .cursor_pointer()
                         .text_size(px(13.))
+                        .line_height(px(20.))
                         .hover(|s| s.text_color(theme.link))
                         .child(crate::icons::slot(if title == "Mirrored in" { "copy" } else { "link" }, crate::icons::SM, theme.faint))
-                        .child(div().overflow_hidden().whitespace_nowrap().child(label))
-                        .child(div().text_color(theme.faint).whitespace_nowrap().child(format!("in {path}")))
+                        .child(div().flex_1().min_w_0().flex().flex_col()
+                            .child(label)
+                            .when(!note.is_empty(), |d| d.child(div().text_color(theme.muted).child(note)))
+                            .child(div().text_color(theme.muted).child(path)))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(target, cx)))
                         .into_any_element(),
                 );
@@ -459,7 +507,7 @@ impl Outline {
 
     fn render_row(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         if ix >= self.display.len() {
-            return self.render_footer(cx);
+            return self.render_footer(window, cx);
         }
         let d = self.display[ix];
         let id = d.row.id;
@@ -475,7 +523,7 @@ impl Outline {
         let has_note = !src.note.is_empty();
         let text_len = src.text.len();
         let editing_note = self.edit.as_ref().is_some_and(|e| e.target == Target::Note(id));
-        let selected = self.block.is_some() && self.block_ids().contains(&id);
+        let selected = self.is_block_selected(id);
         let (font_size, line_h) = match kind {
             BlockKind::H1 => (22.0, 32.0),
             BlockKind::H2 => (18.5, 28.0),
@@ -512,6 +560,7 @@ impl Outline {
         let text_el = self.render_text(id, false, window, cx);
         let note_el = (has_note || editing_note).then(|| self.render_text(id, true, window, cx));
         let marker = self.render_marker(id, line_h, cx);
+        let references = self.render_reference_count(id, cx);
 
         let mut guides = Vec::new();
         for k in 0..d.row.depth {
@@ -577,7 +626,7 @@ impl Outline {
             .line_height(px(line_h))
             .when(kind == BlockKind::Quote, |d| d.border_l_2().border_color(theme.quote_bar).pl(px(10.)))
             .when(kind == BlockKind::Code, |d| d.bg(theme.code_bg).rounded_md().px_2().py(px(4.)))
-            .child(text_el)
+            .child(div().flex().items_start().child(div().flex_1().min_w_0().child(text_el)).children(references))
             .children(note_el.map(|n| div().text_size(px(13.)).line_height(px(20.)).child(n)));
 
         let row = div()
@@ -642,37 +691,86 @@ impl Outline {
         row.into_any_element()
     }
 
-    fn render_breadcrumbs(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// A node's location as one line: `Home › … › parent`. Levels that
+    /// don't fit collapse into "…"; with `popovers`, hovering "…" (or a
+    /// truncated level) lists the hidden levels / full text, and pressing
+    /// "…" pins that list. Every level is clickable.
+    pub(crate) fn render_path(&self, id: NodeId, width: f32, popovers: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        const MAX: f32 = 180.;
+        const SEP: f32 = 18.;
+        const ELLIPSIS: f32 = 44.;
         let theme = self.theme;
-        let mut crumbs: Vec<(NodeId, String)> = vec![(ROOT, "Home".into())];
-        if self.zoom != ROOT {
-            for a in self.tree.ancestors(self.zoom) {
-                let t = markup::plain_text(&self.tree.node(a).text);
-                let t: String = t.chars().take(28).collect();
-                crumbs.push((a, if t.is_empty() { "Untitled".into() } else { t }));
+        let mut levels = vec![ROOT];
+        levels.extend(self.tree.ancestors(id));
+        let labels: Vec<String> = levels.iter().map(|&l| self.crumb_label(l)).collect();
+        let font = window.text_style().font();
+        let widths: Vec<f32> = labels
+            .iter()
+            .map(|t| {
+                let run = gpui::TextRun { len: t.len(), font: font.clone(), color: theme.muted, background_color: None, underline: None, strikethrough: None };
+                f32::from(window.text_system().shape_line(t.clone().into(), px(13.), &[run], None).width) + 8.
+            })
+            .collect();
+        let width = width.max(80.);
+        // Keep Home and as many trailing levels as fit; the last always shows.
+        let mut tail = 1;
+        let mut used = widths[0];
+        for ix in (1..levels.len()).rev() {
+            let reserve = if ix > 1 { ELLIPSIS } else { 0. };
+            if ix == levels.len() - 1 || used + widths[ix].min(MAX) + SEP + reserve <= width {
+                used += widths[ix].min(MAX) + SEP;
+                tail = ix;
+            } else {
+                break;
             }
         }
-        let n = crumbs.len();
-        let zoomed = self.zoom != ROOT;
-        div().flex().items_center().gap_1().text_size(px(13.)).text_color(theme.muted).children(
-            crumbs.into_iter().enumerate().map(move |(i, (id, label))| {
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        div()
-                            .id(("crumb", id as usize))
-                            .px_1()
-                            .rounded_sm()
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme.hover).text_color(theme.text))
-                            .child(label)
-                            .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(id, cx))),
-                    )
-                    .when(i + 1 < n || zoomed, |d| d.child(crate::icons::icon("chevron-right", crate::icons::SM, theme.faint)))
-            }),
-        )
+        // (target, label, max width, hidden levels for the popover)
+        let mut slots: Vec<(Option<NodeId>, String, f32, Option<Vec<NodeId>>)> = vec![(Some(ROOT), labels[0].clone(), MAX, None)];
+        if tail > 1 {
+            slots.push((None, "…".into(), ELLIPSIS, Some(levels[1..tail].to_vec())));
+        }
+        let last_max = (width - 58. - if tail > 1 { ELLIPSIS } else { 0. }).clamp(24., MAX);
+        for ix in tail..levels.len() {
+            let max = if ix + 1 == levels.len() && levels.len() > 1 { last_max } else { MAX };
+            let truncated = widths[ix] > max;
+            slots.push((Some(levels[ix]), labels[ix].clone(), max, truncated.then(|| vec![levels[ix]])));
+        }
+        let count = slots.len();
+        let children: Vec<AnyElement> = slots
+            .into_iter()
+            .enumerate()
+            .map(|(ix, (target, label, max, hidden))| {
+                let mut crumb = div()
+                    .id(("path-part", ix))
+                    .min_w_0()
+                    .max_w(px(max))
+                    .px_1()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .text_ellipsis()
+                    .hover(|s| s.bg(theme.hover).text_color(theme.text))
+                    .child(label);
+                if let (true, Some(levels)) = (popovers, hidden) {
+                    crumb = self.popover_anchor(crumb, PopoverKind::Path(levels), target.is_none(), cx);
+                }
+                if let Some(target) = target {
+                    crumb = crumb
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.zoom_to(target, cx);
+                        }));
+                }
+                let level = div().min_w_0().flex().items_center().gap_1();
+                if ix + 1 < count {
+                    level.flex_none().child(crumb).child(crate::icons::icon("chevron-right", crate::icons::SM, theme.faint)).into_any_element()
+                } else {
+                    level.flex_1().child(crumb).into_any_element()
+                }
+            })
+            .collect();
+        div().min_w_0().w_full().overflow_hidden().flex().items_center().gap_1()
+            .text_size(px(13.)).line_height(px(20.)).text_color(theme.muted).children(children).into_any_element()
     }
 
     fn render_search(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -758,7 +856,8 @@ impl Outline {
         }
         let id = self.zoom;
         let text = self.render_text(id, false, window, cx);
-        let note = (!self.tree.node(id).note.is_empty() || self.edit.as_ref().is_some_and(|e| e.target == Target::Note(id)))
+        let references = self.render_reference_count(id, cx);
+        let note = (!self.tree.node(self.tree.source(id)).note.is_empty() || self.edit.as_ref().is_some_and(|e| e.target == Target::Note(id)))
             .then(|| self.render_text(id, true, window, cx));
         Some(
             div()
@@ -770,7 +869,10 @@ impl Outline {
                         .text_size(px(TITLE_SIZE))
                         .line_height(px(TITLE_SIZE * 1.35))
                         .font_weight(FontWeight::BOLD)
-                        .child(text),
+                        .flex()
+                        .items_start()
+                        .child(div().flex_1().min_w_0().child(text))
+                        .children(references),
                 )
                 .children(note.map(|n| div().pt_1().text_size(px(14.)).child(n)))
                 .into_any_element(),
@@ -855,22 +957,34 @@ impl Render for Outline {
             .pr(px(PAD_X))
             .pt(px(10.))
             .pb(px(6.))
-            .child(self.render_breadcrumbs(cx))
-            .child(tools);
+            .gap_3()
+            .child(div().flex_1().min_w_0().child(self.render_path(self.zoom,
+                f32::from(window.viewport_size().width) - 520., true, window, cx)))
+            .child(tools.flex_none());
         let title_el = if self.trash.is_some() { None } else { self.render_title(window, cx) };
 
         let entity = cx.entity();
         let body: AnyElement = if self.trash.is_some() {
             self.render_trash(cx)
         } else {
-            list(self.list.clone(), move |ix, window, cx| entity.update(cx, |this, cx| this.render_row(ix, window, cx)))
+            // A popover sits at fixed window coordinates: scrolling the page
+            // under it closes it.
+            div()
+                .id("outline-scroll")
                 .size_full()
+                .on_scroll_wheel(cx.listener(|this, _, _, cx| {
+                    if this.popover.close() {
+                        cx.notify();
+                    }
+                }))
+                .child(list(self.list.clone(), move |ix, window, cx| entity.update(cx, |this, cx| this.render_row(ix, window, cx))).size_full())
                 .into_any_element()
         };
         let palette = self.render_palette(window, cx);
         let settings = self.render_settings(window, cx);
         let inline = self.render_inline(cx);
         let calendar = self.render_calendar(cx);
+        let popover = self.render_popover(window, cx);
         let toast = self.toast.as_ref().filter(|(_, t)| !t.done()).map(|(msg, t)| {
             let tt = t.t();
             let o = if tt < 0.08 { tt / 0.08 } else if tt > 0.85 { (1.0 - tt) / 0.15 } else { 1.0 };
@@ -945,6 +1059,8 @@ impl Render for Outline {
             .on_action(cx.listener(Self::zoom_in))
             .on_action(cx.listener(Self::zoom_out))
             .on_action(cx.listener(Self::zoom_home))
+            .on_action(cx.listener(Self::page_back))
+            .on_action(cx.listener(Self::page_forward))
             .on_action(cx.listener(Self::move_up))
             .on_action(cx.listener(Self::move_down))
             .on_action(cx.listener(Self::delete_node))
@@ -998,6 +1114,14 @@ impl Render for Outline {
                     this.settings_key(ev, window, cx);
                 }
             }))
+            .on_mouse_down(MouseButton::Navigate(gpui::NavigationDirection::Back), cx.listener(|this, _, window, cx| {
+                cx.stop_propagation();
+                this.mouse_shortcut(gpui::NavigationDirection::Back, window, cx);
+            }))
+            .on_mouse_down(MouseButton::Navigate(gpui::NavigationDirection::Forward), cx.listener(|this, _, window, cx| {
+                cx.stop_propagation();
+                this.mouse_shortcut(gpui::NavigationDirection::Forward, window, cx);
+            }))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| {
                 this.mouse_block = false;
                 if let Some(e) = this.edit.as_mut() {
@@ -1022,6 +1146,7 @@ impl Render for Outline {
             )
             .children(inline)
             .children(calendar)
+            .children(popover)
             .children(palette)
             .children(settings)
             .children(toast)

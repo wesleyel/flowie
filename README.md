@@ -14,7 +14,7 @@ No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at l
 
 - Data: `~/Library/Application Support/Flowie/flowie.sqlite` (override with `FLOWIE_DB=/path/file.sqlite`).
 - `--stress 50000`: opens an in-memory outline of 50k bullets (not saved) and logs timings.
-- Settings (⌘,) are saved in `settings.json` next to the database: theme, accent color and shortcut overrides.
+- Settings (⌘,) are saved in `settings.json` next to the database: theme, accent color and shortcut overrides. Click a shortcut to replace it, use `+` to add another keyboard or mouse side-button binding, and press Backspace while recording to remove that binding.
 
 ## Keys
 
@@ -28,6 +28,7 @@ No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at l
 | ⌘↑ / ⌘↓ | Collapse / expand |
 | ⌃1 … ⌃4 / ⌃0 | Show 1–4 levels / expand all |
 | ⌘] / ⌘[ / ⌘⇧H | Zoom in / out / home (or click a bullet / breadcrumb) |
+| Mouse back / forward, ⌘⌥← / ⌘⌥→ | Previous / next visited page (restores search and scroll position) |
 | ⌘P | Go to: starred pages, saved searches, any bullet |
 | ⌘⇧S | Star / unstar the page |
 | ⌘⇧M | Move to… |

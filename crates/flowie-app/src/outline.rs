@@ -49,6 +49,8 @@ actions!(
         ZoomIn,
         ZoomOut,
         ZoomHome,
+        PageBack,
+        PageForward,
         MoveUp,
         MoveDown,
         DeleteNode,
@@ -165,12 +167,21 @@ pub struct DragNode {
     pub label: String,
 }
 
+struct PageLocation {
+    zoom: NodeId,
+    query: String,
+    top_row: Option<NodeId>,
+    scroll: gpui::ListOffset,
+}
+
 pub struct Outline {
     pub focus: FocusHandle,
     pub tree: Tree,
     pub history: History,
     pub writer: Option<Writer>,
     pub zoom: NodeId,
+    back_pages: Vec<PageLocation>,
+    forward_pages: Vec<PageLocation>,
     pub hide_completed: bool,
     pub query: String,
     pub rows: Vec<Row>,
@@ -208,6 +219,12 @@ pub struct Outline {
     /// Selectable read-only labels, keyed by name.
     pub labels: std::collections::HashMap<&'static str, gpui::Entity<crate::selectable::SelectableText>>,
     pub toast: Option<(String, Tween)>,
+    /// Row / display positions by id, rebuilt whenever `rows` / `display`
+    /// change, so per-row lookups during render are O(1).
+    row_pos: std::collections::HashMap<NodeId, usize>,
+    display_pos: std::collections::HashMap<NodeId, usize>,
+    /// The one floating popover (references, hidden path levels).
+    pub popover: crate::popover::PopoverState,
 }
 
 pub const INDENT: f32 = 24.0;
@@ -248,6 +265,8 @@ impl Outline {
             history: History::new(),
             writer,
             zoom,
+            back_pages: Vec::new(),
+            forward_pages: Vec::new(),
             hide_completed,
             query: String::new(),
             rows: Vec::new(),
@@ -272,6 +291,9 @@ impl Outline {
             calendar: None,
             journal_id: meta.iter().find(|(k, _)| k == "journal").and_then(|(_, v)| v.parse().ok()),
             toast: None,
+            row_pos: Default::default(),
+            display_pos: Default::default(),
+            popover: Default::default(),
             mouse_block: false,
             ghosts: Default::default(),
             popup_scroll: gpui::ScrollHandle::new(),
@@ -355,13 +377,27 @@ impl Outline {
         } else {
             new_rows.iter().map(|&row| DisplayRow { row, leaving: false }).collect()
         };
+        self.row_pos = new_rows.iter().enumerate().map(|(ix, r)| (r.id, ix)).collect();
         self.rows = new_rows;
-        self.splice_list(&old_display, &new_display);
-        self.display = new_display;
+        self.set_display(&old_display, new_display);
+    }
+
+    /// Install a new display list: index it, then splice the list view.
+    fn set_display(&mut self, old: &[DisplayRow], new: Vec<DisplayRow>) {
+        let mut pos = std::collections::HashMap::with_capacity(new.len());
+        for (ix, d) in new.iter().enumerate() {
+            // A live row wins over a leaving copy of the same id.
+            pos.entry(d.row.id).and_modify(|v| if !d.leaving { *v = ix }).or_insert(ix);
+        }
+        self.display_pos = pos;
+        self.splice_list(old, &new);
+        self.display = new;
     }
 
     /// Tell the list which items changed, preserving scroll position.
     fn splice_list(&self, old: &[DisplayRow], new: &[DisplayRow]) {
+        let scroll_top = self.list.logical_scroll_top();
+        let anchor = old.get(scroll_top.item_ix).map(|d| d.row.id);
         let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
         let suffix = old[prefix..]
             .iter()
@@ -374,21 +410,38 @@ impl Outline {
         // The list has one extra item at the end: the click-to-add footer.
         if self.list.item_count() != old.len() + 1 {
             self.list.reset(new.len() + 1);
-        } else if old_end > prefix || new_count > 0 {
-            self.list.splice(prefix..old_end, new_count);
+            return;
+        }
+        if old_end == prefix && new_count == 0 {
+            return; // nothing changed
+        }
+        self.list.splice(prefix..old_end, new_count);
+        // Keep the row that was at the top where it was, by identity.
+        if let Some(item_ix) = anchor.and_then(|id| self.display_pos.get(&id).copied()) {
+            self.list.scroll_to(gpui::ListOffset { item_ix, offset_in_item: scroll_top.offset_in_item });
+        } else if !old.is_empty() && scroll_top.item_ix == old.len() {
+            self.list.scroll_to(gpui::ListOffset { item_ix: new.len(), offset_in_item: scroll_top.offset_in_item });
+        } else if let Some(row) = old.get(scroll_top.item_ix) {
+            let positions = &self.display_pos;
+            let ancestor = old[..scroll_top.item_ix].iter().rev()
+                .filter(|d| d.row.depth < row.row.depth)
+                .find_map(|d| positions.get(&d.row.id).copied());
+            let neighbor = || old[scroll_top.item_ix..].iter().chain(old[..scroll_top.item_ix].iter().rev())
+                .find_map(|d| positions.get(&d.row.id).copied());
+            self.list.scroll_to(gpui::ListOffset { item_ix: ancestor.or_else(neighbor).unwrap_or(0), offset_in_item: px(0.) });
         }
     }
 
     /// Called each frame while animating: drop rows that finished leaving.
     pub fn tick(&mut self) {
         if self.display.iter().any(|d| d.leaving && self.anims.is_leaving_done(d.row.id)) {
-            let old = self.display.clone();
+            let old = std::mem::take(&mut self.display);
             let ids: Vec<NodeId> = old
                 .iter()
                 .filter(|d| d.leaving && self.anims.is_leaving_done(d.row.id))
                 .map(|d| d.row.id)
                 .collect();
-            self.display.retain(|d| !(d.leaving && self.anims.is_leaving_done(d.row.id)));
+            let new: Vec<DisplayRow> = old.iter().copied().filter(|d| !(d.leaving && self.anims.is_leaving_done(d.row.id))).collect();
             for id in ids {
                 self.anims.clear_leave(id);
                 let real = self.tree.resolve(id);
@@ -396,8 +449,7 @@ impl Outline {
                     self.ghosts.remove(&real);
                 }
             }
-            let new = self.display.clone();
-            self.splice_list(&old, &new);
+            self.set_display(&old, new);
         }
         self.anims.gc();
         if !self.ghosts.is_empty() && !self.display.iter().any(|d| d.leaving) {
@@ -415,11 +467,18 @@ impl Outline {
     }
 
     pub fn row_index(&self, id: NodeId) -> Option<usize> {
-        self.rows.iter().position(|r| r.id == id)
+        self.row_pos.get(&id).copied()
     }
 
     pub fn display_index(&self, id: NodeId) -> Option<usize> {
-        self.display.iter().position(|d| d.row.id == id && !d.leaving)
+        self.display_pos.get(&id).copied().filter(|&ix| !self.display[ix].leaving)
+    }
+
+    /// Whether the row of `id` is (at least partly) in the viewport.
+    pub fn row_on_screen(&self, id: NodeId) -> bool {
+        let Some(ix) = self.display_index(id) else { return false };
+        let view = self.list.viewport_bounds();
+        self.list.bounds_for_item(ix).is_some_and(|b| b.top() < view.bottom() && b.bottom() > view.top())
     }
 
     // ------------------------------------------------------------ commits
@@ -452,10 +511,15 @@ impl Outline {
             self.ghosts.insert(n.id, n);
         }
         let after = self.caret();
+        // Follow the caret only when the command moved it, or it was in view
+        // (folding elsewhere on the page must not jump to an off-screen caret).
+        let follow = after != before || before.is_some_and(|c| self.row_on_screen(c.node));
         self.history.commit(&mut self.tree, HistoryKind::Structure, before, after);
         self.persist();
         self.refresh(true);
-        self.reveal_edit();
+        if follow {
+            self.reveal_edit();
+        }
         cx.notify();
     }
 
@@ -552,6 +616,12 @@ impl Outline {
     }
 
     pub fn start_edit(&mut self, target: Target, offset: usize, cx: &mut Context<Self>) {
+        self.begin_edit(target, offset, true, cx);
+    }
+
+    /// Start editing; `reveal` scrolls the target into view (keyboard), a
+    /// mouse press on a visible row passes false.
+    pub fn begin_edit(&mut self, target: Target, offset: usize, reveal: bool, cx: &mut Context<Self>) {
         if let Some(e) = &self.edit {
             if e.target != target {
                 self.history.seal();
@@ -566,7 +636,9 @@ impl Outline {
             Target::Palette => self.palette.as_ref().map_or(0, |p| p.query.len()),
         };
         self.edit = Some(Edit::new(target, offset.min(len)));
-        self.reveal_edit();
+        if reveal {
+            self.reveal_edit();
+        }
         cx.notify();
     }
 
@@ -1126,6 +1198,13 @@ impl Outline {
         cx.notify();
     }
 
+    /// Whether `id` is inside the block selection (O(1), for rendering).
+    pub fn is_block_selected(&self, id: NodeId) -> bool {
+        let Some(b) = self.block else { return false };
+        let (Some(a), Some(h), Some(i)) = (self.row_index(b.anchor), self.row_index(b.head), self.row_index(id)) else { return false };
+        a.min(h) <= i && i <= a.max(h)
+    }
+
     /// Selected row ids in display order.
     pub fn block_ids(&self) -> Vec<NodeId> {
         let Some(b) = self.block else { return Vec::new() };
@@ -1207,8 +1286,65 @@ impl Outline {
         self.commit_structure(before, cx);
     }
 
+    pub fn page_back(&mut self, _: &PageBack, _: &mut Window, cx: &mut Context<Self>) {
+        self.navigate_page(gpui::NavigationDirection::Back, cx);
+    }
+
+    pub fn page_forward(&mut self, _: &PageForward, _: &mut Window, cx: &mut Context<Self>) {
+        self.navigate_page(gpui::NavigationDirection::Forward, cx);
+    }
+
+    fn page_location(&self) -> PageLocation {
+        let scroll = self.list.logical_scroll_top();
+        PageLocation {
+            zoom: self.zoom,
+            query: self.query.clone(),
+            top_row: self.display.get(scroll.item_ix).map(|d| d.row.id),
+            scroll,
+        }
+    }
+
+    pub fn navigate_page(&mut self, direction: gpui::NavigationDirection, cx: &mut Context<Self>) {
+        if self.settings.is_some() {
+            return;
+        }
+        let pages = match direction {
+            gpui::NavigationDirection::Back => &mut self.back_pages,
+            gpui::NavigationDirection::Forward => &mut self.forward_pages,
+        };
+        let location = loop {
+            let Some(location) = pages.pop() else { return };
+            if self.tree.contains(location.zoom) {
+                break location;
+            }
+        };
+        let current = self.page_location();
+        match direction {
+            gpui::NavigationDirection::Back => self.forward_pages.push(current),
+            gpui::NavigationDirection::Forward => self.back_pages.push(current),
+        }
+        self.query = location.query;
+        self.palette = None;
+        self.inline = None;
+        self.calendar = None;
+        self.trash = None;
+        self.show_page(location.zoom, cx);
+        let item_ix = location.top_row.and_then(|id| self.display_index(id))
+            .unwrap_or(location.scroll.item_ix.min(self.display.len()));
+        self.list.scroll_to(gpui::ListOffset { item_ix, offset_in_item: location.scroll.offset_in_item });
+    }
+
     pub fn zoom_to(&mut self, id: NodeId, cx: &mut Context<Self>) {
         let id = if self.tree.contains(id) { id } else { ROOT };
+        if id != self.zoom {
+            self.back_pages.push(self.page_location());
+            self.forward_pages.clear();
+        }
+        self.show_page(id, cx);
+    }
+
+    fn show_page(&mut self, id: NodeId, cx: &mut Context<Self>) {
+        self.popover.close();
         let came_from = self.zoom;
         self.zoom = id;
         self.block = None;
@@ -1502,6 +1638,10 @@ impl Outline {
     }
 
     pub fn escape(&mut self, _: &Escape, _: &mut Window, cx: &mut Context<Self>) {
+        if self.popover.close() {
+            cx.notify();
+            return;
+        }
         if self.palette.is_some() {
             self.close_palette(cx);
             return;

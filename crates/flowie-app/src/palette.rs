@@ -317,6 +317,7 @@ impl Outline {
                 .items_start()
                 .justify_center()
                 .bg(gpui::black().opacity(0.12))
+                .occlude()
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close_palette(cx)))
                 .child(
                     div()

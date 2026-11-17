@@ -4,16 +4,17 @@ Character limits: name 30, subtitle 30, promotional text 170, keywords 100
 (comma separated, no spaces needed), description 4000.
 
 - Category: Productivity (secondary: Education)
-- Price: your choice
+- Price: US$4.99 (equalized), all regions except mainland China
 - Age rating: 4+ (no objectionable content, no web browsing, no user-generated sharing)
 - Copyright: © 2026 Wesley Yang
-- Support URL / Marketing URL / Privacy Policy URL: **(you)**
+- Support / Marketing URL: https://flowie.423324.xyz/ (source in `site/`, Cloudflare Pages project `flowie-site`)
+- Privacy Policy URL: https://flowie.423324.xyz/privacy
 
 ## English (U.S.)
 
-**Name:** Flowie
+**Name:** Flowie Outliner ("Flowie" is taken)
 
-**Subtitle:** Fast outliner for your notes
+**Subtitle:** Keyboard-first notes in lists
 
 **Promotional text:**
 Think in lists. Zoom into any bullet, link and mirror ideas, write math, and find anything instantly — all stored locally on your Mac.
@@ -57,9 +58,9 @@ Every shortcut can be changed. English and Simplified Chinese.
 
 ## 简体中文
 
-**名称：** Flowie
+**名称：** Flowie 大纲笔记
 
-**副标题：** 快速、键盘优先的大纲笔记
+**副标题：** 键盘优先，用列表思考
 
 **推广文本：**
 用列表思考。点进任意条目专注，链接与镜像串起想法，直接书写数学公式，瞬间找到一切——数据只保存在你的 Mac 上。

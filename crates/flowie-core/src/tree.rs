@@ -7,7 +7,78 @@ pub type NodeId = u64;
 /// The invisible root of every outline. Its children are the top-level bullets.
 pub const ROOT: NodeId = 0;
 
-#[derive(Debug, Clone, PartialEq)]
+/// Ids with this bit set are *virtual*: the rows shown inside a mirror. The
+/// tree resolves them to the real node they display (see `set_virtuals`).
+pub const VIRTUAL_BIT: NodeId = 1 << 62;
+
+/// A stable virtual id for `child` shown under the row `parent_key`.
+pub fn virtual_id(parent_key: NodeId, child: NodeId) -> NodeId {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (parent_key, child).hash(&mut h);
+    VIRTUAL_BIT | (h.finish() & (VIRTUAL_BIT - 1))
+}
+
+/// How a node is displayed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+pub enum BlockKind {
+    #[default]
+    Bullet,
+    /// Plain paragraph without a bullet.
+    Paragraph,
+    H1,
+    H2,
+    H3,
+    /// Checkbox; uses `completed` as its checked state.
+    Todo,
+    Quote,
+    /// Code block: monospace, no markup parsing.
+    Code,
+    /// Numbered list item (number = position among siblings).
+    Numbered,
+}
+
+impl BlockKind {
+    pub const ALL: [BlockKind; 9] = [
+        BlockKind::Bullet,
+        BlockKind::Paragraph,
+        BlockKind::H1,
+        BlockKind::H2,
+        BlockKind::H3,
+        BlockKind::Todo,
+        BlockKind::Quote,
+        BlockKind::Code,
+        BlockKind::Numbered,
+    ];
+
+    pub fn to_u8(self) -> u8 {
+        BlockKind::ALL.iter().position(|k| *k == self).unwrap_or(0) as u8
+    }
+
+    pub fn from_u8(v: u8) -> BlockKind {
+        BlockKind::ALL.get(v as usize).copied().unwrap_or_default()
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            BlockKind::Bullet => "bullet",
+            BlockKind::Paragraph => "paragraph",
+            BlockKind::H1 => "h1",
+            BlockKind::H2 => "h2",
+            BlockKind::H3 => "h3",
+            BlockKind::Todo => "todo",
+            BlockKind::Quote => "quote",
+            BlockKind::Code => "code",
+            BlockKind::Numbered => "numbered",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Option<BlockKind> {
+        BlockKind::ALL.iter().copied().find(|k| k.name() == s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Node {
     pub id: NodeId,
     pub parent: NodeId,
@@ -18,6 +89,12 @@ pub struct Node {
     pub collapsed: bool,
     pub created: i64,
     pub modified: i64,
+    #[serde(default)]
+    pub kind: BlockKind,
+    #[serde(default)]
+    /// If non-zero, this node is a mirror: it shows (and edits) that node's
+    /// text, note, completion and children.
+    pub mirror: NodeId,
 }
 
 impl Node {
@@ -33,6 +110,8 @@ impl Node {
             collapsed: false,
             created: now,
             modified: now,
+            kind: BlockKind::Bullet,
+            mirror: ROOT,
         }
     }
 }
@@ -63,6 +142,8 @@ pub struct Tree {
     dirty: HashSet<NodeId>,
     /// Bumped on every mutation; lets views cache derived data.
     revision: u64,
+    /// Virtual row id -> real node id (rows inside mirrors).
+    virtuals: HashMap<NodeId, NodeId>,
 }
 
 impl Tree {
@@ -133,16 +214,35 @@ impl Tree {
         self.revision
     }
 
+    /// The real node behind a (possibly virtual) id.
+    #[inline]
+    pub fn resolve(&self, id: NodeId) -> NodeId {
+        if id & VIRTUAL_BIT != 0 {
+            self.virtuals.get(&id).copied().unwrap_or(id)
+        } else {
+            id
+        }
+    }
+
+    /// Register virtual ids produced by `flatten` (kept across refreshes so
+    /// ids held by the caret stay valid).
+    pub fn add_virtuals(&mut self, map: impl IntoIterator<Item = (NodeId, NodeId)>) {
+        self.virtuals.extend(map);
+        if self.virtuals.len() > 200_000 {
+            self.virtuals.retain(|_, real| self.nodes.contains_key(real));
+        }
+    }
+
     pub fn get(&self, id: NodeId) -> Option<&Node> {
-        self.nodes.get(&id)
+        self.nodes.get(&self.resolve(id))
     }
 
     pub fn node(&self, id: NodeId) -> &Node {
-        &self.nodes[&id]
+        &self.nodes[&self.resolve(id)]
     }
 
     pub fn contains(&self, id: NodeId) -> bool {
-        self.nodes.contains_key(&id)
+        self.nodes.contains_key(&self.resolve(id))
     }
 
     pub fn nodes(&self) -> impl Iterator<Item = &Node> {
@@ -150,7 +250,7 @@ impl Tree {
     }
 
     pub fn children(&self, id: NodeId) -> &[NodeId] {
-        self.children.get(&id).map(Vec::as_slice).unwrap_or(&[])
+        self.children.get(&self.resolve(id)).map(Vec::as_slice).unwrap_or(&[])
     }
 
     pub fn has_children(&self, id: NodeId) -> bool {
@@ -158,10 +258,11 @@ impl Tree {
     }
 
     pub fn parent(&self, id: NodeId) -> NodeId {
-        self.nodes.get(&id).map(|n| n.parent).unwrap_or(ROOT)
+        self.nodes.get(&self.resolve(id)).map(|n| n.parent).unwrap_or(ROOT)
     }
 
     pub fn index_in_parent(&self, id: NodeId) -> usize {
+        let id = self.resolve(id);
         let parent = self.parent(id);
         self.children(parent).iter().position(|c| *c == id).unwrap_or(0)
     }
@@ -189,7 +290,9 @@ impl Tree {
         out
     }
 
-    pub fn is_ancestor(&self, ancestor: NodeId, mut id: NodeId) -> bool {
+    pub fn is_ancestor(&self, ancestor: NodeId, id: NodeId) -> bool {
+        let ancestor = self.resolve(ancestor);
+        let mut id = self.resolve(id);
         while id != ROOT {
             id = self.parent(id);
             if id == ancestor {
@@ -208,6 +311,15 @@ impl Tree {
             stack.extend(self.children(n).iter().rev().copied());
         }
         out
+    }
+
+    /// The next id that will be allocated (persist it so ids of deleted nodes are never reused).
+    pub fn next_id(&self) -> NodeId {
+        self.next_id
+    }
+
+    pub fn ensure_next_id(&mut self, at_least: NodeId) {
+        self.next_id = self.next_id.max(at_least);
     }
 
     pub fn alloc_id(&mut self) -> NodeId {
@@ -262,7 +374,7 @@ impl Tree {
             return;
         }
         if let Some(b) = &before {
-            if b.text != node.text || b.note != node.note || b.completed != node.completed {
+            if b.text != node.text || b.note != node.note || b.completed != node.completed || b.kind != node.kind {
                 node.modified = now_millis();
             }
             if let Some(list) = self.children.get_mut(&b.parent) {
@@ -293,6 +405,7 @@ impl Tree {
 
     /// Remove a single node (its children must already be gone or moved).
     pub fn remove(&mut self, id: NodeId) {
+        let id = self.resolve(id);
         let Some(before) = self.nodes.remove(&id) else { return };
         if let Some(list) = self.children.get_mut(&before.parent) {
             list.retain(|c| *c != id);
@@ -326,6 +439,11 @@ impl Tree {
 
     pub fn take_journal(&mut self) -> Vec<Change> {
         std::mem::take(&mut self.journal)
+    }
+
+    /// Nodes removed since the last `take_journal` (as they were).
+    pub fn journal_removed(&self) -> Vec<Node> {
+        self.journal.iter().filter(|c| c.after.is_none()).filter_map(|c| c.before.clone()).collect()
     }
 
     pub fn journal_is_empty(&self) -> bool {

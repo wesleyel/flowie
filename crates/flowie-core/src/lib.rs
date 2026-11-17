@@ -3,16 +3,18 @@
 
 pub mod flatten;
 pub mod history;
+pub mod io;
 pub mod markup;
 mod ops;
 pub mod search;
 pub mod store;
 pub mod tree;
 
-pub use flatten::{flatten, merge_leaving, DisplayRow, Row, ViewOptions};
+pub use flatten::{flatten, flatten_mapped, merge_leaving, DisplayRow, Row, ViewOptions};
 pub use history::{Caret, History, Kind as HistoryKind};
 pub use search::Query;
-pub use tree::{Node, NodeId, Tree, ROOT};
+pub use io::Item;
+pub use tree::{BlockKind, Node, NodeId, Tree, ROOT};
 
 #[cfg(test)]
 mod tests;

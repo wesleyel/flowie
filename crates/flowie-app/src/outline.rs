@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 use flowie_core::{
-    flatten, merge_leaving, store::Writer, Caret, DisplayRow, History, HistoryKind, NodeId, Query, Row,
+    merge_leaving, store::Writer, Caret, DisplayRow, History, HistoryKind, NodeId, Query, Row,
     Tree, ViewOptions, ROOT,
 };
 use gpui::{
@@ -66,6 +66,36 @@ actions!(
         Escape,
         ToggleCompletedVisible,
         Quit,
+        Jump,
+        MoveTo,
+        LinkToBullet,
+        MirrorBullet,
+        ToggleStar,
+        ExpandAll,
+        Level1,
+        Level2,
+        Level3,
+        Level4,
+        Import,
+        ExportOpml,
+        ExportMarkdown,
+        ExportText,
+        ShowTrash,
+        SaveSearch,
+        Highlight,
+        KindBullet,
+        KindH1,
+        KindH2,
+        KindH3,
+        KindParagraph,
+        KindTodo,
+        KindNumbered,
+        KindQuote,
+        KindCode,
+        Today,
+        NextMatch,
+        PrevMatch,
+        ShowCalendar,
     ]
 );
 
@@ -74,6 +104,7 @@ pub enum Target {
     Text(NodeId),
     Note(NodeId),
     Search,
+    Palette,
 }
 
 pub struct Edit {
@@ -150,22 +181,52 @@ pub struct Outline {
     pub theme: Theme,
     pub drop: Option<DropTarget>,
     pub highlight_terms: Vec<String>,
+    pub palette: Option<crate::palette::Palette>,
+    pub inline: Option<crate::palette::Inline>,
+    pub inline_entries_len: usize,
+    pub block_saved: Option<BlockSel>,
+    pub starred: Vec<NodeId>,
+    pub saved_searches: Vec<String>,
+    /// Trash page contents while it is open.
+    pub trash: Option<Vec<flowie_core::store::TrashEntry>>,
+    pub db_path: Option<std::path::PathBuf>,
+    saved_next_id: NodeId,
+    pub calendar: Option<crate::calendar::Calendar>,
+    pub journal_id: Option<NodeId>,
+    /// A block selection is being extended by dragging the mouse.
+    pub mouse_block: bool,
+    /// Snapshots of deleted nodes, so their rows can animate out.
+    pub ghosts: std::collections::HashMap<NodeId, flowie_core::Node>,
+    pub toast: Option<(String, Tween)>,
 }
 
 pub const INDENT: f32 = 24.0;
 pub const PAD_X: f32 = 36.0;
 
 impl Outline {
-    pub fn new(tree: Tree, writer: Option<Writer>, meta: Vec<(String, String)>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        mut tree: Tree,
+        writer: Option<Writer>,
+        db_path: Option<std::path::PathBuf>,
+        meta: Vec<(String, String)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut zoom = ROOT;
         let mut hide_completed = false;
+        let mut starred = Vec::new();
+        let mut saved_searches = Vec::new();
         for (k, v) in &meta {
             match k.as_str() {
                 "zoom" => zoom = v.parse().unwrap_or(ROOT),
                 "hide_completed" => hide_completed = v == "1",
+                "next_id" => tree.ensure_next_id(v.parse().unwrap_or(0)),
+                "starred" => starred = v.split(',').filter_map(|x| x.parse().ok()).collect(),
+                "saved_searches" => saved_searches = v.split('\n').filter(|x| !x.is_empty()).map(String::from).collect(),
                 _ => {}
             }
         }
+        let saved_next_id = tree.next_id();
         if !tree.contains(zoom) {
             zoom = ROOT;
         }
@@ -187,6 +248,20 @@ impl Outline {
             theme: Theme::for_appearance(window.appearance()),
             drop: None,
             highlight_terms: Vec::new(),
+            palette: None,
+            inline: None,
+            inline_entries_len: 0,
+            block_saved: None,
+            starred,
+            saved_searches,
+            trash: None,
+            db_path,
+            saved_next_id,
+            calendar: None,
+            journal_id: meta.iter().find(|(k, _)| k == "journal").and_then(|(_, v)| v.parse().ok()),
+            toast: None,
+            mouse_block: false,
+            ghosts: Default::default(),
         };
         if this.tree.children(ROOT).is_empty() {
             this.seed_welcome();
@@ -230,13 +305,14 @@ impl Outline {
     pub fn refresh(&mut self, animate: bool) {
         let opts = self.view_options();
         self.highlight_terms = opts.query.as_ref().map(|q| q.highlight_terms()).unwrap_or_default();
-        let new_rows = flatten(&self.tree, self.zoom, &opts);
+        let (new_rows, virtuals) = flowie_core::flatten_mapped(&self.tree, self.zoom, &opts);
+        self.tree.add_virtuals(virtuals);
         let old_display = std::mem::take(&mut self.display);
         let new_display: Vec<DisplayRow> = if animate {
             let old: Vec<Row> = old_display
                 .iter()
                 .filter(|d| !d.leaving || !self.anims.is_leaving_done(d.row.id))
-                .filter(|d| self.tree.contains(d.row.id) || d.leaving)
+                .filter(|d| self.tree.contains(d.row.id) || self.ghosts.contains_key(&self.tree.resolve(d.row.id)) || d.leaving)
                 .map(|d| d.row)
                 .collect();
             let old_ids: std::collections::HashSet<NodeId> = old_display.iter().filter(|d| !d.leaving).map(|d| d.row.id).collect();
@@ -253,8 +329,11 @@ impl Outline {
                     }
                 }
             }
-            // Leaving rows whose node no longer exists can't render; drop them.
-            merged.into_iter().filter(|d| !d.leaving || self.tree.contains(d.row.id)).collect()
+            // Leaving rows of deleted nodes render from their snapshot.
+            merged
+                .into_iter()
+                .filter(|d| !d.leaving || self.tree.contains(d.row.id) || self.ghosts.contains_key(&self.tree.resolve(d.row.id)))
+                .collect()
         } else {
             new_rows.iter().map(|&row| DisplayRow { row, leaving: false }).collect()
         };
@@ -294,11 +373,18 @@ impl Outline {
             self.display.retain(|d| !(d.leaving && self.anims.is_leaving_done(d.row.id)));
             for id in ids {
                 self.anims.clear_leave(id);
+                let real = self.tree.resolve(id);
+                if !self.tree.contains(real) {
+                    self.ghosts.remove(&real);
+                }
             }
             let new = self.display.clone();
             self.splice_list(&old, &new);
         }
         self.anims.gc();
+        if !self.ghosts.is_empty() && !self.display.iter().any(|d| d.leaving) {
+            self.ghosts.clear();
+        }
         if self.zoom_tween.is_some_and(|t| t.done()) {
             self.zoom_tween = None;
         }
@@ -323,7 +409,7 @@ impl Outline {
     fn caret(&self) -> Option<Caret> {
         match self.edit.as_ref()?.target {
             Target::Text(id) | Target::Note(id) => Some(Caret { node: id, offset: self.edit.as_ref()?.caret() }),
-            Target::Search => None,
+            Target::Search | Target::Palette => None,
         }
     }
 
@@ -331,11 +417,22 @@ impl Outline {
         let (up, del) = self.tree.take_dirty();
         if let Some(w) = &self.writer {
             w.write(up, del);
+            if self.tree.next_id() != self.saved_next_id {
+                self.saved_next_id = self.tree.next_id();
+                w.set_meta("next_id", &self.saved_next_id.to_string());
+            }
         }
+    }
+
+    pub fn toast(&mut self, msg: impl Into<String>) {
+        self.toast = Some((msg.into(), Tween::new(std::time::Duration::from_millis(2600))));
     }
 
     /// Finish a structural command: journal for undo, persist, re-flatten with animation.
     pub fn commit_structure(&mut self, before: Option<Caret>, cx: &mut Context<Self>) {
+        for n in self.tree.journal_removed() {
+            self.ghosts.insert(n.id, n);
+        }
         let after = self.caret();
         self.history.commit(&mut self.tree, HistoryKind::Structure, before, after);
         self.persist();
@@ -379,9 +476,10 @@ impl Outline {
 
     pub fn edit_text(&self) -> &str {
         match self.edit.as_ref().map(|e| e.target) {
-            Some(Target::Text(id)) => self.tree.get(id).map(|n| n.text.as_str()).unwrap_or(""),
-            Some(Target::Note(id)) => self.tree.get(id).map(|n| n.note.as_str()).unwrap_or(""),
+            Some(Target::Text(id)) => self.tree.get(self.tree.source(id)).map(|n| n.text.as_str()).unwrap_or(""),
+            Some(Target::Note(id)) => self.tree.get(self.tree.source(id)).map(|n| n.note.as_str()).unwrap_or(""),
             Some(Target::Search) => &self.query,
+            Some(Target::Palette) => self.palette.as_ref().map(|p| p.query.as_str()).unwrap_or(""),
             None => "",
         }
     }
@@ -406,12 +504,25 @@ impl Outline {
         }
         match target {
             Target::Text(id) => {
-                self.tree.set_text(id, &text);
-                self.commit_typing(id, before, cx);
+                let src = self.tree.source(id);
+                self.tree.set_text(src, &text);
+                self.commit_typing(src, before, cx);
+                if !mark {
+                    self.check_inline(&new);
+                }
+            }
+            Target::Palette => {
+                if let Some(p) = self.palette.as_mut() {
+                    p.query = text;
+                    p.selected = 0;
+                }
+                self.refresh_palette();
+                cx.notify();
             }
             Target::Note(id) => {
-                self.tree.set_note(id, &text);
-                self.commit_typing(id, before, cx);
+                let src = self.tree.source(id);
+                self.tree.set_note(src, &text);
+                self.commit_typing(src, before, cx);
             }
             Target::Search => {
                 self.query = text;
@@ -429,20 +540,22 @@ impl Outline {
             }
         }
         self.block = None;
+        self.inline = None;
         let len = match target {
-            Target::Text(id) => self.tree.get(id).map_or(0, |n| n.text.len()),
-            Target::Note(id) => self.tree.get(id).map_or(0, |n| n.note.len()),
+            Target::Text(id) => self.tree.get(self.tree.source(id)).map_or(0, |n| n.text.len()),
+            Target::Note(id) => self.tree.get(self.tree.source(id)).map_or(0, |n| n.note.len()),
             Target::Search => self.query.len(),
+            Target::Palette => self.palette.as_ref().map_or(0, |p| p.query.len()),
         };
         self.edit = Some(Edit::new(target, offset.min(len)));
         self.reveal_edit();
         cx.notify();
     }
 
-    fn editing_node(&self) -> Option<NodeId> {
+    pub fn editing_node(&self) -> Option<NodeId> {
         match self.edit.as_ref()?.target {
             Target::Text(id) | Target::Note(id) => Some(id),
-            Target::Search => None,
+            Target::Search | Target::Palette => None,
         }
     }
 
@@ -516,7 +629,10 @@ impl Outline {
 
     // ---------------------------------------------------------- actions
 
-    pub fn newline(&mut self, _: &Newline, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
+        if self.palette_confirm(window, cx) {
+            return;
+        }
         match self.edit_target() {
             Some(Target::Text(id)) => {
                 if id == self.zoom {
@@ -528,6 +644,13 @@ impl Outline {
                     return;
                 }
                 let before = self.caret();
+                if self.tree.node(id).mirror != ROOT {
+                    // Enter on a mirror adds a plain sibling after it.
+                    let n = self.tree.create_after(id, "");
+                    self.edit = Some(Edit::new(Target::Text(n), 0));
+                    self.commit_structure(before, cx);
+                    return;
+                }
                 let caret = self.edit.as_ref().unwrap().caret();
                 if let Some(e) = self.edit.as_ref() {
                     if !e.sel.is_empty() {
@@ -551,6 +674,7 @@ impl Outline {
                     self.start_edit(Target::Text(first), len, cx);
                 }
             }
+            Some(Target::Palette) => {}
             None => self.enter_from_idle(cx),
         }
     }
@@ -595,7 +719,13 @@ impl Outline {
         }
     }
 
-    pub fn indent(&mut self, _: &Indent, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn indent(&mut self, _: &Indent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.inline.is_some() && self.inline_confirm(None, window, cx) {
+            return;
+        }
+        if self.palette.is_some() {
+            return;
+        }
         let before = self.caret();
         if let Some(ids) = self.block_roots() {
             let mut ok = false;
@@ -822,9 +952,10 @@ impl Outline {
     pub fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(e) = self.edit.as_mut() {
             let len = match e.target {
-                Target::Text(id) => self.tree.node(id).text.len(),
-                Target::Note(id) => self.tree.node(id).note.len(),
+                Target::Text(id) => self.tree.node(self.tree.source(id)).text.len(),
+                Target::Note(id) => self.tree.node(self.tree.source(id)).note.len(),
                 Target::Search => self.query.len(),
+                Target::Palette => self.palette.as_ref().map_or(0, |p| p.query.len()),
             };
             if e.sel == (0..len) && matches!(e.target, Target::Text(_)) {
                 // Second ⌘A selects every visible bullet.
@@ -862,6 +993,9 @@ impl Outline {
     }
 
     pub fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
+        if self.palette_move(-1, cx) {
+            return;
+        }
         if let Some(b) = self.block {
             if let Some(prev) = self.neighbor(b.head, -1) {
                 self.block = Some(BlockSel { anchor: prev, head: prev });
@@ -892,6 +1026,9 @@ impl Outline {
     }
 
     pub fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
+        if self.palette_move(1, cx) {
+            return;
+        }
         if let Some(b) = self.block {
             if let Some(next) = self.neighbor(b.head, 1) {
                 self.block = Some(BlockSel { anchor: next, head: next });
@@ -922,6 +1059,7 @@ impl Outline {
                     self.start_edit(Target::Text(first), 0, cx);
                 }
             }
+            Some(Target::Palette) => {}
             None => self.enter_from_idle(cx),
         }
     }
@@ -1021,7 +1159,7 @@ impl Outline {
         let before = self.caret();
         let mut changed = false;
         for id in ids {
-            if id != self.zoom && self.tree.has_children(id) && self.tree.node(id).collapsed != collapsed {
+            if id != self.zoom && self.tree.has_children(self.tree.source(id)) && self.tree.node(id).collapsed != collapsed {
                 self.tree.set_collapsed(id, collapsed);
                 self.anims.start(id, Channel::Fold, anim::ROW_IN);
                 changed = true;
@@ -1033,7 +1171,7 @@ impl Outline {
     }
 
     pub fn toggle_fold(&mut self, id: NodeId, cx: &mut Context<Self>) {
-        if !self.tree.has_children(id) {
+        if !self.tree.has_children(self.tree.source(id)) {
             return;
         }
         let before = self.caret();
@@ -1146,6 +1284,7 @@ impl Outline {
             n
         });
         for id in &ids {
+            self.send_to_trash(*id);
             self.tree.delete(*id);
         }
         self.block = None;
@@ -1192,7 +1331,7 @@ impl Outline {
 
     pub fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(roots) = self.block_roots() {
-            cx.write_to_clipboard(ClipboardItem::new_string(self.tree.to_indented_text(&roots)));
+            self.copy_items(&roots, cx);
         } else if let Some(e) = &self.edit {
             if !e.sel.is_empty() {
                 cx.write_to_clipboard(ClipboardItem::new_string(self.edit_text()[e.sel.clone()].to_string()));
@@ -1204,6 +1343,7 @@ impl Outline {
         self.copy(&Copy, window, cx);
         if self.block.is_some() {
             self.delete_node(&DeleteNode, window, cx);
+            self.toast("Cut — also kept in Trash");
         } else if let Some(e) = &self.edit {
             if !e.sel.is_empty() {
                 let r = e.sel.clone();
@@ -1213,15 +1353,31 @@ impl Outline {
     }
 
     pub fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) else { return };
-        let multiline = text.trim_end_matches('\n').contains('\n');
+        let Some(item) = cx.read_from_clipboard() else { return };
+        let Some(text) = item.text() else { return };
+        // Bullets copied from Flowie carry their full structure as metadata.
+        let items: Vec<flowie_core::Item> = item
+            .entries()
+            .iter()
+            .find_map(|e| match e {
+                gpui::ClipboardEntry::String(s) => s.metadata_json::<Vec<flowie_core::Item>>(),
+                _ => None,
+            })
+            .unwrap_or_else(|| {
+                if text.trim_end_matches('\n').contains('\n') {
+                    flowie_core::io::parse_any(&text)
+                } else {
+                    Vec::new()
+                }
+            });
+        let multiline = !items.is_empty();
         match self.edit_target() {
             Some(Target::Text(id)) if multiline && id != self.zoom => {
                 let before = self.caret();
                 let parent = self.tree.parent(id);
                 let empty = self.tree.node(id).text.is_empty() && !self.tree.has_children(id);
                 let index = self.tree.index_in_parent(id) + if empty { 0 } else { 1 };
-                let top = self.tree.insert_indented_text(parent, index, &text);
+                let top = self.tree.insert_items(parent, index, &items);
                 if empty {
                     self.tree.delete(id);
                 }
@@ -1240,7 +1396,7 @@ impl Outline {
                     let before = self.caret();
                     let parent = self.tree.parent(b.head);
                     let index = self.tree.index_in_parent(b.head) + 1;
-                    let top = self.tree.insert_indented_text(parent, index, &text);
+                    let top = if items.is_empty() { self.tree.insert_indented_text(parent, index, &text) } else { self.tree.insert_items(parent, index, &items) };
                     self.block = top.first().zip(top.last()).map(|(a, h)| BlockSel { anchor: *a, head: *h });
                     self.commit_structure(before, cx);
                 }
@@ -1251,7 +1407,7 @@ impl Outline {
     /// Wrap the selection in `open`/`close`, or insert the pair around the caret.
     fn wrap(&mut self, open: &str, close: &str, cx: &mut Context<Self>) {
         let Some(e) = self.edit.as_ref() else { return };
-        if e.target == Target::Search {
+        if matches!(e.target, Target::Search | Target::Palette) {
             return;
         }
         let r = e.sel.clone();
@@ -1320,6 +1476,22 @@ impl Outline {
     }
 
     pub fn escape(&mut self, _: &Escape, _: &mut Window, cx: &mut Context<Self>) {
+        if self.palette.is_some() {
+            self.close_palette(cx);
+            return;
+        }
+        if self.inline.take().is_some() {
+            cx.notify();
+            return;
+        }
+        if self.calendar.take().is_some() {
+            cx.notify();
+            return;
+        }
+        if self.trash.take().is_some() {
+            cx.notify();
+            return;
+        }
         match self.edit_target() {
             Some(Target::Search) => {
                 self.query.clear();
@@ -1341,6 +1513,7 @@ impl Outline {
                     self.refresh(false);
                 }
             }
+            Some(Target::Palette) => {}
             None => {
                 if self.block.take().is_none() && !self.query.is_empty() {
                     self.query.clear();

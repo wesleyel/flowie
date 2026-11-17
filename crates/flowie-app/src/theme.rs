@@ -22,6 +22,12 @@ pub struct Theme {
     pub border: Hsla,
     pub input_bg: Hsla,
     pub marker: Hsla,
+    /// Text colors for `{red}…{/}` etc., in `markup::COLORS` order.
+    pub colors: [Hsla; 7],
+    pub mark: Hsla,
+    pub quote_bar: Hsla,
+    pub date: Hsla,
+    pub date_bg: Hsla,
 }
 
 fn rgb(hex: u32) -> Hsla {
@@ -63,6 +69,11 @@ impl Theme {
             border: rgb(0xe8eaed),
             input_bg: rgb(0xf4f5f7),
             marker: rgb(0xc3c7cd),
+            colors: [rgb(0xdc2626), rgb(0xea580c), rgb(0xca8a04), rgb(0x16a34a), rgb(0x2563eb), rgb(0x9333ea), rgb(0x6b7280)],
+            mark: hsla(50. / 360., 1.0, 0.6, 0.45),
+            quote_bar: rgb(0xd5d9de),
+            date: rgb(0x0f766e),
+            date_bg: rgb(0xe6f4f1),
         }
     }
 
@@ -88,6 +99,11 @@ impl Theme {
             border: rgb(0x2c2f35),
             input_bg: rgb(0x26292e),
             marker: rgb(0x5b6068),
+            colors: [rgb(0xf87171), rgb(0xfb923c), rgb(0xfacc15), rgb(0x4ade80), rgb(0x60a5fa), rgb(0xc084fc), rgb(0x9ca3af)],
+            mark: hsla(50. / 360., 0.9, 0.5, 0.35),
+            quote_bar: rgb(0x454a52),
+            date: rgb(0x5eead4),
+            date_bg: rgb(0x16302d),
         }
     }
 }

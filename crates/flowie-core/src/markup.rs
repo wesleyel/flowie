@@ -2,8 +2,10 @@
 //! markdown-lite; this parser splits it into runs for rendering.
 //!
 //! Supported: `**bold**`, `*italic*` / `_italic_`, `~~strike~~`, `` `code` ``,
-//! `[label](url)`, bare `http(s)://` URLs, `#tag`, `@mention`,
-//! `$inline math$`, `$$display math$$`, and `\` escapes for `$ * _ ` [ #`.
+//! `[label](url)` (`flowie:ID` urls link to other bullets), bare
+//! `http(s)://` URLs, `#tag`, `@mention`, dates `2026-11-17`,
+//! `==highlight==`, `{red}colored text{/}`, `$inline math$`,
+//! `$$display math$$`, and `\` escapes for `$ * _ ` [ # = {`.
 
 use std::ops::Range;
 
@@ -18,7 +20,12 @@ pub enum Kind {
     Link { url: String },
     Tag,
     Mention,
+    /// An ISO date (`2026-11-17`).
+    Date,
 }
+
+/// Text colors usable as `{name}…{/}`.
+pub const COLORS: [&str; 7] = ["red", "orange", "yellow", "green", "blue", "purple", "gray"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Run {
@@ -27,6 +34,9 @@ pub struct Run {
     pub bold: bool,
     pub italic: bool,
     pub strike: bool,
+    pub highlight: bool,
+    /// Index into `COLORS`.
+    pub color: Option<u8>,
 }
 
 pub fn is_tag_char(c: char) -> bool {
@@ -43,6 +53,8 @@ struct Parser<'a> {
     bold: bool,
     italic: bool,
     strike: bool,
+    highlight: bool,
+    color: Option<u8>,
     text_start: usize,
 }
 
@@ -63,13 +75,22 @@ impl<'a> Parser<'a> {
             if last.kind == Kind::Text
                 && kind == Kind::Text
                 && last.range.end == range.start
-                && (last.bold, last.italic, last.strike) == (self.bold, self.italic, self.strike)
+                && (last.bold, last.italic, last.strike, last.highlight, last.color)
+                    == (self.bold, self.italic, self.strike, self.highlight, self.color)
             {
                 last.range.end = range.end;
                 return;
             }
         }
-        self.runs.push(Run { range, kind, bold: self.bold, italic: self.italic, strike: self.strike });
+        self.runs.push(Run {
+            range,
+            kind,
+            bold: self.bold,
+            italic: self.italic,
+            strike: self.strike,
+            highlight: self.highlight,
+            color: self.color,
+        });
     }
 
     fn emit(&mut self, at: usize, range: Range<usize>, kind: Kind) {
@@ -85,7 +106,16 @@ impl<'a> Parser<'a> {
 }
 
 pub fn parse(s: &str) -> Vec<Run> {
-    let mut p = Parser { s, runs: Vec::new(), bold: false, italic: false, strike: false, text_start: 0 };
+    let mut p = Parser {
+        s,
+        runs: Vec::new(),
+        bold: false,
+        italic: false,
+        strike: false,
+        highlight: false,
+        color: None,
+        text_start: 0,
+    };
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < s.len() {
@@ -94,7 +124,7 @@ pub fn parse(s: &str) -> Vec<Run> {
         // Escapes: hide the backslash, keep the next char literal.
         if c == '\\' {
             if let Some(n) = rest[1..].chars().next() {
-                if "$*_`[]#@~\\".contains(n) {
+                if "$*_`[]#@~\\={".contains(n) {
                     p.emit(i, i..i + 1, Kind::Marker);
                     i += 1 + n.len_utf8();
                     continue;
@@ -168,6 +198,40 @@ pub fn parse(s: &str) -> Vec<Run> {
                 continue;
             }
         }
+        if rest.starts_with("==") && (p.highlight || rest[2..].contains("==")) {
+            p.emit(i, i..i + 2, Kind::Marker);
+            p.highlight = !p.highlight;
+            i += 2;
+            continue;
+        }
+        if c == '{' {
+            if p.color.is_some() && rest.starts_with("{/}") {
+                p.emit(i, i..i + 3, Kind::Marker);
+                p.color = None;
+                i += 3;
+                continue;
+            }
+            if p.color.is_none() {
+                if let Some(close) = rest.find('}') {
+                    let name = &rest[1..close];
+                    if let Some(ix) = COLORS.iter().position(|c| *c == name) {
+                        if rest[close..].contains("{/}") {
+                            p.emit(i, i..i + close + 1, Kind::Marker);
+                            p.color = Some(ix as u8);
+                            i += close + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        if c.is_ascii_digit() && p.prev_char(i).is_none_or(|ch| !ch.is_alphanumeric()) {
+            if let Some(len) = date_len(rest) {
+                p.emit(i, i..i + len, Kind::Date);
+                i += len;
+                continue;
+            }
+        }
         if rest.starts_with("**") && (p.bold || rest[2..].contains("**")) {
             p.emit(i, i..i + 2, Kind::Marker);
             p.bold = !p.bold;
@@ -202,6 +266,29 @@ pub fn parse(s: &str) -> Vec<Run> {
     }
     p.flush(s.len());
     p.runs
+}
+
+/// Length of an ISO date (`YYYY-MM-DD`) at the start of `s`, if any.
+pub fn date_len(s: &str) -> Option<usize> {
+    let b = s.as_bytes();
+    if b.len() < 10 {
+        return None;
+    }
+    let digits = |r: std::ops::Range<usize>| b[r].iter().all(u8::is_ascii_digit);
+    if !(digits(0..4) && b[4] == b'-' && digits(5..7) && b[7] == b'-' && digits(8..10)) {
+        return None;
+    }
+    if b.get(10).is_some_and(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let month: u32 = s[5..7].parse().ok()?;
+    let day: u32 = s[8..10].parse().ok()?;
+    ((1..=12).contains(&month) && (1..=31).contains(&day)).then_some(10)
+}
+
+/// All ISO dates in `s`.
+pub fn dates(s: &str) -> Vec<&str> {
+    parse(s).into_iter().filter(|r| r.kind == Kind::Date).map(|r| &s[r.range]).collect()
 }
 
 fn find_inline_math_end(s: &str, open: usize) -> Option<usize> {

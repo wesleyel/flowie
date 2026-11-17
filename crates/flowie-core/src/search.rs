@@ -1,15 +1,53 @@
 //! Search queries: every whitespace-separated term must match (AND).
 //! Terms: plain words (substring, case-insensitive, in text or note),
 //! `"quoted phrases"`, `#tag` / `@mention` (whole-token), `-term` (exclude),
-//! `is:done` / `is:todo`.
+//! `is:done` / `is:open`, `is:todo` / `is:heading` / `is:quote` / `is:code`,
+//! `has:note`, `changed:7d` (also `h`, `m`, `w`), and date filters over the
+//! dates written in bullets: `date:2026-11`, `date:today`, `before:2026-12-01`,
+//! `after:today`.
 
-use crate::tree::Node;
+use crate::tree::{BlockKind, Node};
 
 #[derive(Debug, Clone, PartialEq)]
 enum Term {
     Text(String),
     Tag(String),
     Done(bool),
+    Kinds(Vec<BlockKind>),
+    HasNote,
+    /// Modified within this many milliseconds.
+    Changed(i64),
+    DatePrefix(String),
+    Before(String),
+    After(String),
+}
+
+/// Today's local date as `YYYY-MM-DD`.
+pub fn today() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
+fn resolve_date(s: &str) -> String {
+    use chrono::{Duration, Local};
+    match s {
+        "today" => today(),
+        "tomorrow" => (Local::now() + Duration::days(1)).format("%Y-%m-%d").to_string(),
+        "yesterday" => (Local::now() - Duration::days(1)).format("%Y-%m-%d").to_string(),
+        _ => s.to_string(),
+    }
+}
+
+fn parse_span(s: &str) -> Option<i64> {
+    let (num, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit())?);
+    let n: i64 = num.parse().ok()?;
+    let ms = match unit {
+        "m" | "min" => 60_000,
+        "h" => 3_600_000,
+        "d" => 86_400_000,
+        "w" => 7 * 86_400_000,
+        _ => return None,
+    };
+    Some(n * ms)
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -55,7 +93,17 @@ impl Query {
             let lower = fold(&word);
             let term = match lower.as_str() {
                 "is:done" | "is:completed" => Term::Done(true),
-                "is:todo" | "is:open" => Term::Done(false),
+                "is:open" | "is:undone" => Term::Done(false),
+                "is:todo" => Term::Kinds(vec![BlockKind::Todo]),
+                "is:heading" => Term::Kinds(vec![BlockKind::H1, BlockKind::H2, BlockKind::H3]),
+                "is:quote" => Term::Kinds(vec![BlockKind::Quote]),
+                "is:code" => Term::Kinds(vec![BlockKind::Code]),
+                "is:paragraph" => Term::Kinds(vec![BlockKind::Paragraph]),
+                "has:note" => Term::HasNote,
+                _ if lower.starts_with("changed:") && parse_span(&lower[8..]).is_some() => Term::Changed(parse_span(&lower[8..]).unwrap()),
+                _ if lower.starts_with("date:") && lower.len() > 5 => Term::DatePrefix(resolve_date(&lower[5..])),
+                _ if lower.starts_with("before:") && lower.len() > 7 => Term::Before(resolve_date(&lower[7..])),
+                _ if lower.starts_with("after:") && lower.len() > 6 => Term::After(resolve_date(&lower[6..])),
                 _ if (lower.starts_with('#') || lower.starts_with('@')) && lower.chars().count() > 1 => Term::Tag(lower),
                 _ => Term::Text(lower),
             };
@@ -79,7 +127,8 @@ impl Query {
             .filter(|(neg, _)| !neg)
             .filter_map(|(_, t)| match t {
                 Term::Text(s) | Term::Tag(s) => Some(s.clone()),
-                Term::Done(_) => None,
+                Term::DatePrefix(d) => Some(d.clone()),
+                _ => None,
             })
             .collect()
     }
@@ -90,11 +139,19 @@ impl Query {
         }
         let text = fold(&node.text);
         let note = if node.note.is_empty() { String::new() } else { fold(&node.note) };
+        let now = crate::tree::now_millis();
+        let dates = || crate::markup::dates(&node.text);
         self.terms.iter().all(|(neg, term)| {
             let hit = match term {
                 Term::Text(s) => text.contains(s.as_str()) || note.contains(s.as_str()),
                 Term::Tag(tag) => has_tag(&text, tag) || has_tag(&note, tag),
                 Term::Done(d) => node.completed == *d,
+                Term::Kinds(k) => k.contains(&node.kind),
+                Term::HasNote => !node.note.trim().is_empty(),
+                Term::Changed(ms) => now - node.modified <= *ms,
+                Term::DatePrefix(p) => dates().iter().any(|d| d.starts_with(p.as_str())),
+                Term::Before(b) => dates().iter().any(|d| *d < b.as_str()),
+                Term::After(a) => dates().iter().any(|d| *d > a.as_str()),
             };
             hit != *neg
         })

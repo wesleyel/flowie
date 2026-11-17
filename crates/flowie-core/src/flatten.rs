@@ -7,6 +7,7 @@ use crate::tree::{NodeId, Tree};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Row {
+    /// Row identity: the node id, or a virtual id for rows inside a mirror.
     pub id: NodeId,
     /// 0 = direct child of the zoom root.
     pub depth: u16,
@@ -22,18 +23,25 @@ pub struct ViewOptions {
 /// query, only matches and their ancestors show (collapse is ignored so
 /// matches deep inside collapsed nodes are found).
 pub fn flatten(tree: &Tree, root: NodeId, opts: &ViewOptions) -> Vec<Row> {
+    flatten_mapped(tree, root, opts).0
+}
+
+/// Like `flatten`, also returning (virtual row id, real node) pairs for rows
+/// shown inside mirrors; register them with `Tree::add_virtuals`.
+pub fn flatten_mapped(tree: &Tree, root: NodeId, opts: &ViewOptions) -> (Vec<Row>, Vec<(NodeId, NodeId)>) {
     let mut rows = Vec::new();
+    let mut map = Vec::new();
     match &opts.query {
         Some(q) if !q.is_empty() => {
             let keep = search_keep_set(tree, root, q, opts.hide_completed);
-            walk(tree, root, 0, &mut rows, &|id| keep.contains(&id), true);
+            walk(tree, root, 0, &mut rows, &mut map, &|id| keep.contains(&id), true);
         }
         _ => {
             let hide = opts.hide_completed;
-            walk(tree, root, 0, &mut rows, &|id| !(hide && tree.node(id).completed), false);
+            walk(tree, root, 0, &mut rows, &mut map, &|id| !(hide && tree.node(tree.source(id)).completed), false);
         }
     }
-    rows
+    (rows, map)
 }
 
 fn walk(
@@ -41,19 +49,49 @@ fn walk(
     parent: NodeId,
     depth: u16,
     rows: &mut Vec<Row>,
+    map: &mut Vec<(NodeId, NodeId)>,
     keep: &dyn Fn(NodeId) -> bool,
     ignore_collapse: bool,
 ) {
     // Explicit stack to stay safe on very deep outlines.
-    let mut stack: Vec<(NodeId, u16)> = tree.children(parent).iter().rev().map(|&c| (c, depth)).collect();
-    while let Some((id, d)) = stack.pop() {
-        if !keep(id) {
+    // (row id, real node, depth, inside a mirror, mirror sources on the path)
+    let top_virtual = parent & crate::tree::VIRTUAL_BIT != 0 || tree.node(parent).mirror != crate::tree::ROOT;
+    let kids = tree.children(tree.source(parent));
+    let mut stack: Vec<(NodeId, NodeId, u16, bool, Vec<NodeId>)> = kids
+        .iter()
+        .rev()
+        .map(|&c| (if top_virtual { crate::tree::virtual_id(parent, c) } else { c }, c, depth, top_virtual, Vec::new()))
+        .collect();
+    while let Some((key, real, d, virt, path)) = stack.pop() {
+        if !keep(real) {
             continue;
         }
-        rows.push(Row { id, depth: d });
-        let node = tree.node(id);
-        if ignore_collapse || !node.collapsed {
-            stack.extend(tree.children(id).iter().rev().map(|&c| (c, d + 1)));
+        rows.push(Row { id: key, depth: d });
+        if key != real {
+            map.push((key, real));
+        }
+        let node = tree.node(real);
+        // In search mode, don't expand mirrors (their content is found at the source).
+        if ignore_collapse && node.mirror != crate::tree::ROOT {
+            continue;
+        }
+        if !(ignore_collapse || !node.collapsed) {
+            continue;
+        }
+        let src = tree.source(real);
+        let is_mirror = src != real;
+        // A mirror whose source is already being expanded above would loop.
+        if is_mirror && (path.contains(&src) || d > 60) {
+            continue;
+        }
+        let mut path = path;
+        if is_mirror {
+            path.push(src);
+        }
+        let child_virtual = virt || is_mirror;
+        for &c in tree.children(src).iter().rev() {
+            let ckey = if child_virtual { crate::tree::virtual_id(key, c) } else { c };
+            stack.push((ckey, c, d + 1, child_virtual, path.clone()));
         }
     }
 }

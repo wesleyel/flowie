@@ -1,6 +1,6 @@
 //! Rendering of the outline window.
 
-use flowie_core::{markup, NodeId, ROOT};
+use flowie_core::{markup, BlockKind, NodeId, ROOT};
 use flowie_math::math;
 use gpui::{
     div, list, prelude::*, px, radians, relative, svg, AnyElement, Context, FontWeight, KeyContext, MouseButton,
@@ -54,20 +54,25 @@ impl Outline {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let bold_title = !note && id == self.zoom && id != ROOT;
-        let node = self.tree.node(id);
+        let kind = self.tree.node(id).kind;
+        let node = self.tree.node(self.tree.source(id));
         let raw = if note { node.note.clone() } else { node.text.clone() };
         let completed = node.completed;
         let (mut font, mut color) = self.base_style(window, completed);
-        if bold_title {
+        let heading = !note && matches!(kind, BlockKind::H1 | BlockKind::H2 | BlockKind::H3);
+        if bold_title || heading {
             font.weight = FontWeight::BOLD;
         }
         if note {
+            color = self.theme.muted;
+        } else if kind == BlockKind::Quote && !completed {
             color = self.theme.muted;
         }
         let target = if note { Target::Note(id) } else { Target::Text(id) };
         let editing = self.edit.as_ref().is_some_and(|e| e.target == target);
         let terms = self.highlight_terms.clone();
-        let style = Style { theme: &self.theme, font, color, completed: completed && !note, highlights: &terms };
+        let code = !note && kind == BlockKind::Code;
+        let style = Style { theme: &self.theme, font, color, completed: completed && !note, highlights: &terms, code };
 
         if editing {
             let pieces = rich::build(&raw, true, &style);
@@ -76,6 +81,33 @@ impl Outline {
                 _ => (String::new(), Vec::new()),
             };
             let editor = self.editor_element(text, runs, self.theme.caret, self.theme.selection, cx);
+            // Live preview of the formulas in the line being edited.
+            let formulas: Vec<(String, bool)> = if code {
+                Vec::new()
+            } else {
+                markup::parse(&raw)
+                    .into_iter()
+                    .filter_map(|r| match r.kind {
+                        markup::Kind::Math { source, display } => Some((raw[source].to_string(), display)),
+                        _ => None,
+                    })
+                    .collect()
+            };
+            let preview = (!formulas.is_empty()).then(|| {
+                let theme = self.theme;
+                div()
+                    .mt(px(2.))
+                    .mb(px(2.))
+                    .px_2()
+                    .py(px(4.))
+                    .rounded_md()
+                    .bg(theme.code_bg)
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_4()
+                    .children(formulas.into_iter().map(|(src, display)| math(src, display).font_size(px(FONT_SIZE * MATH_SCALE)).color(theme.text)))
+            });
             return div()
                 .w_full()
                 .cursor_text()
@@ -125,6 +157,7 @@ impl Outline {
                     }),
                 )
                 .child(editor)
+                .children(preview)
                 .into_any_element();
         }
 
@@ -177,6 +210,14 @@ impl Outline {
                                 match c {
                                     Click::Tag(t) => return this.search_for(t, cx),
                                     Click::Link(u) => return cx.open_url(u),
+                                    Click::Node(n) => {
+                                        if this.tree.contains(*n) {
+                                            return this.zoom_to(*n, cx);
+                                        }
+                                        this.toast("That bullet was deleted (see Trash)");
+                                        return cx.notify();
+                                    }
+                                    Click::Date(date) => return this.search_for(&format!("date:{date}"), cx),
                                 }
                             }
                         }
@@ -243,34 +284,206 @@ impl Outline {
             .into_any_element()
     }
 
+    fn render_footer(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let links = if self.zoom != ROOT { self.tree.backlinks(self.zoom) } else { Vec::new() };
+        let mirrors = if self.zoom != ROOT { self.tree.mirrors_of(self.tree.source(self.zoom)) } else { Vec::new() };
+        let mut section = Vec::new();
+        for (title, ids) in [("Linked from", links), ("Mirrored in", mirrors)] {
+            if ids.is_empty() {
+                continue;
+            }
+            section.push(
+                div()
+                    .pt_4()
+                    .pb_1()
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.muted)
+                    .child(format!("{title} · {}", ids.len()))
+                    .into_any_element(),
+            );
+            for id in ids {
+                let label = crate::palette::node_label(self, id);
+                let target = if title == "Mirrored in" { self.tree.parent(id) } else { id };
+                let path = crate::palette::node_label(self, self.tree.parent(id));
+                section.push(
+                    div()
+                        .id(("backlink", id as usize))
+                        .flex()
+                        .gap_2()
+                        .py(px(2.))
+                        .cursor_pointer()
+                        .text_size(px(13.))
+                        .hover(|s| s.text_color(theme.link))
+                        .child(div().text_color(theme.faint).child("↖"))
+                        .child(div().overflow_hidden().whitespace_nowrap().child(label))
+                        .child(div().text_color(theme.faint).whitespace_nowrap().child(format!("in {path}")))
+                        .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(target, cx)))
+                        .into_any_element(),
+                );
+            }
+        }
+        div()
+            .id("footer")
+            .w_full()
+            .min_h(px(240.))
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .px(px(PAD_X + 24.))
+                    .children(section),
+            )
+            .child(div().flex_1().min_h(px(200.)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.append_child_and_edit(cx);
+                }),
+            )
+            .into_any_element()
+    }
+
+    /// The marker left of a bullet's text: dot, checkbox, number, …
+    fn render_marker(&mut self, id: NodeId, line_h: f32, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let node = self.tree.node(id);
+        let kind = node.kind;
+        let is_mirror = node.mirror != ROOT;
+        let src = self.tree.node(self.tree.source(id));
+        let completed = src.completed;
+        let has_kids = self.tree.has_children(self.tree.source(id));
+        let collapsed = node.collapsed;
+        let label: String = markup::plain_text(&src.text).chars().take(60).collect();
+        let base = div()
+            .id(("bullet", id as usize))
+            .flex_none()
+            .w(px(18.))
+            .h(px(line_h))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer();
+        let inner = match kind {
+            BlockKind::Todo => {
+                return base
+                    .child(
+                        div()
+                            .size(px(14.))
+                            .rounded(px(3.5))
+                            .border_1()
+                            .border_color(if completed { theme.accent } else { theme.muted })
+                            .when(completed, |d| d.bg(theme.accent))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(10.))
+                            .text_color(theme.bg)
+                            .child(if completed { "✓" } else { "" }),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_checkbox(id, cx)))
+                    .on_drag(DragNode { id, label }, move |drag, _, _, cx| cx.new(|_| DragPreview { label: drag.label.clone().into(), theme }))
+                    .into_any_element();
+            }
+            BlockKind::Numbered => {
+                let parent = self.tree.parent(id);
+                let sibs = self.tree.children(parent);
+                let ix = sibs.iter().position(|s| *s == id).unwrap_or(0);
+                let mut n = 1;
+                for s in sibs[..ix].iter().rev() {
+                    if self.tree.node(*s).kind == BlockKind::Numbered {
+                        n += 1;
+                    } else {
+                        break;
+                    }
+                }
+                div().text_size(px(13.)).text_color(theme.muted).child(format!("{n}.")).into_any_element()
+            }
+            BlockKind::Paragraph => div()
+                .size(px(5.))
+                .rounded_full()
+                .bg(theme.faint)
+                .opacity(0.)
+                .group_hover("row", |s| s.opacity(1.))
+                .into_any_element(),
+            _ => div()
+                .size(px(17.))
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .when(collapsed && has_kids, |d| d.bg(theme.bullet_ring))
+                .when(is_mirror, |d| d.border_1().border_color(theme.accent.opacity(0.7)))
+                .hover(|s| s.bg(theme.bullet_ring))
+                .child(div().size(px(6.)).rounded_full().bg(if completed { theme.faint } else { theme.bullet }))
+                .into_any_element(),
+        };
+        base.child(inner)
+            .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(id, cx)))
+            .on_drag(DragNode { id, label }, move |drag, _, _, cx| cx.new(|_| DragPreview { label: drag.label.clone().into(), theme }))
+            .into_any_element()
+    }
+
+    /// A deleted row shrinking out (no interaction).
+    fn render_ghost(&mut self, ix: usize) -> AnyElement {
+        let d = self.display[ix];
+        let real = self.tree.resolve(d.row.id);
+        let Some(node) = self.ghosts.get(&real) else { return div().into_any_element() };
+        let theme = self.theme;
+        let p = 1.0 - ease_out(self.anims.t(d.row.id, Channel::Leave).unwrap_or(1.0));
+        let left = PAD_X + d.row.depth as f32 * INDENT;
+        let est_h = LINE_H * (1.0 + (node.text.len() as f32 / 90.0).floor()) + 6.0;
+        div()
+            .w_full()
+            .opacity(p)
+            .max_h(px(est_h * p))
+            .overflow_hidden()
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .pl(px(left))
+                    .pr(px(PAD_X))
+                    .py(px(3.))
+                    .child(div().w(px(18.)).h(px(LINE_H)).flex().items_center().justify_center().child(div().size(px(6.)).rounded_full().bg(theme.faint)))
+                    .child(div().pl(px(6.)).text_color(theme.muted).child(markup::plain_text(&node.text))),
+            )
+            .into_any_element()
+    }
+
     fn render_row(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         if ix >= self.display.len() {
-            // Footer: clicking below the last bullet adds one.
-            return div()
-                .id("footer")
-                .w_full()
-                .h(px(240.))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.append_child_and_edit(cx);
-                    }),
-                )
-                .into_any_element();
+            return self.render_footer(cx);
         }
         let d = self.display[ix];
         let id = d.row.id;
-        let Some(node) = self.tree.get(id) else { return div().into_any_element() };
+        let Some(node) = self.tree.get(id) else { return self.render_ghost(ix) };
         let theme = self.theme;
         let depth = d.row.depth as f32;
-        let has_kids = self.tree.has_children(id);
+        let kind = node.kind;
         let collapsed = node.collapsed;
-        let completed = node.completed;
-        let has_note = !node.note.is_empty();
-        let text_len = node.text.len();
-        let label: String = markup::plain_text(&node.text).chars().take(60).collect();
+        let src_id = self.tree.source(id);
+        let has_kids = self.tree.has_children(src_id);
+        let src = self.tree.node(src_id);
+        let completed = src.completed;
+        let has_note = !src.note.is_empty();
+        let text_len = src.text.len();
         let editing_note = self.edit.as_ref().is_some_and(|e| e.target == Target::Note(id));
         let selected = self.block.is_some() && self.block_ids().contains(&id);
+        let (font_size, line_h) = match kind {
+            BlockKind::H1 => (22.0, 32.0),
+            BlockKind::H2 => (18.5, 28.0),
+            BlockKind::H3 => (16.5, 26.0),
+            BlockKind::Code => (13.0, 21.0),
+            _ => (FONT_SIZE, LINE_H),
+        };
+        let top_pad = match kind {
+            BlockKind::H1 => 8.0,
+            BlockKind::H2 => 6.0,
+            BlockKind::H3 => 4.0,
+            _ => 3.0,
+        };
 
         // Row grow/shrink animation.
         let mut p = 1.0;
@@ -280,7 +493,7 @@ impl Outline {
             p = ease_out(t);
         }
         let est_lines = 1.0 + (text_len as f32 / 90.0).floor();
-        let est_h = LINE_H * est_lines + 6.0 + if has_note { 20.0 } else { 0.0 };
+        let est_h = line_h * est_lines + top_pad + 3.0 + if has_note { 20.0 } else { 0.0 };
 
         // Completed fade.
         let done_p = self.anims.t(id, Channel::Complete).map(ease_out).unwrap_or(1.0);
@@ -293,6 +506,7 @@ impl Outline {
         let left = PAD_X + depth * INDENT;
         let text_el = self.render_text(id, false, window, cx);
         let note_el = (has_note || editing_note).then(|| self.render_text(id, true, window, cx));
+        let marker = self.render_marker(id, line_h, cx);
 
         let mut guides = Vec::new();
         for k in 0..d.row.depth {
@@ -322,45 +536,19 @@ impl Outline {
             }
         });
 
-        let bullet = div()
-            .id(("bullet", id as usize))
-            .flex_none()
-            .w(px(18.))
-            .h(px(LINE_H))
-            .flex()
-            .items_center()
-            .justify_center()
-            .cursor_pointer()
-            .child(
-                div()
-                    .size(px(17.))
-                    .rounded_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .when(collapsed && has_kids, |d| d.bg(theme.bullet_ring))
-                    .hover(|s| s.bg(theme.bullet_ring))
-                    .child(div().size(px(6.)).rounded_full().bg(if completed { theme.faint } else { theme.bullet })),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(id, cx)))
-            .on_drag(DragNode { id, label: label.clone() }, move |drag, _, _, cx| {
-                cx.new(|_| DragPreview { label: drag.label.clone().into(), theme })
-            });
-
         let chevron = div()
             .id(("chevron", id as usize))
             .absolute()
             .left(px(left - 20.))
-            .top_0()
+            .top(px(top_pad))
             .w(px(18.))
-            .h(px(LINE_H))
+            .h(px(line_h))
             .flex()
             .items_center()
             .justify_center()
             .cursor_pointer()
             .opacity(0.)
             .when(has_kids, |d| d.group_hover("row", |s| s.opacity(1.)))
-            .when(has_kids && collapsed, |d| d.opacity(0.0))
             .child(
                 svg()
                     .path("icons/chevron.svg")
@@ -372,6 +560,20 @@ impl Outline {
                 cx.stop_propagation();
                 this.toggle_fold(id, cx);
             }));
+
+        let content = div()
+            .flex_1()
+            .min_w_0()
+            .pl(px(6.))
+            .opacity(text_opacity)
+            .flex()
+            .flex_col()
+            .text_size(px(font_size))
+            .line_height(px(line_h))
+            .when(kind == BlockKind::Quote, |d| d.border_l_2().border_color(theme.quote_bar).pl(px(10.)))
+            .when(kind == BlockKind::Code, |d| d.bg(theme.code_bg).rounded_md().px_2().py(px(4.)))
+            .child(text_el)
+            .children(note_el.map(|n| div().text_size(px(13.)).line_height(px(20.)).child(n)));
 
         let row = div()
             .id(("row", id as usize))
@@ -386,23 +588,39 @@ impl Outline {
                     .items_start()
                     .pl(px(left))
                     .pr(px(PAD_X))
-                    .py(px(3.))
+                    .pt(px(top_pad))
+                    .pb(px(3.))
                     .when(selected, |d| d.bg(theme.row_selected))
                     .child(chevron)
-                    .child(bullet)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .pl(px(6.))
-                            .opacity(text_opacity)
-                            .flex()
-                            .flex_col()
-                            .child(text_el)
-                            .children(note_el.map(|n| div().text_size(px(13.)).line_height(px(20.)).child(n))),
-                    ),
+                    .child(marker)
+                    .child(content),
             )
             .children(drop_line)
+            .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
+                // Dragging a text selection onto another row selects whole bullets.
+                if ev.pressed_button != Some(MouseButton::Left) {
+                    return;
+                }
+                if let Some(e) = this.edit.as_ref() {
+                    if e.selecting_with_mouse {
+                        if let Target::Text(from) = e.target {
+                            if from != id && from != this.zoom && this.row_index(from).is_some() {
+                                this.block = Some(BlockSel { anchor: from, head: id });
+                                this.edit = None;
+                                this.mouse_block = true;
+                                cx.notify();
+                            }
+                        }
+                    }
+                } else if this.mouse_block {
+                    if let Some(b) = this.block.as_mut() {
+                        if b.head != id {
+                            b.head = id;
+                            cx.notify();
+                        }
+                    }
+                }
+            }))
             .on_drag_move(cx.listener(move |this, ev: &gpui::DragMoveEvent<DragNode>, _, cx| {
                 if ev.bounds.contains(&ev.event.position) {
                     let dragged = ev.drag(cx).id;
@@ -549,6 +767,42 @@ impl Render for Outline {
         window.set_window_title(&title);
 
         let zoom_p = self.zoom_tween.map(|t| ease_out(t.t())).unwrap_or(1.0);
+        let starred = self.zoom != ROOT && self.starred.contains(&self.zoom);
+        let tool = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .px(px(7.))
+                .py(px(2.))
+                .rounded_md()
+                .cursor_pointer()
+                .text_color(theme.muted)
+                .hover(|s| s.bg(theme.hover).text_color(theme.text))
+                .child(label)
+        };
+        let saved = !self.query.trim().is_empty() && self.saved_searches.iter().any(|q| q == self.query.trim());
+        let tools = div()
+            .flex()
+            .items_center()
+            .gap_1()
+            .when(self.zoom != ROOT, |d| {
+                d.child(
+                    tool("star", if starred { "★" } else { "☆" })
+                        .when(starred, |s| s.text_color(theme.colors[2]))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let z = this.zoom;
+                            this.star(z, cx);
+                        })),
+                )
+            })
+            .when(!self.query.trim().is_empty(), |d| {
+                d.child(
+                    tool("save-search", if saved { "Saved ✓" } else { "Save search" })
+                        .text_size(px(12.))
+                        .on_click(cx.listener(|this, _, window, cx| this.save_search(&SaveSearch, window, cx))),
+                )
+            })
+            .child(tool("calendar", "◷").on_click(cx.listener(|this, _, window, cx| this.show_calendar(&ShowCalendar, window, cx))))
+            .child(self.render_search(window, cx));
         let header = div()
             .flex()
             .items_center()
@@ -558,12 +812,43 @@ impl Render for Outline {
             .pt(px(10.))
             .pb(px(6.))
             .child(self.render_breadcrumbs(cx))
-            .child(self.render_search(window, cx));
-        let title_el = self.render_title(window, cx);
+            .child(tools);
+        let title_el = if self.trash.is_some() { None } else { self.render_title(window, cx) };
 
         let entity = cx.entity();
-        let body = list(self.list.clone(), move |ix, window, cx| entity.update(cx, |this, cx| this.render_row(ix, window, cx)))
-            .size_full();
+        let body: AnyElement = if self.trash.is_some() {
+            self.render_trash(cx)
+        } else {
+            list(self.list.clone(), move |ix, window, cx| entity.update(cx, |this, cx| this.render_row(ix, window, cx)))
+                .size_full()
+                .into_any_element()
+        };
+        let palette = self.render_palette(window, cx);
+        let inline = self.render_inline(cx);
+        let calendar = self.render_calendar(cx);
+        let toast = self.toast.as_ref().filter(|(_, t)| !t.done()).map(|(msg, t)| {
+            let tt = t.t();
+            let o = if tt < 0.08 { tt / 0.08 } else if tt > 0.85 { (1.0 - tt) / 0.15 } else { 1.0 };
+            div()
+                .absolute()
+                .bottom(px(22.))
+                .left_0()
+                .right_0()
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .px_3()
+                        .py(px(6.))
+                        .rounded_lg()
+                        .bg(theme.text)
+                        .text_color(theme.bg)
+                        .text_size(px(13.))
+                        .shadow_md()
+                        .opacity(o)
+                        .child(msg.clone()),
+                )
+        });
 
         let empty_hint = (self.rows.is_empty() && !self.query.is_empty()).then(|| {
             div().px(px(PAD_X + 24.)).py_4().text_color(theme.muted).child(format!("No bullets match “{}”", self.query))
@@ -631,6 +916,43 @@ impl Render for Outline {
             .on_action(cx.listener(Self::find))
             .on_action(cx.listener(Self::escape))
             .on_action(cx.listener(Self::toggle_completed_visible))
+            .on_action(cx.listener(Self::jump))
+            .on_action(cx.listener(Self::move_to_action))
+            .on_action(cx.listener(Self::link_to_bullet))
+            .on_action(cx.listener(Self::mirror_bullet))
+            .on_action(cx.listener(Self::toggle_star))
+            .on_action(cx.listener(Self::expand_all))
+            .on_action(cx.listener(Self::level1))
+            .on_action(cx.listener(Self::level2))
+            .on_action(cx.listener(Self::level3))
+            .on_action(cx.listener(Self::level4))
+            .on_action(cx.listener(Self::import))
+            .on_action(cx.listener(Self::export_opml))
+            .on_action(cx.listener(Self::export_markdown))
+            .on_action(cx.listener(Self::export_text))
+            .on_action(cx.listener(Self::show_trash))
+            .on_action(cx.listener(Self::save_search))
+            .on_action(cx.listener(Self::highlight))
+            .on_action(cx.listener(Self::kind_bullet))
+            .on_action(cx.listener(Self::kind_h1))
+            .on_action(cx.listener(Self::kind_h2))
+            .on_action(cx.listener(Self::kind_h3))
+            .on_action(cx.listener(Self::kind_paragraph))
+            .on_action(cx.listener(Self::kind_todo))
+            .on_action(cx.listener(Self::kind_numbered))
+            .on_action(cx.listener(Self::kind_quote))
+            .on_action(cx.listener(Self::kind_code))
+            .on_action(cx.listener(Self::today))
+            .on_action(cx.listener(Self::next_match))
+            .on_action(cx.listener(Self::prev_match))
+            .on_action(cx.listener(Self::show_calendar))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| {
+                this.mouse_block = false;
+                if let Some(e) = this.edit.as_mut() {
+                    e.selecting_with_mouse = false;
+                }
+            }))
+            .relative()
             .child(header)
             .child(
                 div()
@@ -646,6 +968,103 @@ impl Render for Outline {
                     .child(div().flex_1().min_h_0().child(body))
                     .on_drop(cx.listener(|this, drag: &DragNode, _, cx| this.perform_drop(drag.id, cx))),
             )
+            .children(inline)
+            .children(calendar)
+            .children(palette)
+            .children(toast)
+    }
+}
+
+impl Outline {
+    fn render_trash(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let entries = self.trash.clone().unwrap_or_default();
+        let now = flowie_core::tree::now_millis();
+        let ago = |t: i64| {
+            let m = (now - t) / 60_000;
+            if m < 1 {
+                "just now".to_string()
+            } else if m < 60 {
+                format!("{m} min ago")
+            } else if m < 60 * 24 {
+                format!("{} h ago", m / 60)
+            } else {
+                format!("{} days ago", m / 60 / 24)
+            }
+        };
+        let rows = entries.into_iter().map(|e| {
+            let seq = e.seq;
+            let count = e.nodes.len();
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .py(px(6.))
+                .border_b_1()
+                .border_color(theme.border)
+                .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(if e.label.is_empty() { "Untitled".to_string() } else { e.label.clone() }))
+                .child(div().text_size(px(12.)).text_color(theme.muted).whitespace_nowrap().child(format!(
+                    "{} bullet{} · {}",
+                    count,
+                    if count == 1 { "" } else { "s" },
+                    ago(e.deleted_at)
+                )))
+                .child(
+                    div()
+                        .id(("restore", seq as usize))
+                        .px_2()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .text_color(theme.link)
+                        .hover(|s| s.bg(theme.hover))
+                        .child("Restore")
+                        .on_click(cx.listener(move |this, _, _, cx| this.restore_trash(seq, cx))),
+                )
+                .child(
+                    div()
+                        .id(("purge", seq as usize))
+                        .px_2()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .text_color(theme.muted)
+                        .hover(|s| s.bg(theme.hover).text_color(theme.colors[0]))
+                        .child("Delete forever")
+                        .on_click(cx.listener(move |this, _, _, cx| this.purge_trash(seq, cx))),
+                )
+        });
+        let empty = self.trash.as_ref().is_some_and(|t| t.is_empty());
+        div()
+            .id("trash")
+            .size_full()
+            .overflow_y_scroll()
+            .px(px(PAD_X + 24.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .pt_2()
+                    .pb_3()
+                    .child(div().text_size(px(TITLE_SIZE)).font_weight(FontWeight::BOLD).child("Trash"))
+                    .child(
+                        div()
+                            .id("trash-back")
+                            .px_2()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .text_color(theme.muted)
+                            .hover(|s| s.bg(theme.hover))
+                            .child("Back (Esc)")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.trash = None;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(div().text_size(px(12.)).text_color(theme.muted).pb_2().child("Deleted bullets are kept for 30 days."))
+            .when(empty, |d| d.child(div().py_4().text_color(theme.muted).child("Trash is empty.")))
+            .children(rows)
+            .into_any_element()
     }
 }
 

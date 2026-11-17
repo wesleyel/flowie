@@ -13,6 +13,8 @@ use crate::theme::Theme;
 pub enum Click {
     Tag(String),
     Link(String),
+    Node(u64),
+    Date(String),
 }
 
 /// A piece of displayed content.
@@ -36,6 +38,8 @@ pub struct Style<'a> {
     pub color: Hsla,
     pub completed: bool,
     pub highlights: &'a [String],
+    /// Code blocks: no markup, monospace.
+    pub code: bool,
 }
 
 fn code_font() -> Font {
@@ -99,7 +103,8 @@ impl<'a> Builder<'a> {
     }
 }
 
-fn template(style: &Style, bold: bool, italic: bool, strike: bool) -> TextRun {
+fn template(style: &Style, run: &markup::Run) -> TextRun {
+    let (bold, italic, strike) = (run.bold, run.italic, run.strike);
     let mut font = style.font.clone();
     if bold {
         font.weight = FontWeight::BOLD;
@@ -107,11 +112,15 @@ fn template(style: &Style, bold: bool, italic: bool, strike: bool) -> TextRun {
     if italic {
         font.style = FontStyle::Italic;
     }
+    let color = match run.color {
+        Some(c) if !style.completed => style.theme.colors[c as usize % 7],
+        _ => style.color,
+    };
     TextRun {
         len: 0,
         font,
-        color: style.color,
-        background_color: None,
+        color,
+        background_color: run.highlight.then_some(style.theme.mark),
         underline: None,
         strikethrough: (strike || style.completed).then(|| StrikethroughStyle { thickness: gpui::px(1.), color: Some(style.color) }),
     }
@@ -131,8 +140,18 @@ pub fn build(raw: &str, edit: bool, style: &Style) -> Vec<Piece> {
         map: Vec::new(),
         clicks: Vec::new(),
     };
+    if style.code {
+        let mut t = template(style, &markup::Run { range: 0..raw.len(), kind: Kind::Text, bold: false, italic: false, strike: false, highlight: false, color: None });
+        t.font = code_font();
+        b.push(0..raw.len(), &t, None);
+        b.flush_text();
+        if b.pieces.is_empty() && edit {
+            b.pieces.push(Piece::Text { text: String::new(), runs: Vec::new(), map: Vec::new(), clicks: Vec::new() });
+        }
+        return b.pieces;
+    }
     for run in markup::parse(raw) {
-        let mut t = template(style, run.bold, run.italic, run.strike);
+        let mut t = template(style, &run);
         match &run.kind {
             Kind::Text => b.push(run.range, &t, None),
             Kind::Marker => {
@@ -158,8 +177,26 @@ pub fn build(raw: &str, edit: bool, style: &Style) -> Vec<Piece> {
             }
             Kind::Link { url } => {
                 t.color = theme.link;
-                t.underline = Some(UnderlineStyle { thickness: gpui::px(1.), color: Some(theme.link.opacity(0.4)), wavy: false });
-                b.push(run.range, &t, Some(Click::Link(url.clone())));
+                let internal = url.strip_prefix("flowie:").and_then(|id| id.parse::<u64>().ok());
+                t.underline = Some(UnderlineStyle {
+                    thickness: gpui::px(1.),
+                    color: Some(theme.link.opacity(if internal.is_some() { 0.0 } else { 0.4 })),
+                    wavy: false,
+                });
+                if internal.is_some() {
+                    t.background_color = Some(theme.link.opacity(0.08));
+                }
+                let click = match internal {
+                    Some(id) => Click::Node(id),
+                    None => Click::Link(url.clone()),
+                };
+                b.push(run.range, &t, Some(click));
+            }
+            Kind::Date => {
+                t.color = theme.date;
+                t.background_color = Some(theme.date_bg);
+                let d = raw[run.range.clone()].to_string();
+                b.push(run.range, &t, Some(Click::Date(d)));
             }
             Kind::Tag | Kind::Mention => {
                 t.color = theme.tag;

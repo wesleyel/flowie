@@ -23,7 +23,16 @@ CREATE TABLE IF NOT EXISTS nodes (
     completed INTEGER NOT NULL DEFAULT 0,
     collapsed INTEGER NOT NULL DEFAULT 0,
     created   INTEGER NOT NULL,
-    modified  INTEGER NOT NULL
+    modified  INTEGER NOT NULL,
+    kind      INTEGER NOT NULL DEFAULT 0,
+    mirror    INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS trash (
+    seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+    root       INTEGER NOT NULL,
+    deleted_at INTEGER NOT NULL,
+    label      TEXT    NOT NULL,
+    payload    TEXT    NOT NULL
 );
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
@@ -42,7 +51,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
 
 pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, String)>)> {
     let mut stmt = conn.prepare(
-        "SELECT id, parent, rank, text, note, completed, collapsed, created, modified FROM nodes",
+        "SELECT id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror FROM nodes",
     )?;
     let nodes = stmt
         .query_map([], |r| {
@@ -56,6 +65,8 @@ pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, Stri
                 collapsed: r.get::<_, i64>(6)? != 0,
                 created: r.get(7)?,
                 modified: r.get(8)?,
+                kind: crate::tree::BlockKind::from_u8(r.get::<_, i64>(9)? as u8),
+                mirror: r.get::<_, i64>(10)? as NodeId,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -75,10 +86,10 @@ pub fn write_batch(
     let tx = conn.transaction()?;
     {
         let mut up = tx.prepare_cached(
-            "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(id) DO UPDATE SET parent=?2, rank=?3, text=?4, note=?5,
-               completed=?6, collapsed=?7, modified=?9",
+               completed=?6, collapsed=?7, modified=?9, kind=?10, mirror=?11",
         )?;
         for n in upserts {
             up.execute(params![
@@ -90,7 +101,9 @@ pub fn write_batch(
                 n.completed as i64,
                 n.collapsed as i64,
                 n.created,
-                n.modified
+                n.modified,
+                n.kind.to_u8() as i64,
+                n.mirror as i64
             ])?;
         }
         let mut del = tx.prepare_cached("DELETE FROM nodes WHERE id = ?1")?;
@@ -107,8 +120,39 @@ pub fn write_batch(
     tx.commit()
 }
 
+/// A deleted subtree kept for restoring.
+#[derive(Debug, Clone)]
+pub struct TrashEntry {
+    pub seq: i64,
+    pub root: NodeId,
+    pub deleted_at: i64,
+    pub label: String,
+    /// The root first, then descendants (parents before children).
+    pub nodes: Vec<Node>,
+}
+
+/// Trash entries, newest first. Entries older than `keep_days` are purged.
+pub fn list_trash(conn: &Connection, keep_days: i64) -> rusqlite::Result<Vec<TrashEntry>> {
+    let cutoff = crate::tree::now_millis() - keep_days * 86_400_000;
+    conn.execute("DELETE FROM trash WHERE deleted_at < ?1", params![cutoff])?;
+    let mut stmt = conn.prepare("SELECT seq, root, deleted_at, label, payload FROM trash ORDER BY seq DESC")?;
+    let rows = stmt.query_map([], |r| {
+        let payload: String = r.get(4)?;
+        Ok(TrashEntry {
+            seq: r.get(0)?,
+            root: r.get::<_, i64>(1)? as NodeId,
+            deleted_at: r.get(2)?,
+            label: r.get(3)?,
+            nodes: serde_json::from_str(&payload).unwrap_or_default(),
+        })
+    })?;
+    rows.collect()
+}
+
 enum Msg {
     Write { upserts: Vec<Node>, deletes: Vec<NodeId> },
+    Trash { root: NodeId, label: String, nodes: Vec<Node> },
+    Untrash(i64),
     Meta(String, String),
     Flush(Sender<()>),
 }
@@ -135,6 +179,20 @@ impl Writer {
         }
         if let Some(tx) = &self.tx {
             let _ = tx.send(Msg::Write { upserts, deletes });
+        }
+    }
+
+    /// Keep a copy of a deleted subtree (root first) in the trash.
+    pub fn trash(&self, root: NodeId, label: &str, nodes: Vec<Node>) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::Trash { root, label: label.to_string(), nodes });
+        }
+    }
+
+    /// Remove a trash entry (after restoring it or deleting it for good).
+    pub fn untrash(&self, seq: i64) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::Untrash(seq));
         }
     }
 
@@ -203,6 +261,20 @@ fn writer_loop(path: PathBuf, rx: Receiver<Msg>) {
                     pending_del.insert(id);
                 }
                 deadline.get_or_insert(Instant::now() + Duration::from_millis(200));
+            }
+            Some(Msg::Trash { root, label, nodes }) => {
+                // Make sure earlier writes land first, then record the trash entry.
+                commit(&mut conn, &mut pending_up, &mut pending_del, &mut pending_meta);
+                let payload = serde_json::to_string(&nodes).unwrap_or_default();
+                if let Err(e) = conn.execute(
+                    "INSERT INTO trash (root, deleted_at, label, payload) VALUES (?1, ?2, ?3, ?4)",
+                    params![root as i64, crate::tree::now_millis(), label, payload],
+                ) {
+                    eprintln!("flowie: trash write failed: {e}");
+                }
+            }
+            Some(Msg::Untrash(seq)) => {
+                let _ = conn.execute("DELETE FROM trash WHERE seq = ?1", params![seq]);
             }
             Some(Msg::Meta(k, v)) => {
                 pending_meta.retain(|(key, _)| *key != k);

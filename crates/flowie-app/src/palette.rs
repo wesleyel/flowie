@@ -1,0 +1,341 @@
+//! Pickers: a modal palette (jump to a bullet, move to, link to, mirror)
+//! and an inline popup at the caret (slash commands, tag/link completion).
+
+use flowie_core::{markup, BlockKind, NodeId, ROOT};
+use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, SharedString, Window};
+
+use crate::outline::{Edit, Outline, Target};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Mode {
+    /// ⌘P: go to a bullet (starred first) or run a saved search.
+    Jump,
+    /// ⌘⇧M: move these bullets under the chosen one.
+    MoveTo(Vec<NodeId>),
+    /// Insert a link to the chosen bullet into `node` at `at`.
+    LinkTo { node: NodeId, at: usize },
+    /// Create a mirror of the chosen bullet after `after`.
+    Mirror { after: NodeId },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InlineKind {
+    Slash,
+    /// `#` or `@` completion.
+    Tag(char),
+    /// `[[` link completion.
+    Link,
+}
+
+/// An inline popup tied to text typed in a bullet: the trigger starts at `start`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Inline {
+    pub kind: InlineKind,
+    pub node: NodeId,
+    pub start: usize,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Action {
+    Node(NodeId),
+    Search(String),
+    Kind(BlockKind),
+    Wrap(&'static str, &'static str),
+    Color(&'static str),
+    InsertText(String),
+    Complete,
+    Note,
+    OpenLink,
+    OpenMirror,
+    OpenMove,
+    Today,
+}
+
+#[derive(Debug, Clone)]
+pub struct Entry {
+    pub label: String,
+    pub detail: String,
+    pub icon: &'static str,
+    pub action: Action,
+}
+
+pub struct Palette {
+    pub mode: Mode,
+    pub query: String,
+    pub selected: usize,
+    pub entries: Vec<Entry>,
+    /// Where the caret was before opening, restored on close.
+    pub return_to: Option<(Target, usize)>,
+}
+
+fn path_label(o: &Outline, id: NodeId) -> String {
+    let parts: Vec<String> = o
+        .tree
+        .ancestors(id)
+        .into_iter()
+        .map(|a| markup::plain_text(&o.tree.node(o.tree.source(a)).text).chars().take(24).collect::<String>())
+        .collect();
+    if parts.is_empty() {
+        "Home".into()
+    } else {
+        parts.join(" › ")
+    }
+}
+
+pub fn node_label(o: &Outline, id: NodeId) -> String {
+    if id == ROOT {
+        return "Home".into();
+    }
+    let t = markup::plain_text(&o.tree.node(o.tree.source(id)).text);
+    if t.trim().is_empty() {
+        "Untitled".into()
+    } else {
+        t
+    }
+}
+
+impl Outline {
+    /// Bullets matching `query` (every word must appear), best matches first.
+    pub fn search_nodes(&self, query: &str, limit: usize, exclude: &[NodeId]) -> Vec<NodeId> {
+        let words: Vec<String> = query.split_whitespace().map(|w| w.to_lowercase()).collect();
+        let mut scored: Vec<(i64, NodeId)> = Vec::new();
+        for n in self.tree.nodes() {
+            if n.mirror != ROOT || exclude.iter().any(|e| *e == n.id || self.tree.is_ancestor(*e, n.id)) {
+                continue;
+            }
+            if n.text.is_empty() {
+                continue;
+            }
+            let text = n.text.to_lowercase();
+            if !words.iter().all(|w| text.contains(w.as_str())) {
+                continue;
+            }
+            let mut score = 0i64;
+            if self.starred.contains(&n.id) {
+                score -= 1_000_000;
+            }
+            if let Some(first) = words.first() {
+                if text.starts_with(first.as_str()) {
+                    score -= 10_000;
+                }
+            }
+            score += n.text.len() as i64 + self.tree.ancestors(n.id).len() as i64 * 8;
+            score -= (n.modified / 3_600_000) % 1000; // mild recency bias
+            scored.push((score, n.id));
+        }
+        scored.sort_unstable();
+        scored.into_iter().take(limit).map(|(_, id)| id).collect()
+    }
+
+    pub fn open_palette(&mut self, mode: Mode, cx: &mut Context<Self>) {
+        let return_to = self.edit.as_ref().map(|e| (e.target, e.caret()));
+        self.palette = Some(Palette { mode, query: String::new(), selected: 0, entries: Vec::new(), return_to });
+        self.inline = None;
+        self.block_saved = self.block.take();
+        self.edit = Some(Edit::new(Target::Palette, 0));
+        self.refresh_palette();
+        cx.notify();
+    }
+
+    pub fn refresh_palette(&mut self) {
+        let Some(p) = self.palette.as_ref() else { return };
+        let q = p.query.clone();
+        let mode = p.mode.clone();
+        let mut entries = Vec::new();
+        match &mode {
+            Mode::Jump => {
+                if q.trim().is_empty() {
+                    entries.push(Entry { label: "Home".into(), detail: String::new(), icon: "⌂", action: Action::Node(ROOT) });
+                    for &id in &self.starred {
+                        if self.tree.contains(id) {
+                            entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "★", action: Action::Node(id) });
+                        }
+                    }
+                    for s in &self.saved_searches {
+                        entries.push(Entry { label: s.clone(), detail: "Saved search".into(), icon: "⌕", action: Action::Search(s.clone()) });
+                    }
+                } else {
+                    for s in self.saved_searches.iter().filter(|s| s.to_lowercase().contains(&q.to_lowercase())) {
+                        entries.push(Entry { label: s.clone(), detail: "Saved search".into(), icon: "⌕", action: Action::Search(s.clone()) });
+                    }
+                    for id in self.search_nodes(&q, 40, &[]) {
+                        let icon = if self.starred.contains(&id) { "★" } else { "•" };
+                        entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon, action: Action::Node(id) });
+                    }
+                    entries.push(Entry { label: format!("Search for “{q}”"), detail: "Filter the outline".into(), icon: "⌕", action: Action::Search(q.clone()) });
+                }
+            }
+            Mode::MoveTo(ids) => {
+                if q.trim().is_empty() || "home".contains(&q.to_lowercase()) {
+                    entries.push(Entry { label: "Home".into(), detail: "Top level".into(), icon: "⌂", action: Action::Node(ROOT) });
+                }
+                for id in self.search_nodes(&q, 40, ids) {
+                    entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "→", action: Action::Node(id) });
+                }
+            }
+            Mode::LinkTo { .. } | Mode::Mirror { .. } => {
+                let exclude: Vec<NodeId> = match &mode {
+                    Mode::Mirror { after } => self.tree.ancestors(*after),
+                    _ => Vec::new(),
+                };
+                let ids = if q.trim().is_empty() {
+                    self.starred.iter().copied().filter(|id| self.tree.contains(*id)).collect()
+                } else {
+                    self.search_nodes(&q, 40, &[])
+                };
+                for id in ids.into_iter().filter(|id| !exclude.contains(id)) {
+                    entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "↗", action: Action::Node(id) });
+                }
+            }
+        }
+        let p = self.palette.as_mut().unwrap();
+        p.selected = p.selected.min(entries.len().saturating_sub(1));
+        p.entries = entries;
+    }
+
+    pub fn close_palette(&mut self, cx: &mut Context<Self>) {
+        if let Some(p) = self.palette.take() {
+            self.edit = p.return_to.filter(|(t, _)| match t {
+                Target::Text(id) | Target::Note(id) => self.tree.contains(*id),
+                _ => true,
+            })
+            .map(|(t, off)| Edit::new(t, off));
+            if self.edit.is_none() {
+                self.block = self.block_saved.take();
+            }
+        }
+        cx.notify();
+    }
+
+    pub fn palette_move(&mut self, delta: isize, cx: &mut Context<Self>) -> bool {
+        if let Some(p) = self.palette.as_mut() {
+            let n = p.entries.len() as isize;
+            if n > 0 {
+                p.selected = ((p.selected as isize + delta).rem_euclid(n)) as usize;
+            }
+            cx.notify();
+            return true;
+        }
+        if let Some(i) = self.inline.as_mut() {
+            let n = self.inline_entries_len as isize;
+            if n > 0 {
+                i.selected = ((i.selected as isize + delta).rem_euclid(n)) as usize;
+            }
+            cx.notify();
+            return true;
+        }
+        false
+    }
+
+    pub fn palette_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if let Some(p) = self.palette.as_ref() {
+            let Some(entry) = p.entries.get(p.selected).cloned() else {
+                self.close_palette(cx);
+                return true;
+            };
+            let mode = p.mode.clone();
+            self.close_palette(cx);
+            self.run_palette(mode, entry.action, window, cx);
+            return true;
+        }
+        if self.inline.is_some() {
+            return self.inline_confirm(None, window, cx);
+        }
+        false
+    }
+
+    pub fn palette_click(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(p) = self.palette.as_mut() {
+            p.selected = ix;
+            self.palette_confirm(window, cx);
+        }
+    }
+
+    fn run_palette(&mut self, mode: Mode, action: Action, window: &mut Window, cx: &mut Context<Self>) {
+        match (mode, action) {
+            (Mode::Jump, Action::Node(id)) => {
+                if id == ROOT || self.tree.has_children(self.tree.source(id)) || self.starred.contains(&id) {
+                    self.zoom_to(id, cx);
+                } else {
+                    // Leaf: show it in its parent with the caret on it.
+                    let parent = self.tree.parent(id);
+                    self.zoom_to(parent, cx);
+                    let len = self.tree.node(id).text.len();
+                    self.start_edit(Target::Text(id), len, cx);
+                }
+            }
+            (_, Action::Search(q)) => self.search_for(&q, cx),
+            (Mode::MoveTo(ids), Action::Node(target)) => self.move_nodes_to(&ids, target, cx),
+            (Mode::LinkTo { node, at }, Action::Node(target)) => self.insert_link_to(node, at, target, cx),
+            (Mode::Mirror { after }, Action::Node(source)) => self.insert_mirror(after, source, cx),
+            (_, other) => self.run_action(other, window, cx),
+        }
+    }
+
+    pub fn render_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let p = self.palette.as_ref()?;
+        let theme = self.theme;
+        let title = match p.mode {
+            Mode::Jump => "Go to",
+            Mode::MoveTo(_) => "Move to",
+            Mode::LinkTo { .. } => "Link to bullet",
+            Mode::Mirror { .. } => "Mirror bullet",
+        };
+        let selected = p.selected;
+        let entries = p.entries.clone();
+        let query = p.query.clone();
+        let (font, _) = (window.text_style().font(), ());
+        let run = gpui::TextRun { len: query.len(), font, color: theme.text, background_color: None, underline: None, strikethrough: None };
+        let input = self.editor_element(query.clone(), vec![run], theme.caret, theme.selection, cx);
+        let placeholder = query.is_empty().then(|| div().absolute().top_0().left_0().text_color(theme.faint).child("Type to search bullets…"));
+        let rows = entries.into_iter().enumerate().take(12).map(|(i, e)| {
+            div()
+                .id(("palette", i))
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py(px(5.))
+                .rounded_md()
+                .cursor_pointer()
+                .when(i == selected, |d| d.bg(theme.row_selected))
+                .hover(|s| s.bg(theme.hover))
+                .child(div().w(px(16.)).text_color(theme.muted).child(e.icon))
+                .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(e.label))
+                .child(div().max_w(px(220.)).overflow_hidden().whitespace_nowrap().text_size(px(12.)).text_color(theme.muted).child(e.detail))
+                .on_click(cx.listener(move |this, _, window, cx| this.palette_click(i, window, cx)))
+        });
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_start()
+                .justify_center()
+                .bg(gpui::black().opacity(0.12))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close_palette(cx)))
+                .child(
+                    div()
+                        .id("palette-card")
+                        .mt(px(90.))
+                        .w(px(580.))
+                        .max_h(px(470.))
+                        .flex()
+                        .flex_col()
+                        .bg(theme.bg)
+                        .border_1()
+                        .border_color(theme.border)
+                        .rounded_lg()
+                        .shadow_lg()
+                        .p_2()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(div().px_3().pt_1().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted).child(SharedString::from(title)))
+                        .child(div().relative().mx_3().my_2().child(input).children(placeholder))
+                        .child(div().h(px(1.)).bg(theme.border).mb_1())
+                        .children(rows),
+                )
+                .into_any_element(),
+        )
+    }
+}

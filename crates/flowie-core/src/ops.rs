@@ -6,6 +6,8 @@ use crate::tree::{Node, NodeId, Tree, ROOT};
 impl Tree {
     /// Create an empty node at `index` among `parent`'s children.
     pub fn create_at(&mut self, parent: NodeId, index: usize, text: &str) -> NodeId {
+        // New children of a mirror go into its source.
+        let parent = self.source(parent);
         let rank = self.rank_at(parent, index);
         let id = self.alloc_id();
         let mut node = Node::new(id, parent, rank);
@@ -107,6 +109,7 @@ impl Tree {
     /// Move `id` (with its subtree) to `index` among `new_parent`'s children.
     /// Returns false if the move is impossible (into its own subtree).
     pub fn move_to(&mut self, id: NodeId, new_parent: NodeId, index: usize) -> bool {
+        let (id, new_parent) = (self.resolve(id), self.resolve(new_parent));
         if id == ROOT || id == new_parent || self.is_ancestor(id, new_parent) {
             return false;
         }
@@ -192,6 +195,7 @@ impl Tree {
 
     /// Delete a node and its whole subtree.
     pub fn delete(&mut self, id: NodeId) {
+        let id = self.resolve(id);
         if id == ROOT || !self.contains(id) {
             return;
         }
@@ -203,101 +207,101 @@ impl Tree {
         self.remove(id);
     }
 
-    /// Plain-text export of nodes and their subtrees, indented with tabs.
-    /// Completed nodes are prefixed with "[x] ", notes go on a `  "` line.
+    /// Markdown-style indented text of nodes and their subtrees.
     pub fn to_indented_text(&self, ids: &[NodeId]) -> String {
-        let mut out = String::new();
-        for &id in ids {
-            self.write_indented(id, 0, &mut out);
+        crate::io::to_markdown(&self.to_items(ids))
+    }
+
+    /// Insert indented text / Markdown / OPML as new nodes at `index` under
+    /// `parent`. Returns the top-level new ids.
+    pub fn insert_indented_text(&mut self, parent: NodeId, index: usize, text: &str) -> Vec<NodeId> {
+        let items = crate::io::parse_any(text);
+        self.insert_items(parent, index, &items)
+    }
+
+    /// The node whose content `id` shows: itself, or the source of a mirror.
+    pub fn source(&self, id: NodeId) -> NodeId {
+        let id = self.resolve(id);
+        match self.get(id) {
+            Some(n) if n.mirror != ROOT && self.contains(n.mirror) => n.mirror,
+            _ => id,
         }
+    }
+
+    /// Mirrors of `id` (nodes that show its content).
+    pub fn mirrors_of(&self, id: NodeId) -> Vec<NodeId> {
+        self.nodes().filter(|n| n.mirror == id).map(|n| n.id).collect()
+    }
+
+    pub fn set_kind(&mut self, id: NodeId, kind: crate::tree::BlockKind) {
+        if self.node(id).kind != kind {
+            let mut node = self.node(id).clone();
+            node.kind = kind;
+            self.put(node);
+        }
+    }
+
+    /// Create a mirror of `source` at `index` under `parent`.
+    pub fn create_mirror(&mut self, source: NodeId, parent: NodeId, index: usize) -> Option<NodeId> {
+        let source = self.source(source);
+        if source == ROOT || parent == source || self.is_ancestor(source, parent) {
+            return None;
+        }
+        let id = self.create_at(parent, index, "");
+        let mut node = self.node(id).clone();
+        node.mirror = source;
+        node.kind = self.node(source).kind;
+        self.put(node);
+        Some(id)
+    }
+
+    /// Copies of `id` and its subtree, root first (for the trash).
+    pub fn subtree_nodes(&self, id: NodeId) -> Vec<Node> {
+        let mut out = vec![self.node(id).clone()];
+        out.extend(self.descendants(id).into_iter().map(|d| self.node(d).clone()));
         out
     }
 
-    fn write_indented(&self, id: NodeId, depth: usize, out: &mut String) {
-        let node = self.node(id);
-        for _ in 0..depth {
-            out.push('\t');
+    /// Put back nodes from the trash. Nodes that still exist are skipped; a
+    /// root whose parent is gone goes to the end of the top level.
+    pub fn restore(&mut self, nodes: &[Node]) -> Option<NodeId> {
+        let root = nodes.first()?.clone();
+        if self.contains(root.id) {
+            return None;
         }
-        out.push_str("- ");
-        if node.completed {
-            out.push_str("[x] ");
+        let mut r = root.clone();
+        if !self.contains(r.parent) {
+            r.parent = ROOT;
+            r.rank = self.rank_at(ROOT, self.children(ROOT).len());
         }
-        out.push_str(&node.text);
-        out.push('\n');
-        if !node.note.is_empty() {
-            for line in node.note.lines() {
-                for _ in 0..=depth {
-                    out.push('\t');
-                }
-                out.push_str("  ");
-                out.push_str(line);
-                out.push('\n');
+        self.put(r);
+        for n in &nodes[1..] {
+            if !self.contains(n.id) && self.contains(n.parent) {
+                self.put(n.clone());
             }
         }
-        for &kid in self.children(id) {
-            self.write_indented(kid, depth + 1, out);
+        Some(root.id)
+    }
+
+    /// Show `levels` levels below `root`: deeper nodes with children are
+    /// collapsed, shallower ones expanded. `usize::MAX` expands everything.
+    pub fn expand_to_level(&mut self, root: NodeId, levels: usize) {
+        let mut stack: Vec<(NodeId, usize)> = self.children(root).iter().map(|&c| (c, 1)).collect();
+        while let Some((id, depth)) = stack.pop() {
+            if !self.has_children(id) {
+                continue;
+            }
+            let collapse = depth >= levels;
+            self.set_collapsed(id, collapse);
+            stack.extend(self.children(id).iter().map(|&c| (c, depth + 1)));
         }
     }
 
-    /// Insert indented text (tabs, or 2/4 spaces, optional "- " / "* " bullets)
-    /// as new nodes at `index` under `parent`. Returns the top-level new ids.
-    pub fn insert_indented_text(&mut self, parent: NodeId, index: usize, text: &str) -> Vec<NodeId> {
-        let lines: Vec<(usize, String)> = text
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| {
-                let expanded = l.replace('\t', "    ");
-                let indent = expanded.len() - expanded.trim_start().len();
-                (indent, expanded.trim().to_string())
-            })
-            .collect();
-        if lines.is_empty() {
-            return Vec::new();
-        }
-        let min_indent = lines.iter().map(|(i, _)| *i).min().unwrap_or(0);
-        let mut top = Vec::new();
-        // Stack of (indent, node id).
-        let mut stack: Vec<(usize, NodeId)> = Vec::new();
-        let mut next_top_index = index;
-        for (indent, raw) in lines {
-            let indent = indent - min_indent;
-            let mut content = raw.as_str();
-            for bullet in ["- ", "* ", "• "] {
-                if let Some(rest) = content.strip_prefix(bullet) {
-                    content = rest;
-                    break;
-                }
-            }
-            let mut completed = false;
-            for done in ["[x] ", "[X] "] {
-                if let Some(rest) = content.strip_prefix(done) {
-                    content = rest;
-                    completed = true;
-                }
-            }
-            if let Some(rest) = content.strip_prefix("[ ] ") {
-                content = rest;
-            }
-            while stack.last().is_some_and(|(i, _)| *i >= indent) {
-                stack.pop();
-            }
-            let id = match stack.last() {
-                Some(&(_, p)) => {
-                    let n = self.children(p).len();
-                    self.create_at(p, n, content)
-                }
-                None => {
-                    let id = self.create_at(parent, next_top_index, content);
-                    next_top_index += 1;
-                    top.push(id);
-                    id
-                }
-            };
-            if completed {
-                self.set_completed(id, true);
-            }
-            stack.push((indent, id));
-        }
-        top
+    /// Nodes whose text links to `id` (`[label](flowie:ID)`).
+    pub fn backlinks(&self, id: NodeId) -> Vec<NodeId> {
+        let needle = format!("(flowie:{id})");
+        let mut out: Vec<NodeId> = self.nodes().filter(|n| n.text.contains(&needle) || n.note.contains(&needle)).map(|n| n.id).collect();
+        out.sort_unstable();
+        out
     }
 }

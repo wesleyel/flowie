@@ -1,6 +1,8 @@
+use crate::io;
 use crate::markup::{self, Kind};
 use crate::search::{find_highlights, Query};
 use crate::*;
+use crate::flatten::flatten_mapped;
 
 fn texts(tree: &Tree, parent: NodeId) -> Vec<String> {
     tree.children(parent).iter().map(|id| tree.node(*id).text.clone()).collect()
@@ -156,7 +158,7 @@ fn search_keeps_ancestors_and_ignores_collapse() {
     assert_eq!(ids, vec![b, d]);
     let q = Query::parse("-deep");
     assert!(!q.matches(t.node(d)));
-    assert!(Query::parse("is:todo").matches(t.node(d)));
+    assert!(Query::parse("is:open").matches(t.node(d)));
     assert!(!Query::parse("#wor").matches(t.node(d)), "tags match whole tokens");
 }
 
@@ -186,7 +188,7 @@ fn highlights() {
 fn indented_text_roundtrip() {
     let (t, [a, b, c, _]) = sample();
     let text = t.to_indented_text(&[a, b, c]);
-    assert_eq!(text, "- a\n- b\n\t- d\n- c\n");
+    assert_eq!(text, "- a\n- b\n  - d\n- c\n");
     let mut t2 = Tree::new();
     let top = t2.insert_indented_text(ROOT, 0, &text);
     assert_eq!(top.len(), 3);
@@ -253,4 +255,128 @@ fn store_roundtrip() {
     assert_eq!(t2.node(a).note, "note");
     assert_eq!(meta, vec![("zoom".to_string(), "0".to_string())]);
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn markdown_notes_kinds_roundtrip() {
+    let md = "- # Title\n  a note\n  - [ ] task\n  - [x] done task\n  - > quoted\n  - ~~finished~~\n1. first\n";
+    let items = io::parse_text(md);
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].kind, BlockKind::H1);
+    assert_eq!(items[0].note, "a note");
+    assert_eq!(items[0].children[0].kind, BlockKind::Todo);
+    assert!(items[0].children[1].completed);
+    assert_eq!(items[0].children[2].kind, BlockKind::Quote);
+    assert!(items[0].children[3].completed && items[0].children[3].kind == BlockKind::Bullet);
+    assert_eq!(items[1].kind, BlockKind::Numbered);
+    assert_eq!(io::parse_text(&io::to_markdown(&items)), items);
+}
+
+#[test]
+fn plain_indented_lines_without_markers() {
+    let items = io::parse_text("a\n    b\n    c\nd");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].children.len(), 2);
+}
+
+#[test]
+fn opml_roundtrip_and_workflowy_html() {
+    let (mut t, [a, b, ..]) = sample();
+    t.set_note(a, "line1\nline2 & <x>");
+    t.set_completed(b, true);
+    let items = t.to_items(&t.children(ROOT).to_vec());
+    let xml = io::to_opml("Test", &items);
+    assert_eq!(io::parse_opml(&xml), items);
+    let wf = r#"<opml><body><outline text="&lt;b&gt;Bold&lt;/b&gt; and &lt;a href=&quot;https://x.y&quot;&gt;link&lt;/a&gt;" _complete="true"><outline text="kid"/></outline></body></opml>"#;
+    let items = io::parse_any(wf);
+    assert_eq!(items[0].text, "**Bold** and [link](https://x.y)");
+    assert!(items[0].completed);
+    assert_eq!(items[0].children[0].text, "kid");
+}
+
+#[test]
+fn markup_dates_colors_highlight() {
+    let s = "due 2026-11-17 {red}hot{/} ==mark==";
+    let runs = markup::parse(s);
+    assert!(runs.iter().any(|r| r.kind == Kind::Date && &s[r.range.clone()] == "2026-11-17"));
+    assert!(runs.iter().any(|r| r.color == Some(0) && &s[r.range.clone()] == "hot"));
+    assert!(runs.iter().any(|r| r.highlight && &s[r.range.clone()] == "mark"));
+    assert_eq!(markup::plain_text(s), "due 2026-11-17 hot mark");
+    assert!(markup::dates("v2026-11-17 2026-13-01").is_empty());
+}
+
+#[test]
+fn search_operators() {
+    let (mut t, [a, b, c, d]) = sample();
+    t.set_text(a, "ship 2026-11-20");
+    t.set_text(b, "plan 2026-12-05");
+    t.set_kind(c, BlockKind::Todo);
+    t.set_note(d, "has a note");
+    assert!(Query::parse("date:2026-11").matches(t.node(a)));
+    assert!(!Query::parse("date:2026-11").matches(t.node(b)));
+    assert!(Query::parse("before:2026-12-01").matches(t.node(a)));
+    assert!(Query::parse("after:2026-12-01").matches(t.node(b)));
+    assert!(Query::parse("is:todo").matches(t.node(c)));
+    assert!(Query::parse("has:note").matches(t.node(d)));
+    assert!(Query::parse("changed:1h").matches(t.node(a)));
+}
+
+#[test]
+fn expand_to_level_and_restore_and_backlinks() {
+    let (mut t, [a, b, c, d]) = sample();
+    let e = t.create_at(d, 0, "e");
+    t.expand_to_level(ROOT, 1);
+    assert!(t.node(b).collapsed && !t.node(d).collapsed || t.node(b).collapsed);
+    t.expand_to_level(ROOT, usize::MAX);
+    assert!(!t.node(b).collapsed && !t.node(d).collapsed);
+    // trash round trip
+    let snapshot = t.subtree_nodes(b);
+    t.delete(b);
+    assert!(!t.contains(e));
+    t.restore(&snapshot);
+    assert_eq!(outline(&t, ROOT), "a\nb\n  d\n    e\nc");
+    // links
+    t.set_text(c, &format!("see [b](flowie:{b})"));
+    assert_eq!(t.backlinks(b), vec![c]);
+    // mirrors
+    let m = t.create_mirror(b, ROOT, 0).unwrap();
+    assert_eq!(t.source(m), b);
+    assert!(t.create_mirror(b, d, 0).is_none(), "no mirror inside its own source");
+    let _ = a;
+}
+
+#[test]
+fn next_id_survives_reload() {
+    let mut t = Tree::new();
+    let a = t.create_at(ROOT, 0, "a");
+    let b = t.create_after(a, "b");
+    t.delete(b);
+    let mut t2 = Tree::from_nodes(t.nodes().cloned().collect::<Vec<_>>());
+    t2.ensure_next_id(t.next_id());
+    assert!(t2.alloc_id() > b);
+}
+
+#[test]
+fn mirrors_show_and_edit_source() {
+    let (mut t, [a, b, _c, d]) = sample();
+    let m = t.create_mirror(b, a, 0).unwrap();
+    let (rows, map) = flatten_mapped(&t, ROOT, &ViewOptions::default());
+    t.add_virtuals(map);
+    // a, m (mirror), d (virtual under m), b, d, c
+    assert_eq!(rows.len(), 6);
+    let virt_d = rows[2].id;
+    assert_ne!(virt_d, d);
+    assert_eq!(t.resolve(virt_d), d);
+    assert_eq!(t.node(virt_d).id, d);
+    // Editing through the virtual row edits the real node.
+    t.set_text(virt_d, "changed");
+    assert_eq!(t.node(d).text, "changed");
+    // Children added under the mirror go to the source.
+    let n = t.create_at(m, 0, "new");
+    assert_eq!(t.parent(n), b);
+    // A mirror inside its own source does not loop.
+    let m2 = t.create_mirror(a, ROOT, 0).unwrap();
+    t.move_to(m2, d, 0);
+    let rows = flatten(&t, ROOT, &ViewOptions::default());
+    assert!(rows.len() < 100);
 }

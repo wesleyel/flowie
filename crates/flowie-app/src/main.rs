@@ -1,5 +1,9 @@
 mod anim;
+mod calendar;
+mod commands;
 mod editor;
+mod inline;
+mod palette;
 mod outline;
 mod rich;
 mod theme;
@@ -127,12 +131,51 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Escape, o),
         KeyBinding::new("cmd-o", ToggleCompletedVisible, o),
         KeyBinding::new("cmd-q", Quit, None),
+        KeyBinding::new("cmd-p", Jump, o),
+        KeyBinding::new("cmd-shift-m", MoveTo, o),
+        KeyBinding::new("cmd-shift-k", LinkToBullet, e),
+        KeyBinding::new("cmd-alt-m", MirrorBullet, o),
+        KeyBinding::new("cmd-shift-s", ToggleStar, o),
+        KeyBinding::new("ctrl-0", ExpandAll, o),
+        KeyBinding::new("ctrl-1", Level1, o),
+        KeyBinding::new("ctrl-2", Level2, o),
+        KeyBinding::new("ctrl-3", Level3, o),
+        KeyBinding::new("ctrl-4", Level4, o),
+        KeyBinding::new("cmd-shift-i", Import, o),
+        KeyBinding::new("cmd-shift-e", ExportMarkdown, o),
+        KeyBinding::new("cmd-shift-delete", ShowTrash, o),
+        KeyBinding::new("cmd-shift-y", Highlight, e),
+        KeyBinding::new("cmd-alt-0", KindBullet, o),
+        KeyBinding::new("cmd-alt-1", KindH1, o),
+        KeyBinding::new("cmd-alt-2", KindH2, o),
+        KeyBinding::new("cmd-alt-3", KindH3, o),
+        KeyBinding::new("cmd-alt-4", KindParagraph, o),
+        KeyBinding::new("cmd-alt-5", KindTodo, o),
+        KeyBinding::new("cmd-alt-6", KindNumbered, o),
+        KeyBinding::new("cmd-alt-7", KindQuote, o),
+        KeyBinding::new("cmd-alt-8", KindCode, o),
+        KeyBinding::new("cmd-shift-d", Today, o),
+        KeyBinding::new("cmd-shift-c", ShowCalendar, o),
+        KeyBinding::new("cmd-g", NextMatch, o),
+        KeyBinding::new("cmd-shift-g", PrevMatch, o),
     ]);
 }
 
 fn set_menus(cx: &mut App) {
     cx.set_menus(vec![
         Menu { name: "Flowie".into(), items: vec![MenuItem::action("Quit Flowie", Quit)] },
+        Menu {
+            name: "File".into(),
+            items: vec![
+                MenuItem::action("Import…", Import),
+                MenuItem::separator(),
+                MenuItem::action("Export as Markdown…", ExportMarkdown),
+                MenuItem::action("Export as OPML…", ExportOpml),
+                MenuItem::action("Export as Plain Text…", ExportText),
+                MenuItem::separator(),
+                MenuItem::action("Trash", ShowTrash),
+            ],
+        },
         Menu {
             name: "Edit".into(),
             items: vec![
@@ -145,6 +188,9 @@ fn set_menus(cx: &mut App) {
                 MenuItem::action("Select All", SelectAll),
                 MenuItem::separator(),
                 MenuItem::action("Find", Find),
+                MenuItem::action("Find Next", NextMatch),
+                MenuItem::action("Find Previous", PrevMatch),
+                MenuItem::action("Save Search", SaveSearch),
             ],
         },
         Menu {
@@ -154,7 +200,19 @@ fn set_menus(cx: &mut App) {
                 MenuItem::action("Italic", Italic),
                 MenuItem::action("Code", InlineCode),
                 MenuItem::action("Math", WrapMath),
+                MenuItem::action("Highlight", Highlight),
                 MenuItem::action("Link", InsertLink),
+                MenuItem::action("Link to Bullet…", LinkToBullet),
+                MenuItem::separator(),
+                MenuItem::action("Bullet", KindBullet),
+                MenuItem::action("Heading 1", KindH1),
+                MenuItem::action("Heading 2", KindH2),
+                MenuItem::action("Heading 3", KindH3),
+                MenuItem::action("Text", KindParagraph),
+                MenuItem::action("To-do", KindTodo),
+                MenuItem::action("Numbered", KindNumbered),
+                MenuItem::action("Quote", KindQuote),
+                MenuItem::action("Code Block", KindCode),
             ],
         },
         Menu {
@@ -168,12 +226,24 @@ fn set_menus(cx: &mut App) {
                 MenuItem::action("Move Up", MoveUp),
                 MenuItem::action("Move Down", MoveDown),
                 MenuItem::action("Delete Bullet", DeleteNode),
+                MenuItem::action("Move To…", MoveTo),
+                MenuItem::action("Mirror…", MirrorBullet),
                 MenuItem::separator(),
                 MenuItem::action("Collapse", Collapse),
                 MenuItem::action("Expand", Expand),
                 MenuItem::action("Zoom In", ZoomIn),
                 MenuItem::action("Zoom Out", ZoomOut),
                 MenuItem::action("Go Home", ZoomHome),
+                MenuItem::action("Go To…", Jump),
+                MenuItem::action("Star Page", ToggleStar),
+                MenuItem::action("Today's Journal", Today),
+                MenuItem::action("Calendar", ShowCalendar),
+                MenuItem::separator(),
+                MenuItem::action("Expand All", ExpandAll),
+                MenuItem::action("Show 1 Level", Level1),
+                MenuItem::action("Show 2 Levels", Level2),
+                MenuItem::action("Show 3 Levels", Level3),
+                MenuItem::action("Show 4 Levels", Level4),
                 MenuItem::separator(),
                 MenuItem::action("Show/Hide Completed", ToggleCompletedVisible),
             ],
@@ -186,16 +256,16 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let stress = args.iter().position(|a| a == "--stress").and_then(|i| args.get(i + 1)).and_then(|n| n.parse::<usize>().ok());
 
-    let (tree, writer, meta) = match stress {
-        Some(n) => (stress_tree(n), None, Vec::new()),
+    let (tree, writer, db_path, meta) = match stress {
+        Some(n) => (stress_tree(n), None, None, Vec::new()),
         None => {
             let path = data_path();
             let loaded = store::open(&path).and_then(|c| store::load(&c));
             match loaded {
-                Ok((nodes, meta)) => (Tree::from_nodes(nodes), Some(store::Writer::spawn(path)), meta),
+                Ok((nodes, meta)) => (Tree::from_nodes(nodes), Some(store::Writer::spawn(path.clone())), Some(path), meta),
                 Err(e) => {
                     eprintln!("flowie: could not load {}: {e}", path.display());
-                    (Tree::new(), None, Vec::new())
+                    (Tree::new(), None, None, Vec::new())
                 }
             }
         }
@@ -236,7 +306,7 @@ fn main() {
                     app_id: Some("dev.flowie.app".into()),
                     ..Default::default()
                 },
-                |window, cx| cx.new(|cx| Outline::new(tree, writer, meta, window, cx)),
+                |window, cx| cx.new(|cx| Outline::new(tree, writer, db_path, meta, window, cx)),
             )
             .expect("open window");
         let view = window.update(cx, |_, _, cx| cx.entity()).unwrap();

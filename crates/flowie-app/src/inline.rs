@@ -106,13 +106,18 @@ impl Outline {
                 .take(8)
                 .map(|(t, n)| Entry { label: t.clone(), detail: format!("{n}"), icon: if sigil == '@' { "at-sign" } else { "hash" }, action: Action::InsertText(format!("{t} ")) })
                 .collect(),
-            InlineKind::Link => self
-                .search_nodes(&q, 9, &[])
-                .into_iter()
-                .filter(|id| *id != i.node)
-                .take(8)
-                .map(|id| Entry { label: node_label(self, id), detail: String::new(), icon: "link", action: Action::Node(id) })
-                .collect(),
+            InlineKind::Link => {
+                let mut entries: Vec<Entry> = self
+                    .search_nodes(&q, 9, &[])
+                    .into_iter()
+                    .filter(|id| *id != i.node)
+                    .take(8)
+                    .map(|id| Entry { label: node_label(self, id), detail: String::new(), icon: "link", action: Action::Node(id) })
+                    .collect();
+                // The query as typed (not lowercased) names the new page.
+                entries.extend(self.inline_query().and_then(|q| self.new_page_entry(&q)));
+                entries
+            }
         }
     }
 
@@ -192,6 +197,7 @@ impl Outline {
         self.replace_edit_text(i.start..caret, "", false, cx);
         match (i.kind, entry.action) {
             (InlineKind::Link, Action::Node(target)) => self.insert_link_to(i.node, i.start, target, cx),
+            (InlineKind::Link, Action::NewPage(name)) => self.link_to_new_page(i.node, i.start, &name, cx),
             (_, action) => self.run_action(action, window, cx),
         }
         true
@@ -243,6 +249,7 @@ impl Outline {
             Action::OpenMove => self.open_palette(Mode::MoveTo(vec![id]), cx),
             Action::Node(n) => self.zoom_to(n, cx),
             Action::Search(q) => self.search_for(&q, cx),
+            Action::NewPage(_) => {}
         }
         cx.notify();
     }

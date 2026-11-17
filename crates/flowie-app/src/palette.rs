@@ -40,6 +40,8 @@ pub struct Inline {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Node(NodeId),
+    /// A new top-level bullet (page) with this text, then the mode's action on it.
+    NewPage(String),
     Search(String),
     Kind(BlockKind),
     Wrap(&'static str, &'static str),
@@ -97,6 +99,36 @@ pub fn node_label(o: &Outline, id: NodeId) -> String {
 }
 
 impl Outline {
+    /// "New page “q”" when `q` is not empty and no bullet's text is exactly `q`.
+    pub fn new_page_entry(&self, q: &str) -> Option<Entry> {
+        let name = q.trim();
+        if name.is_empty() {
+            return None;
+        }
+        let lower = name.to_lowercase();
+        let exists = self.tree.nodes().any(|n| n.mirror == ROOT && markup::plain_text(&n.text).trim().to_lowercase() == lower);
+        (!exists).then(|| Entry {
+            label: t!("palette.new_page", name = name),
+            detail: t!("palette.on_home").into(),
+            icon: "plus",
+            action: Action::NewPage(name.to_string()),
+        })
+    }
+
+    /// Append a bullet named `name` to Home (not committed).
+    pub fn create_page(&mut self, name: &str) -> NodeId {
+        let n = self.tree.children(ROOT).len();
+        self.tree.create_at(ROOT, n, name)
+    }
+
+    /// Link to a new page: one commit for the page, then the link text.
+    pub fn link_to_new_page(&mut self, node: NodeId, at: usize, name: &str, cx: &mut Context<Self>) {
+        let page = self.create_page(name);
+        self.commit_structure(None, cx);
+        self.insert_link_to(node, at, page, cx);
+        self.toast(t!("toast.page_created", name = node_label(self, page)));
+    }
+
     /// Bullets matching `query` (every word must appear), best matches first.
     pub fn search_nodes(&self, query: &str, limit: usize, exclude: &[NodeId]) -> Vec<NodeId> {
         let words: Vec<String> = query.split_whitespace().map(|w| w.to_lowercase()).collect();
@@ -164,6 +196,7 @@ impl Outline {
                         let icon = if self.starred.contains(&id) { "star" } else { "dot" };
                         entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon, action: Action::Node(id) });
                     }
+                    entries.extend(self.new_page_entry(&q));
                     entries.push(Entry { label: t!("palette.search_for", query = q), detail: t!("palette.filter_outline").into(), icon: "search", action: Action::Search(q.clone()) });
                 }
             }
@@ -174,6 +207,7 @@ impl Outline {
                 for id in self.search_nodes(&q, 40, ids) {
                     entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "corner-down-right", action: Action::Node(id) });
                 }
+                entries.extend(self.new_page_entry(&q));
             }
             Mode::LinkTo { .. } | Mode::Mirror { .. } => {
                 let exclude: Vec<NodeId> = match &mode {
@@ -187,6 +221,9 @@ impl Outline {
                 };
                 for id in ids.into_iter().filter(|id| !exclude.contains(id)) {
                     entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "link", action: Action::Node(id) });
+                }
+                if matches!(mode, Mode::LinkTo { .. }) {
+                    entries.extend(self.new_page_entry(&q));
                 }
             }
         }
@@ -269,6 +306,18 @@ impl Outline {
                     self.start_edit(Target::Text(id), len, cx);
                 }
             }
+            (Mode::Jump, Action::NewPage(name)) => {
+                let page = self.create_page(&name);
+                let blank = self.tree.create_at(page, 0, "");
+                self.commit_structure(None, cx);
+                self.zoom_to(page, cx);
+                self.start_edit(Target::Text(blank), 0, cx);
+            }
+            (Mode::MoveTo(ids), Action::NewPage(name)) => {
+                let page = self.create_page(&name);
+                self.move_nodes_to(&ids, page, cx);
+            }
+            (Mode::LinkTo { node, at }, Action::NewPage(name)) => self.link_to_new_page(node, at, &name, cx),
             (_, Action::Search(q)) => self.search_for(&q, cx),
             (Mode::MoveTo(ids), Action::Node(target)) => self.move_nodes_to(&ids, target, cx),
             (Mode::LinkTo { node, at }, Action::Node(target)) => self.insert_link_to(node, at, target, cx),

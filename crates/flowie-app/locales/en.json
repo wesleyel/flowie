@@ -15,6 +15,7 @@
     "link_count": "Linked from · {count}"
   },
   "toast": {
+    "page_created": "Created page “{name}” on Home",
     "mirror_into_self": "Can't mirror a bullet inside itself",
     "nothing_to_import": "Nothing to import",
     "bullet_deleted": "That bullet was deleted (see Trash)",
@@ -50,7 +51,9 @@
     "saved_search": "Saved search",
     "search_for": "Search for “{query}”",
     "filter_outline": "Filter the outline",
-    "top_level": "Top level"
+    "top_level": "Top level",
+    "new_page": "New page “{name}”",
+    "on_home": "On Home"
   },
   "calendar": {
     "title": "{month} {year}",
@@ -367,5 +370,8 @@
     "navigation": "Navigation",
     "search": "Search",
     "app": "App"
+  },
+  "format_menu": {
+    "color": "Color"
   }
 }

@@ -137,6 +137,26 @@ impl Outline {
                     }
                 }),
             )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    let Some(ix) = this.index_for_point(ev.position) else { return };
+                    let text = this.edit_text().to_string();
+                    if let Some(e) = this.edit.as_mut() {
+                        // Outside the selection: select the word under the pointer (as macOS does).
+                        if e.sel.is_empty() || ix < e.sel.start || ix > e.sel.end {
+                            e.sel = word_range(&text, ix);
+                            e.reversed = false;
+                        }
+                        e.selecting_with_mouse = false;
+                    }
+                    if this.edit.as_ref().is_some_and(|e| !e.sel.is_empty()) {
+                        this.open_format_menu(ev.position, cx);
+                    }
+                    cx.notify();
+                }),
+            )
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
                 let dragging = this.edit.as_ref().is_some_and(|e| e.selecting_with_mouse);
                 if dragging && ev.pressed_button == Some(MouseButton::Left) {
@@ -525,6 +545,8 @@ impl Outline {
         let text_len = src.text.len();
         let editing_note = self.edit.as_ref().is_some_and(|e| e.target == Target::Note(id));
         let selected = self.is_block_selected(id);
+        // The row being edited (caret or selection) gets a light tint.
+        let editing_row = self.edit.as_ref().is_some_and(|e| matches!(e.target, Target::Text(n) | Target::Note(n) if n == id));
         let (font_size, line_h) = match kind {
             BlockKind::H1 => (22.0, 32.0),
             BlockKind::H2 => (18.5, 28.0),
@@ -646,6 +668,7 @@ impl Outline {
                     .pt(px(top_pad))
                     .pb(px(3.))
                     .when(selected, |d| d.bg(theme.row_selected))
+                    .when(editing_row && !selected, |d| d.bg(theme.row_selected.opacity(0.45)))
                     .when_some(self.anims.t(id, Channel::Flash), |d, t| d.bg(theme.accent.opacity(0.18 * (1.0 - ease_in_out(t)))))
                     .child(chevron)
                     .child(marker)
@@ -976,7 +999,7 @@ impl Render for Outline {
                 .id("outline-scroll")
                 .size_full()
                 .on_scroll_wheel(cx.listener(|this, _, _, cx| {
-                    if this.popover.close() {
+                    if this.popover.close() | this.format_menu.take().is_some() {
                         cx.notify();
                     }
                 }))
@@ -988,6 +1011,7 @@ impl Render for Outline {
         let inline = self.render_inline(cx);
         let calendar = self.render_calendar(cx);
         let popover = self.render_popover(window, cx);
+        let format_menu = self.render_format_menu(cx);
         let toast = self.toast.as_ref().filter(|(_, t)| !t.done()).map(|(msg, t)| {
             let tt = t.t();
             let o = if tt < 0.08 { tt / 0.08 } else if tt > 0.85 { (1.0 - tt) / 0.15 } else { 1.0 };
@@ -1150,6 +1174,7 @@ impl Render for Outline {
             .children(inline)
             .children(calendar)
             .children(popover)
+            .children(format_menu)
             .children(palette)
             .children(settings)
             .children(toast)

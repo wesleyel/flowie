@@ -15,6 +15,7 @@
     "link_count": "引用来源 · {count}"
   },
   "toast": {
+    "page_created": "已在主页下新建页面「{name}」",
     "mirror_into_self": "不能把条目镜像到它自身内部",
     "nothing_to_import": "没有可导入的内容",
     "bullet_deleted": "该条目已删除（见废纸篓）",
@@ -44,7 +45,9 @@
     "saved_search": "已保存的搜索",
     "search_for": "搜索“{query}”",
     "filter_outline": "筛选大纲",
-    "top_level": "顶层"
+    "top_level": "顶层",
+    "new_page": "新建页面「{name}」",
+    "on_home": "在主页下"
   },
   "calendar": {
     "title": "{year} 年 {month}",
@@ -355,5 +358,8 @@
     "navigation": "导航",
     "search": "搜索",
     "app": "应用"
+  },
+  "format_menu": {
+    "color": "颜色"
   }
 }

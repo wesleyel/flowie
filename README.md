@@ -29,11 +29,11 @@ No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at l
 | ⌃1 … ⌃4 / ⌃0 | Show 1–4 levels / expand all |
 | ⌘] / ⌘[ / ⌘⇧H | Zoom in / out / home (or click a bullet / breadcrumb) |
 | Mouse back / forward, ⌘⌥← / ⌘⌥→ | Previous / next visited page (restores search and scroll position) |
-| ⌘P | Go to: starred pages, saved searches, any bullet |
+| ⌘P | Go to: starred pages, saved searches, any bullet; a name that matches no bullet offers a new page on Home |
 | ⌘⇧S | Star / unstar the page |
-| ⌘⇧M | Move to… |
+| ⌘⇧M | Move to… (an existing bullet or a new page on Home) |
 | ⌘⌥M | Mirror a bullet here (live copy: edits show in both places) |
-| ⌘⇧K or `[[` | Link to another bullet (backlinks show at the bottom of its page) |
+| ⌘⇧K or `[[` | Link to another bullet, or to a new page on Home (backlinks show at the bottom of its page) |
 | ⌘⇧↑ / ⌘⇧↓ | Move bullet |
 | ⌘⇧Backspace | Delete bullet (kept in Trash for 30 days) |
 | Esc | Select whole bullets; Shift-↑/↓ or dragging across rows extends |

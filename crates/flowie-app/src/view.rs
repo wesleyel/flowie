@@ -721,6 +721,25 @@ impl Outline {
             .when(!editing, |d| d.border_1().border_color(gpui::transparent_black()))
             .child(crate::icons::icon("search", crate::icons::SM, theme.muted))
             .child(div().flex_1().min_w_0().child(inner))
+            .when(!self.query.is_empty(), |d| {
+                d.child(
+                    div()
+                        .id("search-clear")
+                        .flex_none()
+                        .size(px(18.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme.hover))
+                        .child(crate::icons::icon("circle-x", crate::icons::SM, theme.muted))
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.clear_search(cx);
+                        })),
+                )
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {

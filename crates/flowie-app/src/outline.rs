@@ -1486,6 +1486,14 @@ impl Outline {
         }
     }
 
+    /// Clear the search and keep the caret in the (now empty) search box.
+    pub fn clear_search(&mut self, cx: &mut Context<Self>) {
+        self.query.clear();
+        self.refresh(false);
+        self.list.reset(self.display.len() + 1);
+        self.start_edit(Target::Search, 0, cx);
+    }
+
     pub fn search_for(&mut self, q: &str, cx: &mut Context<Self>) {
         self.query = q.to_string();
         self.refresh(false);

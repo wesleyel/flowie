@@ -5,3 +5,7 @@ platform "osx"
 # `fastlane mac check` runs precheck on its own.
 run_precheck_before_submit false
 precheck_include_in_app_purchases false
+
+# Release by hand after approval. Deliver only applies this while uploading metadata,
+# so the metadata lane sets it; the submit lane skips metadata and can't.
+automatic_release false

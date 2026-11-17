@@ -70,7 +70,7 @@ ASC_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_….p8
 | `fastlane mac check` | precheck the listing (placeholder text, broken URLs, …) |
 | `fastlane mac build` | `scripts/package-appstore.sh` on a clean tree → `build/appstore/Flowie-<version>-<build>.pkg` |
 | `fastlane mac upload` | Upload the newest pkg with the App Store Connect Build Upload API (no Xcode or Transporter) |
-| `fastlane mac submit` | Attach that build to the version and submit for review (manual release after approval) |
+| `fastlane mac submit` | Attach that build to the version and submit for review (release type comes from the metadata lane: manual) |
 
 A new version: bump `version` in the workspace `Cargo.toml`, commit, then
 `build` → `upload` → wait for processing → `submit`. The build number is the git

@@ -181,9 +181,13 @@
   "menu": {
     "app": {
       "about": "About Flowie",
-      "feedback": "Send Feedback…",
       "settings": "Settings…",
       "quit": "Quit Flowie"
+    },
+    "help": {
+      "title": "Help",
+      "tutorial": "Flowie Tutorial",
+      "feedback": "Send Feedback…"
     },
     "file": {
       "title": "File",

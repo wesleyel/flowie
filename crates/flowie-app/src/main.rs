@@ -4,6 +4,7 @@ mod calendar;
 mod commands;
 mod editor;
 mod format_menu;
+mod tutorial;
 mod i18n;
 mod icons;
 mod inline;

@@ -1137,6 +1137,7 @@ impl Render for Outline {
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::open_about))
             .on_action(cx.listener(Self::send_feedback))
+            .on_action(cx.listener(Self::open_tutorial))
             .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
                 if this.settings.is_some() {
                     this.settings_key(ev, window, cx);

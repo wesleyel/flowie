@@ -126,6 +126,11 @@ pub fn set(code: &str) {
     ACTIVE.store(ix, Ordering::Relaxed);
 }
 
+/// The code of the active language, e.g. "en" or "zh-CN".
+pub fn active() -> &'static str {
+    catalogs()[ACTIVE.load(Ordering::Relaxed)].code
+}
+
 /// The bundled locale for a BCP 47 tag: exact, else the same base language
 /// ("zh-Hans-CN" → "zh-CN").
 fn best_match(all: &[Catalog], tag: &str) -> Option<usize> {

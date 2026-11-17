@@ -169,9 +169,13 @@
   "menu": {
     "app": {
       "about": "关于 Flowie",
-      "feedback": "发送反馈…",
       "settings": "设置…",
       "quit": "退出 Flowie"
+    },
+    "help": {
+      "title": "帮助",
+      "tutorial": "Flowie 教程",
+      "feedback": "发送反馈…"
     },
     "file": {
       "title": "文件",

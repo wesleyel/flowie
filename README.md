@@ -50,6 +50,8 @@ No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at l
 | ⌘⇧I / ⌘⇧E | Import (OPML, Markdown, text — Workflowy exports work) / export Markdown |
 | ⌘, | Settings: rebind any shortcut, theme (system / light / dark), accent color, language, about |
 
+First launch opens a tutorial outline that covers every feature (Help → Flowie Tutorial adds a fresh copy); its text is `crates/flowie-app/tutorial/<locale>.md`.
+
 File menu: export as OPML, Markdown or plain text (selected bullets, or the whole page), and the Trash.
 
 Search terms: words, `"phrases"`, `-exclude`, `#tag`, `@person`, `is:done`, `is:open`, `is:todo`, `is:heading`, `is:quote`, `is:code`, `has:note`, `changed:7d` (`m`/`h`/`d`/`w`), `date:2026-11`, `date:today`, `before:2026-12-01`, `after:today`. Save a search from the header to run it later from ⌘P.

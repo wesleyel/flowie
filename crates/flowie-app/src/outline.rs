@@ -101,6 +101,7 @@ actions!(
         OpenSettings,
         OpenAbout,
         SendFeedback,
+        OpenTutorial,
     ]
 );
 
@@ -323,16 +324,7 @@ impl Outline {
     }
 
     fn seed_welcome(&mut self) {
-        let text = "Welcome to Flowie\n\
-            \tEnter adds a bullet, Tab / Shift-Tab indents and outdents\n\
-            \tClick a bullet (or ⌘]) to zoom in, ⌘[ to zoom out\n\
-            \t⌘↑ / ⌘↓ collapse and expand, ⌘↩ completes\n\
-            \t\t**Bold**, *italic*, `code`, [links](https://example.com), #tags and @people\n\
-            \t\tMath: $e^{i\\pi}+1=0$ and $\\int_0^1 x^2\\,dx=\\frac{1}{3}$\n\
-            \t⌘F searches everything instantly\n\
-            \tEsc selects whole bullets; Shift-↑/↓ extends; drag a bullet to move it\n";
-        let top = self.tree.insert_indented_text(ROOT, 0, text);
-        let _ = top;
+        self.insert_tutorial(0);
         self.tree.take_journal();
         self.persist();
     }

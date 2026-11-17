@@ -248,7 +248,6 @@ pub fn set_menus(cx: &mut App) {
             name: "Flowie".into(),
             items: vec![
                 MenuItem::action(t!("menu.app.about"), OpenAbout),
-                MenuItem::action(t!("menu.app.feedback"), SendFeedback),
                 MenuItem::separator(),
                 MenuItem::action(t!("menu.app.settings"), OpenSettings),
                 MenuItem::separator(),
@@ -337,6 +336,13 @@ pub fn set_menus(cx: &mut App) {
                 MenuItem::action(t!("menu.outline.level_4"), Level4),
                 MenuItem::separator(),
                 MenuItem::action(t!("menu.outline.toggle_completed"), ToggleCompletedVisible),
+            ],
+        },
+        Menu {
+            name: t!("menu.help.title").into(),
+            items: vec![
+                MenuItem::action(t!("menu.help.tutorial"), OpenTutorial),
+                MenuItem::action(t!("menu.help.feedback"), SendFeedback),
             ],
         },
     ]);

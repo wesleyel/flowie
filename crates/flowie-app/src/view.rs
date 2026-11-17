@@ -747,6 +747,8 @@ impl Outline {
                     .px_1()
                     .rounded_sm()
                     .cursor_pointer()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
                     .text_ellipsis()
                     .hover(|s| s.bg(theme.hover).text_color(theme.text))
                     .child(label);

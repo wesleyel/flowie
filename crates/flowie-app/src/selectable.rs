@@ -88,6 +88,7 @@ impl Render for SelectableText {
         div()
             .key_context("Selectable")
             .track_focus(&self.focus)
+            .w_full()
             .relative()
             .cursor_text()
             .on_action(cx.listener(Self::copy))

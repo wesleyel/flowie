@@ -11,6 +11,11 @@ use crate::keymap;
 use crate::outline::{Outline, OpenAbout, OpenSettings};
 use crate::theme::{Theme, ACCENTS};
 
+const ABOUT_BOX_W: f32 = 500.0;
+const ABOUT_PAD: f32 = 12.0;
+const ABOUT_KEY_W: f32 = 90.0;
+const ABOUT_GAP: f32 = 12.0;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeMode {
@@ -491,7 +496,14 @@ impl Outline {
             ("License", self.label("license", "MIT".into(), cx)),
         ];
         let line = |k: &'static str, v: gpui::Entity<crate::selectable::SelectableText>| {
-            div().flex().gap_3().py(px(3.)).child(div().w(px(90.)).flex_none().text_color(theme.muted).child(k)).child(div().flex_1().min_w_0().child(v))
+            // Fixed widths so wrapped values are measured at the width they render at.
+            div()
+                .flex()
+                .items_start()
+                .gap(px(ABOUT_GAP))
+                .py(px(3.))
+                .child(div().w(px(ABOUT_KEY_W)).flex_none().text_color(theme.muted).child(k))
+                .child(div().w(px(ABOUT_BOX_W - 2. * ABOUT_PAD - ABOUT_KEY_W - ABOUT_GAP)).flex_none().child(v))
         };
         div()
             .id("about")
@@ -529,10 +541,9 @@ impl Outline {
             .child(div().flex_none().pt_2().pb_4().text_color(theme.muted).child("A fast outliner for thinking in lists."))
             .child(
                 div()
-                    .w_full()
+                    .w(px(ABOUT_BOX_W))
                     .flex_none()
-                    .max_w(px(500.))
-                    .p_3()
+                    .p(px(ABOUT_PAD))
                     .rounded_lg()
                     .bg(theme.input_bg)
                     .children(values.into_iter().map(|(k, v)| line(k, v))),

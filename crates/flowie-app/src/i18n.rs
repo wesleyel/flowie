@@ -325,6 +325,54 @@ mod tests {
         assert!(unused.is_empty(), "unused keys in en.json: {unused:?}");
     }
 
+    /// UI text must go through `t!`: flag English literals handed straight to
+    /// `.child(…)`, toasts or key labels. Names and key symbols are allowed.
+    #[test]
+    fn no_raw_ui_text() {
+        const ALLOWED: &[&str] = &["Flowie", "Claude Code", "#tag", "fn", "esc", "home", "end"];
+        const CALLS: &[&str] = &[".child(\"", "toast(\"", "Text(\"", ".tooltip(\""];
+        let mut found = Vec::new();
+        let mut dirs = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                let src = std::fs::read_to_string(&path).unwrap();
+                // The agent protocol (MCP tool descriptions) is for models, not the UI.
+                let agent = path.components().any(|c| c.as_os_str() == "agent");
+                for (n, line) in src.lines().enumerate() {
+                    if line.trim_start().starts_with("//") {
+                        continue;
+                    }
+                    for call in CALLS {
+                        for (i, _) in line.match_indices(call) {
+                            let rest = &line[i + call.len()..];
+                            let Some(end) = rest.find('"') else { continue };
+                            let text = &rest[..end];
+                            if text.chars().any(|c| c.is_alphabetic()) && !ALLOWED.contains(&text) {
+                                found.push(format!("{}:{}: {text:?}", path.file_name().unwrap().to_string_lossy(), n + 1));
+                            }
+                        }
+                    }
+                    // A literal alone on its line, e.g. an `if` arm feeding `.child(…)`.
+                    let t = line.trim().trim_end_matches(',');
+                    let inner = t.get(1..t.len().saturating_sub(1)).unwrap_or("");
+                    let plain = !inner.contains('"') && !inner.contains('{');
+                    if !agent && t.len() > 2 && t.starts_with('"') && t.ends_with('"') && plain && inner.contains(' ') {
+                        found.push(format!("{}:{}: {t}", path.file_name().unwrap().to_string_lossy(), n + 1));
+                    }
+                }
+            }
+        }
+        assert!(found.is_empty(), "untranslated UI text (use t!):\n{}", found.join("\n"));
+    }
+
     /// Coverage per language; run with `--nocapture` for the report.
     #[test]
     fn translation_coverage() {

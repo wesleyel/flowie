@@ -111,7 +111,11 @@
       "title": "Keyboard shortcuts",
       "reset_all": "Reset all",
       "press_keys": "Press keys…",
-      "conflict": "conflict"
+      "conflict": "conflict",
+      "hint": "Click a shortcut to edit · + adds another",
+      "recording_hint": "Press keys or a mouse side button · Esc cancels · ⌫ removes",
+      "mouse_back": "Mouse Back",
+      "mouse_forward": "Mouse Forward"
     },
     "appearance": {
       "title": "Appearance",

@@ -369,7 +369,7 @@ impl Outline {
                         .text_size(px(13.))
                         .line_height(px(20.))
                         .hover(|s| s.text_color(theme.link))
-                        .child(crate::icons::slot(if title == "Mirrored in" { "copy" } else { "link" }, crate::icons::SM, theme.faint))
+                        .child(crate::icons::slot(if mirror { "copy" } else { "link" }, crate::icons::SM, theme.faint))
                         .child(div().flex_1().min_w_0().flex().flex_col()
                             .child(label)
                             .when(!note.is_empty(), |d| d.child(div().text_color(theme.muted).child(note)))

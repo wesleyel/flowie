@@ -38,8 +38,8 @@ enum KeyToken {
 
 fn tokens(stroke: &str) -> Vec<KeyToken> {
     match stroke {
-        "mouse-back" => return vec![KeyToken::Text("Mouse Back".into())],
-        "mouse-forward" => return vec![KeyToken::Text("Mouse Forward".into())],
+        "mouse-back" => return vec![KeyToken::Text(crate::i18n::t!("settings.shortcuts.mouse_back").into())],
+        "mouse-forward" => return vec![KeyToken::Text(crate::i18n::t!("settings.shortcuts.mouse_forward").into())],
         _ => {}
     }
     let parts: Vec<&str> = stroke.split('-').collect();

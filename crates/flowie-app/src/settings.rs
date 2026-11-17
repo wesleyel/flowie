@@ -451,9 +451,9 @@ impl Outline {
                             .flex_col()
                             .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(t!("settings.shortcuts.title")))
                             .child(div().text_size(px(12.)).text_color(theme.muted).child(if recording.is_some() {
-                                "Press keys or a mouse side button · Esc cancels · ⌫ removes"
+                                t!("settings.shortcuts.recording_hint")
                             } else {
-                                "Click a shortcut to edit · + adds another"
+                                t!("settings.shortcuts.hint")
                             })),
                     )
                     .when(any_custom, |d| {

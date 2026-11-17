@@ -99,7 +99,11 @@
       "title": "键盘快捷键",
       "reset_all": "全部重置",
       "press_keys": "请按键…",
-      "conflict": "冲突"
+      "conflict": "冲突",
+      "hint": "点击快捷键可修改 · + 添加新的绑定",
+      "recording_hint": "按下按键或鼠标侧键 · Esc 取消 · ⌫ 删除",
+      "mouse_back": "鼠标后退",
+      "mouse_forward": "鼠标前进"
     },
     "appearance": {
       "title": "外观",

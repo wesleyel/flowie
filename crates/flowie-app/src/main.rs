@@ -160,7 +160,7 @@ fn main() {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions { title: Some("Flowie".into()), ..Default::default() }),
                     window_min_size: Some(size(px(420.), px(300.))),
-                    app_id: Some("dev.flowie.app".into()),
+                    app_id: Some("flowie.spokey.cn".into()),
                     ..Default::default()
                 },
                 |window, cx| cx.new(|cx| Outline::new(tree, writer, db_path, meta, config, window, cx)),

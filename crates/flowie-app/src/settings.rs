@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::i18n::{self, t};
 use crate::keymap;
-use crate::outline::{Outline, OpenAbout, OpenSettings};
+use crate::outline::{Outline, OpenAbout, OpenSettings, SendFeedback};
 use crate::theme::{Theme, ACCENTS};
 
 const ABOUT_BOX_W: f32 = 500.0;
@@ -108,6 +108,10 @@ impl Outline {
 
     pub fn open_about(&mut self, _: &OpenAbout, _: &mut Window, cx: &mut Context<Self>) {
         self.show_settings(Tab::About, cx);
+    }
+
+    pub fn send_feedback(&mut self, _: &SendFeedback, _: &mut Window, cx: &mut Context<Self>) {
+        cx.open_url(&feedback_url());
     }
 
     fn show_settings(&mut self, tab: Tab, cx: &mut Context<Self>) {
@@ -718,12 +722,11 @@ impl Outline {
                     .bg(theme.input_bg)
                     .children(values.into_iter().map(|(k, v)| line(k, v))),
             )
-            .when_some(db, |d, path| {
-                d.child(
+            .child({
+                let button = |id: &'static str| {
                     div()
-                        .id("reveal")
+                        .id(id)
                         .flex_none()
-                        .mt_3()
                         .px_3()
                         .py(px(5.))
                         .rounded_md()
@@ -731,10 +734,53 @@ impl Outline {
                         .border_1()
                         .border_color(theme.border)
                         .hover(|s| s.bg(theme.hover))
-                        .child(t!("settings.about.reveal"))
-                        .on_click(cx.listener(move |_, _, _, cx| cx.reveal_path(&path))),
-                )
+                };
+                div()
+                    .flex()
+                    .flex_none()
+                    .gap_2()
+                    .mt_3()
+                    .when_some(db, |d, path| {
+                        d.child(
+                            button("reveal")
+                                .child(t!("settings.about.reveal"))
+                                .on_click(cx.listener(move |_, _, _, cx| cx.reveal_path(&path))),
+                        )
+                    })
+                    .child(
+                        button("feedback")
+                            .child(t!("settings.about.feedback"))
+                            .on_click(cx.listener(|_, _, _, cx| cx.open_url(&feedback_url()))),
+                    )
             })
             .into_any_element()
     }
+}
+
+/// Where feedback mail goes.
+pub const FEEDBACK_EMAIL: &str = "wesleyel@icloud.com";
+
+/// A `mailto:` link with the app version and macOS version filled in.
+fn feedback_url() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let commit = option_env!("FLOWIE_COMMIT").unwrap_or("dev");
+    let os = std::process::Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default();
+    let subject = format!("Flowie {version} feedback");
+    let body = format!("\n\n\n--\nFlowie {version} ({commit}), macOS {os}\n");
+    format!("mailto:{FEEDBACK_EMAIL}?subject={}&body={}", percent(&subject), percent(&body))
+}
+
+fn percent(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }

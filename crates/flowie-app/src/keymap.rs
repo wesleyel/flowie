@@ -248,6 +248,7 @@ pub fn set_menus(cx: &mut App) {
             name: "Flowie".into(),
             items: vec![
                 MenuItem::action(t!("menu.app.about"), OpenAbout),
+                MenuItem::action(t!("menu.app.feedback"), SendFeedback),
                 MenuItem::separator(),
                 MenuItem::action(t!("menu.app.settings"), OpenSettings),
                 MenuItem::separator(),

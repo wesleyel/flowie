@@ -100,6 +100,7 @@ actions!(
         ShowCalendar,
         OpenSettings,
         OpenAbout,
+        SendFeedback,
     ]
 );
 

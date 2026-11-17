@@ -24,7 +24,7 @@ information.
 If this policy changes, the new version will be posted at this address with a
 new date.
 
-Contact: **(your support email or URL)**
+Contact: **wesleyel@icloud.com**
 
 ---
 
@@ -42,4 +42,4 @@ Flowie 不收集、不在任何服务器上存储、不分享也不出售任何�
 
 本政策如有变更，新版本会发布在本页面并更新日期。
 
-联系方式：**（你的支持邮箱或网址）**
+联系方式：**wesleyel@icloud.com**

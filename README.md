@@ -6,14 +6,14 @@ A fast, animated outliner in the spirit of Workflowy, built with [GPUI](https://
 
 ```bash
 cargo build --release -p flowie-app
-scripts/bundle-macos.sh target/release/flowie Flowie dev.flowie.app
+scripts/bundle-macos.sh target/release/flowie Flowie flowie.spokey.cn
 open build/Flowie.app
 ```
 
 No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at launch.
 
 - Data: `~/Library/Application Support/Flowie/flowie.sqlite` (override with `FLOWIE_DB=/path/file.sqlite`).
-  The Mac App Store build is sandboxed and keeps it in `~/Library/Containers/dev.flowie.app/Data/Library/Application Support/Flowie/`.
+  The Mac App Store build is sandboxed and keeps it in `~/Library/Containers/flowie.spokey.cn/Data/Library/Application Support/Flowie/`.
 - `--stress 50000`: opens an in-memory outline of 50k bullets (not saved) and logs timings.
 - Settings (⌘,) are saved in `settings.json` next to the database: theme, accent color, language (follow macOS or any bundled locale) and shortcut overrides. Click a shortcut to replace it, use `+` to add another keyboard or mouse side-button binding, and press Backspace while recording to remove that binding.
 

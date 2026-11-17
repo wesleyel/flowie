@@ -174,12 +174,14 @@
       "data": "Data",
       "settings": "Settings",
       "in_memory": "In memory (not saved)",
-      "reveal": "Show data in Finder"
+      "reveal": "Show data in Finder",
+      "feedback": "Send feedback"
     }
   },
   "menu": {
     "app": {
       "about": "About Flowie",
+      "feedback": "Send Feedback…",
       "settings": "Settings…",
       "quit": "Quit Flowie"
     },

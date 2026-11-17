@@ -44,13 +44,13 @@ Moving your current data into the App Store build (once, with Flowie quit,
 after the first launch of the App Store version created the container):
 
 ```bash
-cp ~/Library/Application\ Support/Flowie/flowie.sqlite* ~/Library/Application\ Support/Flowie/settings.json ~/Library/Containers/dev.flowie.app/Data/Library/Application\ Support/Flowie/
+cp ~/Library/Application\ Support/Flowie/flowie.sqlite* ~/Library/Application\ Support/Flowie/settings.json ~/Library/Containers/flowie.spokey.cn/Data/Library/Application\ Support/Flowie/
 ```
 
 ## Steps
 
 1. **(you)** developer.apple.com → Certificates, IDs & Profiles
-   - Identifiers → register the App ID `dev.flowie.app` (or pick another and
+   - Identifiers → register the App ID `flowie.spokey.cn` (or pick another and
      set `FLOWIE_BUNDLE_ID`). No extra capabilities needed.
    - Profiles → **Mac App Store Connect** distribution profile for that App ID,
      with the Apple Distribution certificate already in your keychain.

@@ -8,7 +8,7 @@
 #   scripts/package-appstore.sh --local      sandboxed, ad-hoc signed app for testing (no .pkg)
 #
 # environment (signed build):
-#   FLOWIE_BUNDLE_ID   default dev.flowie.app (must match the App ID in App Store Connect)
+#   FLOWIE_BUNDLE_ID   default flowie.spokey.cn (must match the App ID in App Store Connect)
 #   FLOWIE_PROFILE     Mac App Store provisioning profile (.provisionprofile); default packaging/macos/embedded.provisionprofile
 #   FLOWIE_BUILD       build number (CFBundleVersion); default: git commit count
 #   APP_IDENTITY       default: the first "Apple Distribution" / "3rd Party Mac Developer Application" identity
@@ -20,7 +20,7 @@ LOCAL=0
 [ "${1:-}" = "--local" ] && LOCAL=1
 
 NAME=Flowie
-BID="${FLOWIE_BUNDLE_ID:-dev.flowie.app}"
+BID="${FLOWIE_BUNDLE_ID:-flowie.spokey.cn}"
 VERSION=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="flowie-app"))')
 BUILD="${FLOWIE_BUILD:-$(git rev-list --count HEAD)}"
 OUT=build/appstore

@@ -1,0 +1,12 @@
+[package]
+name = "flowie-math"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+gpui.workspace = true
+ratex-parser.workspace = true
+ratex-layout.workspace = true
+ratex-types.workspace = true
+ratex-katex-fonts.workspace = true
+ttf-parser = "0.25"

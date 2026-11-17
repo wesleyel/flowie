@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["crates/flowie-core", "crates/flowie-math", "crates/flowie-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+gpui = { version = "0.2.2", features = ["runtime_shaders"] }
+ratex-parser = "0.1.16"
+ratex-layout = "0.1.16"
+ratex-types = "0.1.16"
+ratex-katex-fonts = "0.1.16"
+flowie-core = { path = "crates/flowie-core" }
+flowie-math = { path = "crates/flowie-math" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+
+[profile.dev.package."*"]
+opt-level = 2

@@ -1,0 +1,256 @@
+use crate::markup::{self, Kind};
+use crate::search::{find_highlights, Query};
+use crate::*;
+
+fn texts(tree: &Tree, parent: NodeId) -> Vec<String> {
+    tree.children(parent).iter().map(|id| tree.node(*id).text.clone()).collect()
+}
+
+fn outline(tree: &Tree, root: NodeId) -> String {
+    flatten(tree, root, &ViewOptions::default())
+        .iter()
+        .map(|r| format!("{}{}", "  ".repeat(r.depth as usize), tree.node(r.id).text))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn sample() -> (Tree, [NodeId; 4]) {
+    let mut t = Tree::new();
+    let a = t.create_at(ROOT, 0, "a");
+    let b = t.create_after(a, "b");
+    let c = t.create_after(b, "c");
+    let d = t.create_at(b, 0, "d");
+    t.take_journal();
+    (t, [a, b, c, d])
+}
+
+#[test]
+fn create_and_order() {
+    let (t, _) = sample();
+    assert_eq!(outline(&t, ROOT), "a\nb\n  d\nc");
+}
+
+#[test]
+fn indent_outdent() {
+    let (mut t, [_a, b, c, _d]) = sample();
+    assert!(t.indent(c));
+    assert_eq!(outline(&t, ROOT), "a\nb\n  d\n  c");
+    assert!(t.outdent(c, ROOT));
+    assert_eq!(outline(&t, ROOT), "a\nb\n  d\nc");
+    assert!(!t.indent(t.children(ROOT)[0]), "first child cannot indent");
+    let _ = b;
+}
+
+#[test]
+fn split_and_merge() {
+    let (mut t, [a, ..]) = sample();
+    t.set_text(a, "hello world");
+    let (new, caret) = t.split(a, 5);
+    assert_eq!((t.node(a).text.as_str(), t.node(new).text.as_str(), caret), ("hello", " world", 0));
+    let caret = t.merge_into(new, a).unwrap();
+    assert_eq!((t.node(a).text.as_str(), caret), ("hello world", 5));
+    assert!(!t.contains(new));
+    // Caret at start of non-empty text inserts an empty sibling above.
+    let (focus, _) = t.split(a, 0);
+    assert_eq!(focus, a);
+    assert_eq!(texts(&t, ROOT)[0], "");
+}
+
+#[test]
+fn split_at_end_of_parent_makes_first_child() {
+    let (mut t, [_, b, _, d]) = sample();
+    let (child, _) = t.split(b, 1);
+    assert_eq!(t.parent(child), b);
+    assert_eq!(t.children(b), &[child, d]);
+}
+
+#[test]
+fn merge_moves_children() {
+    let (mut t, [a, b, _, d]) = sample();
+    t.merge_into(b, a).unwrap();
+    assert_eq!(t.node(a).text, "ab");
+    assert_eq!(t.children(a), &[d]);
+}
+
+#[test]
+fn move_up_down_and_across_parents() {
+    let (mut t, [a, b, c, d]) = sample();
+    assert!(t.move_down(a, ROOT));
+    assert_eq!(texts(&t, ROOT), ["b", "a", "c"]);
+    assert!(t.move_up(a, ROOT));
+    assert_eq!(texts(&t, ROOT), ["a", "b", "c"]);
+    // d is b's only child: moving it up puts it at the end of a's children.
+    assert!(t.move_up(d, ROOT));
+    assert_eq!(t.parent(d), a);
+    assert!(t.move_down(d, ROOT));
+    assert_eq!(t.parent(d), b);
+    assert!(!t.move_to(b, d, 0), "cannot move into own subtree");
+    let _ = c;
+}
+
+#[test]
+fn many_inserts_between_trigger_renumber() {
+    let mut t = Tree::new();
+    let first = t.create_at(ROOT, 0, "first");
+    t.create_after(first, "last");
+    for i in 0..200 {
+        t.create_at(ROOT, 1, &format!("{i}"));
+    }
+    let ts = texts(&t, ROOT);
+    assert_eq!(ts.first().unwrap(), "first");
+    assert_eq!(ts.last().unwrap(), "last");
+    assert_eq!(ts[1], "199");
+    assert_eq!(ts[200], "0");
+}
+
+#[test]
+fn undo_redo_roundtrip() {
+    let (mut t, [a, b, c, d]) = sample();
+    let mut h = History::new();
+    let before = outline(&t, ROOT);
+    t.indent(c);
+    t.set_text(c, "C!");
+    h.commit(&mut t, HistoryKind::Structure, None, None);
+    t.delete(b);
+    h.commit(&mut t, HistoryKind::Structure, None, None);
+    assert_eq!(outline(&t, ROOT), "a");
+    h.undo(&mut t);
+    assert_eq!(outline(&t, ROOT), "a\nb\n  d\n  C!");
+    h.undo(&mut t);
+    assert_eq!(outline(&t, ROOT), before);
+    h.redo(&mut t);
+    h.redo(&mut t);
+    assert_eq!(outline(&t, ROOT), "a");
+    let _ = (a, d);
+}
+
+#[test]
+fn typing_coalesces() {
+    let (mut t, [a, ..]) = sample();
+    let mut h = History::new();
+    for s in ["a1", "a12", "a123"] {
+        t.set_text(a, s);
+        h.commit(&mut t, HistoryKind::Typing(a), None, None);
+    }
+    h.undo(&mut t);
+    assert_eq!(t.node(a).text, "a");
+    assert!(!h.can_undo());
+}
+
+#[test]
+fn collapsed_hides_children() {
+    let (mut t, [_, b, ..]) = sample();
+    t.set_collapsed(b, true);
+    assert_eq!(outline(&t, ROOT), "a\nb\nc");
+    assert_eq!(outline(&t, b), "d", "zooming shows children regardless");
+}
+
+#[test]
+fn search_keeps_ancestors_and_ignores_collapse() {
+    let (mut t, [_, b, _, d]) = sample();
+    t.set_text(d, "deep #Work item");
+    t.set_collapsed(b, true);
+    let opts = ViewOptions { query: Some(Query::parse("#work")), ..Default::default() };
+    let rows = flatten(&t, ROOT, &opts);
+    let ids: Vec<_> = rows.iter().map(|r| r.id).collect();
+    assert_eq!(ids, vec![b, d]);
+    let q = Query::parse("-deep");
+    assert!(!q.matches(t.node(d)));
+    assert!(Query::parse("is:todo").matches(t.node(d)));
+    assert!(!Query::parse("#wor").matches(t.node(d)), "tags match whole tokens");
+}
+
+#[test]
+fn hide_completed() {
+    let (mut t, [a, ..]) = sample();
+    t.set_completed(a, true);
+    let opts = ViewOptions { hide_completed: true, ..Default::default() };
+    assert_eq!(flatten(&t, ROOT, &opts).len(), 3);
+}
+
+#[test]
+fn merge_leaving_keeps_position() {
+    let r = |id| Row { id, depth: 0 };
+    let old = [r(1), r(2), r(3), r(4)];
+    let new = [r(1), r(4), r(5)];
+    let merged: Vec<(NodeId, bool)> = merge_leaving(&old, &new).iter().map(|d| (d.row.id, d.leaving)).collect();
+    assert_eq!(merged, vec![(1, false), (2, true), (3, true), (4, false), (5, false)]);
+}
+
+#[test]
+fn highlights() {
+    assert_eq!(find_highlights("Hello hello", &["hello".into()]), vec![0..5, 6..11]);
+}
+
+#[test]
+fn indented_text_roundtrip() {
+    let (t, [a, b, c, _]) = sample();
+    let text = t.to_indented_text(&[a, b, c]);
+    assert_eq!(text, "- a\n- b\n\t- d\n- c\n");
+    let mut t2 = Tree::new();
+    let top = t2.insert_indented_text(ROOT, 0, &text);
+    assert_eq!(top.len(), 3);
+    assert_eq!(outline(&t2, ROOT), "a\nb\n  d\nc");
+    let top = t2.insert_indented_text(ROOT, 0, "x\n  y\n    z\n  w\n");
+    assert_eq!(top.len(), 1);
+    assert_eq!(outline(&t2, top[0]), "y\n  z\nw");
+}
+
+fn kinds(s: &str) -> Vec<(String, Kind)> {
+    markup::parse(s).into_iter().map(|r| (s[r.range.clone()].to_string(), r.kind)).collect()
+}
+
+#[test]
+fn markup_math() {
+    let runs = kinds("Euler $e^{i\\pi}+1=0$ ok");
+    assert_eq!(runs[0].0, "Euler ");
+    assert_eq!(runs[1].0, "$e^{i\\pi}+1=0$");
+    assert!(matches!(runs[1].1, Kind::Math { display: false, .. }));
+    assert!(kinds("costs $5 and $6 today").iter().all(|(_, k)| *k == Kind::Text));
+    assert!(kinds("$ x $").iter().all(|(_, k)| *k == Kind::Text));
+    let runs = kinds("$$\\int_0^1 x$$");
+    assert!(matches!(runs[0].1, Kind::Math { display: true, .. }));
+    assert_eq!(markup::plain_text("\\$5"), "$5");
+}
+
+#[test]
+fn markup_styles_and_links() {
+    let runs = markup::parse("a **bold** and *it* #tag @bob");
+    let bold = runs.iter().find(|r| r.bold).unwrap();
+    assert_eq!(bold.range, 4..8);
+    assert!(runs.iter().any(|r| r.italic && r.kind == Kind::Text));
+    assert!(runs.iter().any(|r| r.kind == Kind::Tag));
+    assert!(runs.iter().any(|r| r.kind == Kind::Mention));
+    assert_eq!(markup::plain_text("see [docs](https://x.y) now"), "see docs now");
+    let k = kinds("go https://example.com/a, ok");
+    assert!(k.iter().any(|(s, k)| s == "https://example.com/a" && matches!(k, Kind::Link { .. })));
+    assert!(kinds("snake_case_name").iter().all(|(_, k)| *k == Kind::Text), "intra-word _ is not italic");
+    assert!(kinds("中文 #标签").iter().any(|(s, k)| s == "#标签" && *k == Kind::Tag));
+    assert!(kinds("a#b").iter().all(|(_, k)| *k == Kind::Text));
+}
+
+#[test]
+fn store_roundtrip() {
+    let dir = std::env::temp_dir().join(format!("flowie-test-{}", std::process::id()));
+    let path = dir.join("t.sqlite");
+    let _ = std::fs::remove_file(&path);
+    let (mut t, [a, b, ..]) = sample();
+    t.set_note(a, "note");
+    {
+        let w = store::Writer::spawn(path.clone());
+        let (up, del) = t.take_dirty();
+        w.write(up, del);
+        t.delete(b);
+        let (up, del) = t.take_dirty();
+        w.write(up, del);
+        w.set_meta("zoom", "0");
+        w.flush();
+    }
+    let conn = store::open(&path).unwrap();
+    let (nodes, meta) = store::load(&conn).unwrap();
+    let t2 = Tree::from_nodes(nodes);
+    assert_eq!(outline(&t2, ROOT), "a\nc");
+    assert_eq!(t2.node(a).note, "note");
+    assert_eq!(meta, vec![("zoom".to_string(), "0".to_string())]);
+    let _ = std::fs::remove_dir_all(dir);
+}

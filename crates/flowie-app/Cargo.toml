@@ -1,0 +1,14 @@
+[package]
+name = "flowie-app"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "flowie"
+path = "src/main.rs"
+
+[dependencies]
+gpui.workspace = true
+flowie-core.workspace = true
+flowie-math.workspace = true
+unicode-segmentation = "1"

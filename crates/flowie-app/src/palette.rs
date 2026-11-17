@@ -192,6 +192,7 @@ impl Outline {
         let p = self.palette.as_mut().unwrap();
         p.selected = p.selected.min(entries.len().saturating_sub(1));
         p.entries = entries;
+        self.popup_scroll.scroll_to_item(p.selected);
     }
 
     pub fn close_palette(&mut self, cx: &mut Context<Self>) {
@@ -214,6 +215,7 @@ impl Outline {
             if n > 0 {
                 p.selected = ((p.selected as isize + delta).rem_euclid(n)) as usize;
             }
+            self.popup_scroll.scroll_to_item(p.selected);
             cx.notify();
             return true;
         }
@@ -222,6 +224,7 @@ impl Outline {
             if n > 0 {
                 i.selected = ((i.selected as isize + delta).rem_euclid(n)) as usize;
             }
+            self.popup_scroll.scroll_to_item(i.selected);
             cx.notify();
             return true;
         }
@@ -289,7 +292,7 @@ impl Outline {
         let run = gpui::TextRun { len: query.len(), font, color: theme.text, background_color: None, underline: None, strikethrough: None };
         let input = self.editor_element(query.clone(), vec![run], theme.caret, theme.selection, cx);
         let placeholder = query.is_empty().then(|| div().absolute().top_0().left_0().text_color(theme.faint).child("Type to search bullets…"));
-        let rows = entries.into_iter().enumerate().take(12).map(|(i, e)| {
+        let rows = entries.into_iter().enumerate().map(|(i, e)| {
             div()
                 .id(("palette", i))
                 .flex()
@@ -333,7 +336,15 @@ impl Outline {
                         .child(div().px_3().pt_1().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted).child(SharedString::from(title)))
                         .child(div().relative().mx_3().my_2().child(input).children(placeholder))
                         .child(div().h(px(1.)).bg(theme.border).mb_1())
-                        .children(rows),
+                        .child(
+                            div()
+                                .id("palette-list")
+                                .flex_1()
+                                .min_h_0()
+                                .overflow_y_scroll()
+                                .track_scroll(&self.popup_scroll)
+                                .children(rows),
+                        ),
                 )
                 .into_any_element(),
         )

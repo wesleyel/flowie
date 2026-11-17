@@ -136,6 +136,7 @@ impl Outline {
                 if let Some(i) = self.inline.as_mut() {
                     i.selected = 0;
                 }
+                self.popup_scroll.scroll_to_item(0);
                 self.inline_entries_len = self.inline_entries().len();
                 if self.inline_entries_len == 0 && !matches!(self.inline.as_ref().map(|i| i.kind), Some(InlineKind::Link)) {
                     self.inline = None;
@@ -162,6 +163,7 @@ impl Outline {
         };
         if let Some((kind, start)) = kind {
             self.inline = Some(Inline { kind, node, start, selected: 0 });
+            self.popup_scroll.scroll_to_item(0);
             self.inline_entries_len = self.inline_entries().len();
             if self.inline_entries_len == 0 && kind != InlineKind::Link {
                 self.inline = None;
@@ -262,7 +264,7 @@ impl Outline {
         }
         let theme = self.theme;
         let at = point(pos.x - px(6.), pos.y + lh + px(4.));
-        let items = entries.into_iter().enumerate().take(10).map(|(ix, en)| {
+        let items = entries.into_iter().enumerate().map(|(ix, en)| {
             div()
                 .id(("inline", ix))
                 .flex()
@@ -295,7 +297,14 @@ impl Outline {
                 .rounded_lg()
                 .shadow_lg()
                 .text_size(px(13.))
-                .children(items)
+                .child(
+                    div()
+                        .id("inline-list")
+                        .max_h(px(300.))
+                        .overflow_y_scroll()
+                        .track_scroll(&self.popup_scroll)
+                        .children(items),
+                )
                 .into_any_element(),
         )
     }

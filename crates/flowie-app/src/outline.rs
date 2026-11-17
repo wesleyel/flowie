@@ -197,6 +197,8 @@ pub struct Outline {
     pub mouse_block: bool,
     /// Snapshots of deleted nodes, so their rows can animate out.
     pub ghosts: std::collections::HashMap<NodeId, flowie_core::Node>,
+    /// Scroll position of the open popup list (palette or inline menu).
+    pub popup_scroll: gpui::ScrollHandle,
     pub toast: Option<(String, Tween)>,
 }
 
@@ -262,6 +264,7 @@ impl Outline {
             toast: None,
             mouse_block: false,
             ghosts: Default::default(),
+            popup_scroll: gpui::ScrollHandle::new(),
         };
         if this.tree.children(ROOT).is_empty() {
             this.seed_welcome();

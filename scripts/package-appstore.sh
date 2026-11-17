@@ -114,4 +114,4 @@ codesign --verify --strict --verbose=1 "$APP"
 PKG="$OUT/$NAME-$VERSION-$BUILD.pkg"
 productbuild --component "$APP" /Applications --sign "$INSTALLER_IDENTITY" "$PKG"
 pkgutil --check-signature "$PKG" | head -3
-echo "upload with Transporter: $PKG"
+echo "upload with: fastlane mac upload ($PKG)"

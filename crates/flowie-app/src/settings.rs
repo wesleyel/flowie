@@ -664,8 +664,6 @@ impl Outline {
             (t!("settings.about.bullets"), self.label("bullets", format!("{nodes}"), cx)),
             (t!("settings.about.data"), self.label("data", db_label, cx)),
             (t!("settings.about.settings"), self.label("settings", self.config_path.display().to_string(), cx)),
-            (t!("settings.about.built_with"), self.label("built", "GPUI · RaTeX (KaTeX-compatible math) · SQLite".into(), cx)),
-            (t!("settings.about.license"), self.label("license", "MIT".into(), cx)),
         ];
         let line = |k: &'static str, v: gpui::Entity<crate::selectable::SelectableText>| {
             // Fixed widths so wrapped values are measured at the width they render at.

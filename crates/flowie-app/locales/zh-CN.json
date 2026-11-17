@@ -161,8 +161,6 @@
       "bullets": "条目",
       "data": "数据",
       "settings": "设置",
-      "built_with": "构建于",
-      "license": "许可证",
       "in_memory": "仅内存（不保存）",
       "reveal": "在访达中显示数据"
     }

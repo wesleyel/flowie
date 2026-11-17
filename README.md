@@ -13,6 +13,7 @@ open build/Flowie.app
 No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at launch.
 
 - Data: `~/Library/Application Support/Flowie/flowie.sqlite` (override with `FLOWIE_DB=/path/file.sqlite`).
+  The Mac App Store build is sandboxed and keeps it in `~/Library/Containers/dev.flowie.app/Data/Library/Application Support/Flowie/`.
 - `--stress 50000`: opens an in-memory outline of 50k bullets (not saved) and logs timings.
 - Settings (⌘,) are saved in `settings.json` next to the database: theme, accent color, language (follow macOS or any bundled locale) and shortcut overrides. Click a shortcut to replace it, use `+` to add another keyboard or mouse side-button binding, and press Backspace while recording to remove that binding.
 
@@ -56,6 +57,15 @@ Search terms: words, `"phrases"`, `-exclude`, `#tag`, `@person`, `is:done`, `is:
 ## Markup
 
 `**bold**`, `*italic*`, `~~strike~~`, `` `code` ``, `==highlight==`, `{red}colored{/}` (red, orange, yellow, green, blue, purple, gray), `[label](url)`, `[label](flowie:ID)` (link to a bullet), bare URLs, `#tags`, `@mentions`, dates `2026-11-17` (click to find bullets with that date), inline math `$e^{i\pi}+1=0$` and display math `$$\int_0^1 x\,dx$$` (previewed under the line while editing). Markup characters are hidden except on the bullet being edited. `$5 and $6` stays plain text.
+
+## Mac App Store build
+
+```bash
+scripts/package-appstore.sh            # universal, sandboxed, signed .pkg for Transporter
+scripts/package-appstore.sh --local    # sandboxed, ad-hoc signed app for testing
+```
+
+Checklist, listing texts and privacy policy: [docs/appstore](docs/appstore/README.md).
 
 ## Agents (MCP)
 

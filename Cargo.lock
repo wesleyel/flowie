@@ -1728,6 +1728,7 @@ dependencies = [
  "flowie-math",
  "futures",
  "gpui",
+ "libc",
  "serde",
  "serde_json",
  "unicode-segmentation",

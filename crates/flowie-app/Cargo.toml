@@ -2,6 +2,7 @@
 name = "flowie-app"
 version.workspace = true
 edition.workspace = true
+publish.workspace = true
 
 [[bin]]
 name = "flowie"
@@ -16,3 +17,4 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 futures = "0.3"
+libc = "0.2"

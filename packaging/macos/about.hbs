@@ -1,0 +1,14 @@
+Third-party software notices
+
+This application includes the following third-party components.
+
+{{#each licenses}}
+================================================================================
+{{{name}}}
+Used by:
+{{#each used_by}}  - {{{crate.name}}} {{{crate.version}}}
+{{/each}}
+--------------------------------------------------------------------------------
+{{{text}}}
+
+{{/each}}

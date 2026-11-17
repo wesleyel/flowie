@@ -36,13 +36,13 @@ pub fn socket_path(db: &std::path::Path) -> PathBuf {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     db.hash(&mut h);
-    let uid = unsafe { libc_getuid() };
-    PathBuf::from(format!("/tmp/flowie-{uid}-{:08x}.sock", h.finish() as u32))
-}
-
-extern "C" {
-    #[link_name = "getuid"]
-    fn libc_getuid() -> u32;
+    let uid = unsafe { libc::getuid() };
+    let name = format!("flowie-{uid}-{:08x}.sock", h.finish() as u32);
+    // The sandbox can't use /tmp; its container has its own tmp.
+    match crate::sandbox_container() {
+        Some(data) => data.join("tmp").join(name),
+        None => PathBuf::from("/tmp").join(name),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +59,9 @@ type Job = (Request, std::sync::mpsc::Sender<Result<String, String>>);
 /// Start listening for agent requests on behalf of `view`.
 pub fn start(db: &std::path::Path, view: Entity<Outline>, cx: &mut App) {
     let path = socket_path(db);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
     // A stale socket from a crashed run: remove it if nobody answers.
     if path.exists() && UnixStream::connect(&path).is_err() {
         let _ = std::fs::remove_file(&path);

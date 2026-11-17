@@ -41,11 +41,36 @@ impl AssetSource for Assets {
     }
 }
 
+/// Inside the App Sandbox (Mac App Store build): the container's `Data`
+/// directory. Built from the real home directory and the container id, so
+/// `flowie mcp` started by an agent from a terminal (whose `HOME` is the
+/// user's real home) finds the same database and socket as the app.
+#[cfg(target_os = "macos")]
+pub fn sandbox_container() -> Option<PathBuf> {
+    let id = std::env::var("APP_SANDBOX_CONTAINER_ID").ok().filter(|s| !s.is_empty())?;
+    // SAFETY: getpwuid returns a pointer to static storage or null; pw_dir is a C string.
+    let real_home = unsafe {
+        let pw = libc::getpwuid(libc::getuid());
+        if pw.is_null() || (*pw).pw_dir.is_null() {
+            return None;
+        }
+        std::ffi::CStr::from_ptr((*pw).pw_dir).to_string_lossy().into_owned()
+    };
+    Some(PathBuf::from(real_home).join("Library/Containers").join(id).join("Data"))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn sandbox_container() -> Option<PathBuf> {
+    None
+}
+
 pub fn data_path() -> PathBuf {
     if let Ok(p) = std::env::var("FLOWIE_DB") {
         return PathBuf::from(p);
     }
-    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+    let home = sandbox_container()
+        .or_else(|| std::env::var("HOME").ok().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."));
     if cfg!(target_os = "macos") {
         home.join("Library/Application Support/Flowie/flowie.sqlite")
     } else {

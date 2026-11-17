@@ -173,8 +173,6 @@
       "bullets": "Bullets",
       "data": "Data",
       "settings": "Settings",
-      "built_with": "Built with",
-      "license": "License",
       "in_memory": "In memory (not saved)",
       "reveal": "Show data in Finder"
     }

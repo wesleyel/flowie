@@ -78,7 +78,11 @@ impl Outline {
 
     fn show_settings(&mut self, tab: Tab, cx: &mut Context<Self>) {
         if self.settings.as_ref().is_some_and(|s| s.tab == tab) {
-            self.close_settings(cx);
+            self.settings = None;
+            if let Some((t, off)) = self.settings_return.take() {
+                self.start_edit(t, off, cx);
+            }
+            cx.notify();
             return;
         }
         if self.settings.is_none() {
@@ -91,7 +95,9 @@ impl Outline {
         cx.notify();
     }
 
-    pub fn close_settings(&mut self, cx: &mut Context<Self>) {
+    pub fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Focus may be on a selectable label inside the panel; give it back.
+        window.focus(&self.focus);
         self.settings = None;
         if let Some((t, off)) = self.settings_return.take() {
             self.start_edit(t, off, cx);
@@ -152,13 +158,23 @@ impl Outline {
             }
             None => {
                 if ks.key == "escape" && !ks.modifiers.modified() {
-                    self.close_settings(cx);
+                    self.close_settings(window, cx);
                     cx.stop_propagation();
                 }
             }
         }
-        let _ = window;
         cx.notify();
+    }
+
+    /// A selectable label entity, created on first use and kept in sync.
+    fn label(&mut self, key: &'static str, text: String, cx: &mut Context<Self>) -> gpui::Entity<crate::selectable::SelectableText> {
+        let color = self.theme.selection;
+        let e = self.labels.entry(key).or_insert_with(|| cx.new(|cx| crate::selectable::SelectableText::new(text.clone(), cx))).clone();
+        e.update(cx, |l, _| {
+            l.set_text(text);
+            l.selection_color = color;
+        });
+        e
     }
 
     fn rebind(&mut self, cx: &mut Context<Self>) {
@@ -225,7 +241,7 @@ impl Outline {
                 .items_center()
                 .justify_center()
                 .bg(gpui::black().opacity(0.18))
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close_settings(cx)))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.close_settings(window, cx)))
                 .child(
                     div()
                         .id("settings-card")
@@ -474,18 +490,30 @@ impl Outline {
         let db = self.db_path.clone();
         let db_label = db.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "In memory (not saved)".into());
         let nodes = self.tree.len();
-        let line = |k: &'static str, v: String| {
-            div().flex().gap_3().py(px(3.)).child(div().w(px(110.)).text_color(theme.muted).child(k)).child(div().flex_1().min_w_0().child(v))
+        let version_label = self.label("version", format!("Version {version} ({commit})"), cx);
+        let values = [
+            ("Bullets", self.label("bullets", format!("{nodes}"), cx)),
+            ("Data", self.label("data", db_label, cx)),
+            ("Settings", self.label("settings", self.config_path.display().to_string(), cx)),
+            ("Built with", self.label("built", "GPUI · RaTeX (KaTeX-compatible math) · SQLite".into(), cx)),
+            ("License", self.label("license", "MIT".into(), cx)),
+        ];
+        let line = |k: &'static str, v: gpui::Entity<crate::selectable::SelectableText>| {
+            div().flex().gap_3().py(px(3.)).child(div().w(px(90.)).flex_none().text_color(theme.muted).child(k)).child(div().flex_1().min_w_0().child(v))
         };
         div()
+            .id("about")
             .size_full()
+            .overflow_y_scroll()
             .flex()
             .flex_col()
             .items_center()
-            .pt(px(36.))
+            .pt(px(28.))
+            .pb_6()
             .px_6()
             .child(
                 div()
+                    .flex_none()
                     .size(px(64.))
                     .rounded(px(15.))
                     .bg(theme.accent)
@@ -504,25 +532,24 @@ impl Outline {
                             .child(div().w(px(w)).h(px(4.)).rounded_full().bg(gpui::white().opacity(0.9)))
                     })),
             )
-            .child(div().pt_3().text_size(px(22.)).font_weight(FontWeight::BOLD).child("Flowie"))
-            .child(div().text_color(theme.muted).child(format!("Version {version} ({commit})")))
-            .child(div().pt_2().pb_4().text_color(theme.muted).child("A fast outliner for thinking in lists."))
+            .child(div().flex_none().pt_3().text_size(px(22.)).font_weight(FontWeight::BOLD).child("Flowie"))
+            .child(div().flex_none().text_color(theme.muted).child(version_label))
+            .child(div().flex_none().pt_2().pb_4().text_color(theme.muted).child("A fast outliner for thinking in lists."))
             .child(
                 div()
                     .w_full()
-                    .max_w(px(480.))
+                    .flex_none()
+                    .max_w(px(500.))
                     .p_3()
                     .rounded_lg()
                     .bg(theme.input_bg)
-                    .child(line("Bullets", format!("{nodes}")))
-                    .child(line("Data", db_label))
-                    .child(line("Built with", "GPUI · RaTeX (KaTeX-compatible math) · SQLite".into()))
-                    .child(line("License", "MIT".into())),
+                    .children(values.into_iter().map(|(k, v)| line(k, v))),
             )
             .when_some(db, |d, path| {
                 d.child(
                     div()
                         .id("reveal")
+                        .flex_none()
                         .mt_3()
                         .px_3()
                         .py(px(5.))

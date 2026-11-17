@@ -118,7 +118,7 @@ impl Outline {
     }
 }
 
-fn paint_selection(a: Point<Pixels>, b: Point<Pixels>, lh: Pixels, bounds: Bounds<Pixels>, color: Hsla, window: &mut Window) {
+pub(crate) fn paint_selection(a: Point<Pixels>, b: Point<Pixels>, lh: Pixels, bounds: Bounds<Pixels>, color: Hsla, window: &mut Window) {
     if (a.y - b.y).abs() < px(1.) {
         window.paint_quad(fill(Bounds::from_corners(a, point(b.x, b.y + lh)), color));
         return;

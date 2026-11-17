@@ -147,6 +147,9 @@ pub fn install(cx: &mut App, overrides: &HashMap<String, String>) {
             None => out.push((b.make)(b.keys, b.context)),
         }
     }
+    // Read-only selectable labels (About panel).
+    out.push(KeyBinding::new("cmd-c", Copy, Some("Selectable")));
+    out.push(KeyBinding::new("cmd-a", SelectAll, Some("Selectable")));
     cx.bind_keys(out);
     set_menus(cx);
 }

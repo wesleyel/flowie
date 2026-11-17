@@ -5,6 +5,7 @@ mod editor;
 mod inline;
 mod keymap;
 mod palette;
+mod selectable;
 mod settings;
 mod outline;
 mod rich;

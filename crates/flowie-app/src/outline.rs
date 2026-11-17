@@ -205,6 +205,8 @@ pub struct Outline {
     pub settings_return: Option<(Target, usize)>,
     pub config: crate::settings::Config,
     pub config_path: std::path::PathBuf,
+    /// Selectable read-only labels, keyed by name.
+    pub labels: std::collections::HashMap<&'static str, gpui::Entity<crate::selectable::SelectableText>>,
     pub toast: Option<(String, Tween)>,
 }
 
@@ -276,6 +278,7 @@ impl Outline {
             settings: None,
             settings_return: None,
             config_path: crate::settings::Config::path(db_path_for_config.as_ref()),
+            labels: Default::default(),
             config,
         };
         if this.tree.children(ROOT).is_empty() {

@@ -39,6 +39,58 @@ impl Render for DragPreview {
 }
 
 impl Outline {
+    /// Mouse handling for the active editor: click to place the caret,
+    /// drag / shift-click to select, double-click a word, triple-click all.
+    pub fn editor_mouse(&self, cx: &mut Context<Self>) -> gpui::Div {
+        div()
+            .w_full()
+            .cursor_text()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                    if let Some(ix) = this.index_for_point(ev.position) {
+                        let text = this.edit_text().to_string();
+                        if let Some(e) = this.edit.as_mut() {
+                            if ev.click_count >= 2 {
+                                e.sel = if ev.click_count == 2 { word_range(&text, ix) } else { 0..text.len() };
+                                e.reversed = false;
+                            } else if ev.modifiers.shift {
+                                let anchor = if e.reversed { e.sel.end } else { e.sel.start };
+                                e.sel = anchor.min(ix)..anchor.max(ix);
+                                e.reversed = ix < anchor;
+                            } else {
+                                e.sel = ix..ix;
+                                e.reversed = false;
+                            }
+                            e.selecting_with_mouse = true;
+                        }
+                        cx.stop_propagation();
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
+                let dragging = this.edit.as_ref().is_some_and(|e| e.selecting_with_mouse);
+                if dragging && ev.pressed_button == Some(MouseButton::Left) {
+                    if let Some(ix) = this.index_for_point(ev.position) {
+                        let e = this.edit.as_mut().unwrap();
+                        let anchor = if e.reversed { e.sel.end } else { e.sel.start };
+                        e.sel = anchor.min(ix)..anchor.max(ix);
+                        e.reversed = ix < anchor;
+                        cx.notify();
+                    }
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                    if let Some(e) = this.edit.as_mut() {
+                        e.selecting_with_mouse = false;
+                    }
+                }),
+            )
+    }
+
     fn base_style(&self, window: &Window, completed: bool) -> (gpui::Font, gpui::Hsla) {
         let font = window.text_style().font();
         let color = if completed { self.theme.muted } else { self.theme.text };
@@ -108,54 +160,8 @@ impl Outline {
                     .gap_4()
                     .children(formulas.into_iter().map(|(src, display)| math(src, display).font_size(px(FONT_SIZE * MATH_SCALE)).color(theme.text)))
             });
-            return div()
-                .w_full()
-                .cursor_text()
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                        if let Some(ix) = this.index_for_point(ev.position) {
-                            let text = this.edit_text().to_string();
-                            if let Some(e) = this.edit.as_mut() {
-                                if ev.click_count >= 2 {
-                                    // Double-click selects a word, triple selects all.
-                                    e.sel = if ev.click_count == 2 { word_range(&text, ix) } else { 0..text.len() };
-                                    e.reversed = false;
-                                } else if ev.modifiers.shift {
-                                    let anchor = if e.reversed { e.sel.end } else { e.sel.start };
-                                    e.sel = anchor.min(ix)..anchor.max(ix);
-                                    e.reversed = ix < anchor;
-                                } else {
-                                    e.sel = ix..ix;
-                                    e.reversed = false;
-                                }
-                                e.selecting_with_mouse = true;
-                            }
-                            cx.stop_propagation();
-                            cx.notify();
-                        }
-                    }),
-                )
-                .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
-                    let dragging = this.edit.as_ref().is_some_and(|e| e.selecting_with_mouse);
-                    if dragging && ev.pressed_button == Some(MouseButton::Left) {
-                        if let Some(ix) = this.index_for_point(ev.position) {
-                            let e = this.edit.as_mut().unwrap();
-                            let anchor = if e.reversed { e.sel.end } else { e.sel.start };
-                            e.sel = anchor.min(ix)..anchor.max(ix);
-                            e.reversed = ix < anchor;
-                            cx.notify();
-                        }
-                    }
-                }))
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, _| {
-                        if let Some(e) = this.edit.as_mut() {
-                            e.selecting_with_mouse = false;
-                        }
-                    }),
-                )
+            return self
+                .editor_mouse(cx)
                 .child(editor)
                 .children(preview)
                 .into_any_element();
@@ -683,7 +689,8 @@ impl Outline {
                 strikethrough: None,
             };
             let q = self.query.clone();
-            self.editor_element(q, vec![run], theme.caret, theme.selection, cx)
+            let ed = self.editor_element(q, vec![run], theme.caret, theme.selection, cx);
+            self.editor_mouse(cx).child(ed).into_any_element()
         } else if self.query.is_empty() {
             div().text_color(theme.faint).child("Search   ⌘F").into_any_element()
         } else {

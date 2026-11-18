@@ -8,6 +8,7 @@ mod i18n;
 mod icons;
 mod inline;
 mod keymap;
+mod menu;
 mod outline;
 mod palette;
 mod popover;

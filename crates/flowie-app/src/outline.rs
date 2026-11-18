@@ -135,7 +135,7 @@ impl Edit {
 }
 
 /// Block selection of whole rows (Esc from the editor, Shift-↑/↓).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockSel {
     pub anchor: NodeId,
     pub head: NodeId,
@@ -215,8 +215,8 @@ pub struct Outline {
     display_pos: std::collections::HashMap<NodeId, usize>,
     /// The one floating popover (references, hidden path levels).
     pub popover: crate::popover::PopoverState,
-    /// Right-click style menu on a text selection, at this window position.
-    pub format_menu: Option<gpui::Point<gpui::Pixels>>,
+    /// The open right-click menu (text or bullet).
+    pub menu: Option<crate::menu::ContextMenu>,
 }
 
 pub const INDENT: f32 = 24.0;
@@ -286,7 +286,7 @@ impl Outline {
             row_pos: Default::default(),
             display_pos: Default::default(),
             popover: Default::default(),
-            format_menu: None,
+            menu: None,
             mouse_block: false,
             ghosts: Default::default(),
             popup_scroll: gpui::ScrollHandle::new(),
@@ -1191,7 +1191,7 @@ impl Outline {
     }
 
     /// Selected rows without those whose ancestor is also selected.
-    fn block_roots(&self) -> Option<Vec<NodeId>> {
+    pub fn block_roots(&self) -> Option<Vec<NodeId>> {
         self.block?;
         let ids = self.block_ids();
         let set: std::collections::HashSet<NodeId> = ids.iter().copied().collect();
@@ -1607,7 +1607,7 @@ impl Outline {
     }
 
     pub fn escape(&mut self, _: &Escape, _: &mut Window, cx: &mut Context<Self>) {
-        if self.format_menu.take().is_some() {
+        if self.close_menu() {
             cx.notify();
             return;
         }

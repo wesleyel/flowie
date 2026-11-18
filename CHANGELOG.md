@@ -14,6 +14,12 @@ notes (`scripts/changelog-section.sh`).
 - Each GitHub release includes the open-source version, `Flowie-<version>-macos.zip`: a universal build
   for macOS 13 or later, ad-hoc signed and not notarized.
 - Homebrew cask: `brew install --cask wesleyel/tap/flowie`, updated by each release.
+- Right-click a bullet's dot for a bullet menu: open, expand or collapse everything below, complete,
+  star, change the block type, copy the bullet or its link, duplicate, move, mirror to another
+  bullet, export and delete, plus when it was created and edited and what links to it. Inside a
+  selection it acts on every selected bullet.
+- The right-click menu on text now starts with Cut, Copy and Paste, and shows Paste alone when
+  nothing is selected.
 
 ### Fixed
 

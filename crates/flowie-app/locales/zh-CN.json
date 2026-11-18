@@ -29,7 +29,11 @@
     "restored": "已恢复“{name}”",
     "search_saved": "已保存搜索“{query}”，按 ⌘P 运行",
     "search_removed": "已移除保存的搜索“{query}”",
-    "match": "第 {index} 个，共 {total} 个匹配"
+    "match": "第 {index} 个，共 {total} 个匹配",
+    "copied": "已拷贝 {count} 个条目",
+    "link_copied": "已拷贝 {count} 个链接，可粘贴到任意条目",
+    "duplicated": "已创建 {count} 个副本",
+    "mirrored": "已在“{target}”下创建 {count} 个镜像"
   },
   "import": {
     "prompt": "导入"
@@ -39,7 +43,8 @@
       "jump": "前往",
       "move": "移动到",
       "link": "链接到条目",
-      "mirror": "镜像条目"
+      "mirror": "镜像条目",
+      "mirror_to": "镜像到"
     },
     "placeholder": "输入以搜索条目…",
     "saved_search": "已保存的搜索",
@@ -367,5 +372,26 @@
   },
   "format_menu": {
     "color": "颜色"
+  },
+  "bullet_menu": {
+    "selected": "已选中 {count} 个条目",
+    "expand_all": "展开所有子项",
+    "collapse_all": "折叠所有子项",
+    "uncomplete": "标记为未完成",
+    "star": "收藏",
+    "unstar": "取消收藏",
+    "kind": "类型",
+    "kind_current": "类型 · {kind}",
+    "copy": "拷贝条目",
+    "copy_link": "拷贝链接",
+    "duplicate": "创建副本",
+    "mirror_to": "镜像到…",
+    "delete_with_children": "删除（含 {count} 个子项）",
+    "delete_count": "删除 {count} 个条目",
+    "created": "创建于 {date}",
+    "modified": "修改于 {ago}",
+    "descendants": "{count} 个子项",
+    "links": "{count} 处链接",
+    "mirrors": "{count} 处镜像"
   }
 }

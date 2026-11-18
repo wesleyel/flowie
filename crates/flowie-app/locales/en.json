@@ -35,7 +35,23 @@
     "restored": "Restored “{name}”",
     "search_saved": "Saved search “{query}” — ⌘P to run it",
     "search_removed": "Removed saved search “{query}”",
-    "match": "Match {index} of {total}"
+    "match": "Match {index} of {total}",
+    "copied": {
+      "one": "Copied {count} bullet",
+      "other": "Copied {count} bullets"
+    },
+    "link_copied": {
+      "one": "Copied link — paste it into any bullet",
+      "other": "Copied {count} links"
+    },
+    "duplicated": {
+      "one": "Duplicated {count} bullet",
+      "other": "Duplicated {count} bullets"
+    },
+    "mirrored": {
+      "one": "Mirrored {count} bullet in “{target}”",
+      "other": "Mirrored {count} bullets in “{target}”"
+    }
   },
   "import": {
     "prompt": "Import"
@@ -45,7 +61,8 @@
       "jump": "Go to",
       "move": "Move to",
       "link": "Link to bullet",
-      "mirror": "Mirror bullet"
+      "mirror": "Mirror bullet",
+      "mirror_to": "Mirror to"
     },
     "placeholder": "Type to search bullets…",
     "saved_search": "Saved search",
@@ -379,5 +396,44 @@
   },
   "format_menu": {
     "color": "Color"
+  },
+  "bullet_menu": {
+    "selected": {
+      "one": "{count} bullet selected",
+      "other": "{count} bullets selected"
+    },
+    "expand_all": "Expand all below",
+    "collapse_all": "Collapse all below",
+    "uncomplete": "Mark as not done",
+    "star": "Star",
+    "unstar": "Unstar",
+    "kind": "Type",
+    "kind_current": "Type · {kind}",
+    "copy": "Copy bullet",
+    "copy_link": "Copy link",
+    "duplicate": "Duplicate",
+    "mirror_to": "Mirror to…",
+    "delete_with_children": {
+      "one": "Delete (with {count} bullet below)",
+      "other": "Delete (with {count} bullets below)"
+    },
+    "delete_count": {
+      "one": "Delete {count} bullet",
+      "other": "Delete {count} bullets"
+    },
+    "created": "Created {date}",
+    "modified": "Edited {ago}",
+    "descendants": {
+      "one": "{count} bullet below",
+      "other": "{count} bullets below"
+    },
+    "links": {
+      "one": "linked from {count} place",
+      "other": "linked from {count} places"
+    },
+    "mirrors": {
+      "one": "{count} mirror",
+      "other": "{count} mirrors"
+    }
   }
 }

@@ -151,9 +151,9 @@ impl Outline {
                 MouseButton::Right,
                 cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
                     cx.stop_propagation();
-                    let Some(ix) = this.index_for_point(ev.position) else { return };
                     let text = this.edit_text().to_string();
-                    if let Some(e) = this.edit.as_mut() {
+                    let ix = this.index_for_point(ev.position);
+                    if let (Some(ix), Some(e)) = (ix, this.edit.as_mut()) {
                         // Outside the selection: select the word under the pointer (as macOS does).
                         if e.sel.is_empty() || ix < e.sel.start || ix > e.sel.end {
                             e.sel = word_range(&text, ix);
@@ -161,9 +161,7 @@ impl Outline {
                         }
                         e.selecting_with_mouse = false;
                     }
-                    if this.edit.as_ref().is_some_and(|e| !e.sel.is_empty()) {
-                        this.open_format_menu(ev.position, cx);
-                    }
+                    this.open_format_menu(ev.position, cx);
                     cx.notify();
                 }),
             )
@@ -469,6 +467,13 @@ impl Outline {
                             .when(completed, |d| d.child(crate::icons::icon("check", 11., theme.bg))),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_checkbox(id, cx)))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                            cx.stop_propagation();
+                            this.open_bullet_menu(id, ev.position, window, cx);
+                        }),
+                    )
                     .on_drag(DragNode { id, label }, move |drag, _, _, cx| {
                         cx.new(|_| DragPreview { label: drag.label.clone().into(), theme })
                     })
@@ -505,6 +510,13 @@ impl Outline {
         };
         base.child(inner)
             .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(id, cx)))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.open_bullet_menu(id, ev.position, window, cx);
+                }),
+            )
             .on_drag(DragNode { id, label }, move |drag, _, _, cx| cx.new(|_| DragPreview { label: drag.label.clone().into(), theme }))
             .into_any_element()
     }
@@ -1034,7 +1046,7 @@ impl Render for Outline {
                 .id("outline-scroll")
                 .size_full()
                 .on_scroll_wheel(cx.listener(|this, _, _, cx| {
-                    if this.popover.close() | this.format_menu.take().is_some() {
+                    if this.popover.close() | this.close_menu() {
                         cx.notify();
                     }
                 }))
@@ -1049,7 +1061,7 @@ impl Render for Outline {
         let inline = self.render_inline(cx);
         let calendar = self.render_calendar(cx);
         let popover = self.render_popover(window, cx);
-        let format_menu = self.render_format_menu(cx);
+        let menu = self.render_menu(cx);
         let toast = self.toast.as_ref().filter(|(_, t)| !t.done()).map(|(msg, t)| {
             let tt = t.t();
             let o = if tt < 0.08 {
@@ -1223,7 +1235,7 @@ impl Render for Outline {
             .children(inline)
             .children(calendar)
             .children(popover)
-            .children(format_menu)
+            .children(menu)
             .children(palette)
             .children(settings)
             .children(toast)
@@ -1234,19 +1246,7 @@ impl Outline {
     fn render_trash(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let entries = self.trash.clone().unwrap_or_default();
-        let now = flowie_core::tree::now_millis();
-        let ago = |t: i64| {
-            let m = (now - t) / 60_000;
-            if m < 1 {
-                crate::i18n::t!("time.just_now").to_string()
-            } else if m < 60 {
-                t!("time.minutes_ago", count = m)
-            } else if m < 60 * 24 {
-                t!("time.hours_ago", count = m / 60)
-            } else {
-                t!("time.days_ago", count = m / 60 / 24)
-            }
-        };
+        let ago = crate::menu::ago;
         let rows = entries.into_iter().map(|e| {
             let seq = e.seq;
             let count = e.nodes.len();

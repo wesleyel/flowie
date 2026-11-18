@@ -13,6 +13,8 @@ pub enum Mode {
     Jump,
     /// ⌘⇧M: move these bullets under the chosen one.
     MoveTo(Vec<NodeId>),
+    /// Mirror these bullets under the chosen one.
+    MirrorTo(Vec<NodeId>),
     /// Insert a link to the chosen bullet into `node` at `at`.
     LinkTo { node: NodeId, at: usize },
     /// Create a mirror of the chosen bullet after `after`.
@@ -225,7 +227,7 @@ impl Outline {
                     });
                 }
             }
-            Mode::MoveTo(ids) => {
+            Mode::MoveTo(ids) | Mode::MirrorTo(ids) => {
                 if q.trim().is_empty() || ("home".contains(&q.to_lowercase()) || t!("common.home").contains(q.trim())) {
                     entries.push(Entry {
                         label: t!("common.home").into(),
@@ -359,6 +361,11 @@ impl Outline {
                 let page = self.create_page(&name);
                 self.move_nodes_to(&ids, page, cx);
             }
+            (Mode::MirrorTo(ids), Action::NewPage(name)) => {
+                let page = self.create_page(&name);
+                self.mirror_nodes_to(&ids, page, cx);
+            }
+            (Mode::MirrorTo(ids), Action::Node(target)) => self.mirror_nodes_to(&ids, target, cx),
             (Mode::LinkTo { node, at }, Action::NewPage(name)) => self.link_to_new_page(node, at, &name, cx),
             (_, Action::Search(q)) => self.search_for(&q, cx),
             (Mode::MoveTo(ids), Action::Node(target)) => self.move_nodes_to(&ids, target, cx),
@@ -374,6 +381,7 @@ impl Outline {
         let title = match p.mode {
             Mode::Jump => t!("palette.title.jump"),
             Mode::MoveTo(_) => t!("palette.title.move"),
+            Mode::MirrorTo(_) => t!("palette.title.mirror_to"),
             Mode::LinkTo { .. } => t!("palette.title.link"),
             Mode::Mirror { .. } => t!("palette.title.mirror"),
         };

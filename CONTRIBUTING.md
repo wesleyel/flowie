@@ -15,6 +15,8 @@ CI runs the same checks on macOS (see `.github/workflows/ci.yml`), plus
 advisories (`deny.toml`).
 
 - Keep changes focused; one topic per pull request.
+- Add user-visible changes under `[Unreleased]` in `CHANGELOG.md`
+  ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/)); it becomes the release notes.
 - UI text goes through `t!(…)` with keys in `crates/flowie-app/locales/en.json`
   (and `zh-CN.json` when you can); `cargo test -p flowie-app i18n` checks both.
 - New features belong in the first-launch tutorial too

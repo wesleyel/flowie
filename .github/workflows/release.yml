@@ -1,10 +1,17 @@
 name: Release
 
-# Push a tag vX.Y.Z (matching Cargo.toml) to publish a GitHub release with generated notes.
-# Source only: the signed app is distributed through the Mac App Store.
+# Push a tag vX.Y.Z (matching Cargo.toml) to publish a GitHub release whose notes are that
+# version's section of CHANGELOG.md. Source only: the signed app is distributed through
+# the Mac App Store.
 on:
   push:
     tags: ["v*"]
+  # Rewrites an existing release's notes from main's CHANGELOG.md, e.g. after fixing an entry.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to (re)publish, e.g. v1.0.0
+        required: true
 
 permissions:
   contents: write
@@ -12,16 +19,36 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
-      - name: Check the tag matches the Cargo version
+        with:
+          fetch-depth: 0
+      - name: Check the tag matches its Cargo version
         run: |
-          version=$(sed -nE '/^\[workspace.package\]/,/^\[/ s/^version = "(.*)"/\1/p' Cargo.toml)
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+          version=$(git show "$TAG:Cargo.toml" | sed -nE '/^\[workspace.package\]/,/^\[/ s/^version = "(.*)"/\1/p')
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::tag $TAG does not match Cargo.toml version $version"
             exit 1
           fi
-      - name: Create the release
+      - name: Release notes from CHANGELOG.md
+        run: |
+          {
+            scripts/changelog-section.sh "${TAG#v}"
+            echo
+            echo "---"
+            echo
+            echo "**Get Flowie** on the [Mac App Store](https://apps.apple.com/app/id6835913837), or [build it from source](https://github.com/wesleyel/flowie/blob/$TAG/docs/building.md)."
+          } > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+      - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "Flowie ${GITHUB_REF_NAME#v}"
+        run: |
+          title="Flowie ${TAG#v}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$TAG" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+          fi

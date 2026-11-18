@@ -71,7 +71,7 @@
 - [使用说明](docs/usage.md)：快捷键、标记语法与搜索语法（英文）
 - [AI 助手（MCP）](docs/mcp.md)
 - [参与翻译](docs/translations.md)
-- [参与贡献](CONTRIBUTING.md) · [安全问题](SECURITY.md) · [问题反馈](https://github.com/wesleyel/flowie/issues) · [隐私政策](https://wesleyel.github.io/flowie/privacy.html)
+- [更新日志](CHANGELOG.md) · [参与贡献](CONTRIBUTING.md) · [安全问题](SECURITY.md) · [问题反馈](https://github.com/wesleyel/flowie/issues) · [隐私政策](https://wesleyel.github.io/flowie/privacy.html)
 
 ## 许可证
 

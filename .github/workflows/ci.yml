@@ -35,6 +35,11 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
+      - name: CHANGELOG.md has an entry for the Cargo version
+        # Release notes come from it (scripts/changelog-section.sh, release.yml).
+        run: |
+          version=$(sed -nE '/^\[workspace.package\]/,/^\[/ s/^version = "(.*)"/\1/p' Cargo.toml)
+          scripts/changelog-section.sh "$version" > /dev/null
 
   deny:
     name: licenses and advisories (cargo-deny)

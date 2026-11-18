@@ -71,7 +71,7 @@ Requires macOS 13 Ventura or later, on Apple silicon or Intel.
 - [Using Flowie](docs/usage.md) — shortcuts, markup and search syntax
 - [AI assistants (MCP)](docs/mcp.md)
 - [Translating Flowie](docs/translations.md)
-- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Issues](https://github.com/wesleyel/flowie/issues) · [Privacy policy](https://wesleyel.github.io/flowie/privacy.html)
+- [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Issues](https://github.com/wesleyel/flowie/issues) · [Privacy policy](https://wesleyel.github.io/flowie/privacy.html)
 
 ## License
 

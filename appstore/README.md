@@ -97,14 +97,18 @@ before running `fastlane mac metadata`.
 ## Releasing a new version
 
 1. Bump `version` in the workspace `Cargo.toml` (the app, the package and App Store
-   Connect must all agree; `submit` checks), update the listing text if needed, commit.
+   Connect must all agree; `submit` checks), move the `[Unreleased]` notes in
+   `CHANGELOG.md` under the new version (CI fails without an entry), update the listing
+   text if needed, commit.
 2. Create the version in App Store Connect (or let `metadata` do it), then
    `fastlane mac metadata` for "What's New" and URLs.
 3. `fastlane mac beta` → try it from TestFlight.
 4. `fastlane mac submit`.
 5. Tag the commit `vX.Y.Z` and push the tag: `.github/workflows/release.yml` checks the
-   tag against `Cargo.toml` and creates the GitHub release with notes (source only — the
-   signed app is sold on the App Store).
+   tag against `Cargo.toml` and creates the GitHub release with that version's
+   `CHANGELOG.md` section as its notes (source only — the signed app is sold on the App
+   Store). To fix notes later, edit `CHANGELOG.md` on main and run the Release workflow
+   by hand with the tag.
 
 The build number is the git commit count, so commit between uploads.
 

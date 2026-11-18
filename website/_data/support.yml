@@ -4,8 +4,16 @@ en:
   id: support-en
   intro: 'Questions, bug reports and ideas: <a href="mailto:wesleyel@icloud.com?subject=Flowie%20support">wesleyel@icloud.com</a> or <a href="https://github.com/wesleyel/flowie/issues">GitHub issues</a>. <b>Help → Send Feedback…</b> in the app fills in your Flowie and macOS versions.'
   faq:
+    - q: What is Flowie?
+      a: "A keyboard-first outliner for macOS 13 or later: every bullet is a page you can zoom into, with links and backlinks, mirrors, tags, a daily journal, LaTeX math and fast search. Everything is stored locally on your Mac."
     - q: Where are my notes stored?
-      a: "Only on your Mac, inside Flowie's app container. Flowie has no account and no cloud sync, and it makes no network requests of its own."
+      a: "Only on your Mac, in one SQLite database: inside Flowie's app container for the Mac App Store version, or in <code>~/Library/Application Support/Flowie</code> for the open-source version. Flowie has no account and no cloud sync, and it makes no network requests of its own."
+    - q: Does Flowie sync, or run on iPhone, Windows or Linux?
+      a: "No. Flowie is a Mac app with no sync service; it works fully offline. You can keep your outline in sync yourself by exporting, or back it up with Time Machine."
+    - q: Can Flowie replace Workflowy?
+      a: "It works the same way — nested bullets you zoom into, mirrors, tags and fast search — but as a native Mac app that keeps your data local. Workflowy's OPML export imports directly."
+    - q: Can I write math in my notes?
+      a: "Yes. Type inline <code>$…$</code> or display <code>$$…$$</code> LaTeX; Flowie renders it natively as you type, with a KaTeX-compatible engine."
     - q: How do I move my notes from Workflowy or another outliner?
       a: "Export from the other app as OPML or Markdown, then use <b>File → Import…</b> (⌘⇧I)."
     - q: How do I back up or export?
@@ -15,14 +23,22 @@ en:
     - q: How do AI assistants connect?
       a: "Turn it on in Settings → Agent, then register Flowie's MCP server, for example: <code>claude mcp add flowie -- /Applications/Flowie.app/Contents/MacOS/Flowie mcp</code>"
     - q: Is Flowie free?
-      a: "Flowie is free software under the GPL-3.0; you can build it yourself from GitHub. The Mac App Store version is the same app, signed and updated for you — buying it supports development."
+      a: "Flowie is free software under the GPL-3.0. Download the open-source version from <a href=\"https://github.com/wesleyel/flowie/releases/latest\">GitHub Releases</a>, install it with <code>brew install --cask wesleyel/tap/flowie</code>, or build it yourself. The Mac App Store version is the same app, signed, sandboxed and updated for you — buying it supports development."
 zh:
   heading: 支持
   id: support-zh
   intro: '问题、错误报告与建议：<a href="mailto:wesleyel@icloud.com?subject=Flowie%20%E5%8F%8D%E9%A6%88">wesleyel@icloud.com</a>，或在 <a href="https://github.com/wesleyel/flowie/issues">GitHub Issues</a> 提交。在应用中选择<b>「帮助 → 发送反馈…」</b>会自动附上 Flowie 和 macOS 版本。'
   faq:
+    - q: Flowie 是什么？
+      a: "一款键盘优先的 macOS 大纲笔记（macOS 13 及以上）：每个条目都能进入成为页面，支持链接与反向链接、镜像、标签、每日日记、LaTeX 公式和快速搜索，所有数据只保存在你的 Mac 上。"
     - q: 笔记保存在哪里？
-      a: "只保存在你的 Mac 上、Flowie 的应用容器内。Flowie 没有账号和云同步，自身不发起任何网络请求。"
+      a: "只保存在你的 Mac 上的一个 SQLite 数据库里：Mac App Store 版在 Flowie 的应用容器内，开源版在 <code>~/Library/Application Support/Flowie</code>。Flowie 没有账号和云同步，自身不发起任何网络请求。"
+    - q: 支持同步吗？有 iPhone、Windows 或 Linux 版吗？
+      a: "没有。Flowie 是 Mac 应用，不提供同步服务，完全离线可用。可以通过导出自行转移，或用时间机器备份。"
+    - q: 可以替代 Workflowy 吗？
+      a: "用法相同：层层嵌套、可进入的条目，镜像、标签和快速搜索；不同的是它是原生 Mac 应用，数据留在本地。Workflowy 导出的 OPML 可以直接导入。"
+    - q: 能在笔记里写公式吗？
+      a: "可以。输入行内 <code>$…$</code> 或独立 <code>$$…$$</code> LaTeX 公式，Flowie 会用兼容 KaTeX 的引擎在输入时原生渲染。"
     - q: 如何从 Workflowy 等大纲工具迁移？
       a: "在原应用中导出 OPML 或 Markdown，然后在 Flowie 中选择<b>「文件 → 导入…」</b>（⌘⇧I）。"
     - q: 如何备份或导出？
@@ -32,4 +48,4 @@ zh:
     - q: 如何连接 AI 助手？
       a: "在「设置 → Agent」中开启，然后注册 Flowie 的 MCP 服务器，例如：<code>claude mcp add flowie -- /Applications/Flowie.app/Contents/MacOS/Flowie mcp</code>"
     - q: Flowie 免费吗？
-      a: "Flowie 是以 GPL-3.0 授权的自由软件，可以从 GitHub 自行编译。Mac App Store 版本是同一个应用，已签名并自动更新——购买它就是对开发的支持。"
+      a: "Flowie 是以 GPL-3.0 授权的自由软件。可以从 <a href=\"https://github.com/wesleyel/flowie/releases/latest\">GitHub Releases</a> 下载开源版、用 <code>brew install --cask wesleyel/tap/flowie</code> 安装，或自行编译。Mac App Store 版本是同一个应用，已签名、沙盒保护并自动更新——购买它就是对开发的支持。"

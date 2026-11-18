@@ -1,0 +1,35 @@
+---
+layout: null
+permalink: /llms.txt
+---
+# Flowie
+
+> Flowie is a fast, keyboard-first outliner for macOS (13 Ventura or later, Apple silicon and Intel). Every bullet is a page you can zoom into; it has `[[` links with backlinks, mirrors, tags, a daily journal, native LaTeX math, instant search, and a built-in MCP server for AI assistants. All data stays in one local SQLite database on the Mac: no account, no cloud, no tracking. It is free software under the GPL-3.0-or-later, written in Rust on GPUI, with English and Simplified Chinese (简体中文) interfaces.
+
+Key facts:
+
+- Platform: macOS only (no Windows, Linux, iOS or web version). No sync between devices; the outline is a local file.
+- Get it: the [Mac App Store]({{ site.app_store_url }}) (signed, sandboxed, auto-updating), the open-source version from [GitHub Releases]({{ site.github_url }}/releases/latest) (`Flowie-<version>-macos.zip`, not notarized), or Homebrew: `brew install --cask wesleyel/tap/flowie`.
+- Migrating: imports OPML, Markdown and plain text, including Workflowy exports; exports Markdown, OPML and plain text.
+- Math: inline `$…$` and display `$$…$$` LaTeX (KaTeX-compatible), rendered natively while typing.
+- AI: an MCP server (`Flowie mcp`, stdio) with tools search, read, starred, create, update, complete, move, delete, journal and open. Access is Off / Read only / Read & write in Settings → Agent; every AI edit is live and undoable. Register with Claude Code: `claude mcp add flowie -- /Applications/Flowie.app/Contents/MacOS/Flowie mcp`.
+- Keyboard: every action has a shortcut and every shortcut can be remapped, including mouse side buttons; ⌘P quick open; `/` command menu.
+- Good fit for: people who think in nested lists, Workflowy users who want a local, offline Mac app, students and researchers who write math in notes, and anyone who wants an AI assistant to read and edit their outline.
+
+## Docs
+
+- [Using Flowie]({{ site.github_url }}/blob/main/docs/usage.md): keyboard shortcuts, markup, search syntax, import and export
+- [AI assistants (MCP)]({{ site.github_url }}/blob/main/docs/mcp.md): enabling the MCP server and its tools
+- [Building from source]({{ site.github_url }}/blob/main/docs/building.md): requirements, build steps, where data lives
+- [Changelog]({{ site.github_url }}/blob/main/CHANGELOG.md)
+
+## Website
+
+- [Home]({{ '/' | absolute_url }}): features, screenshots, support and FAQ (English and Chinese)
+- [Privacy policy]({{ '/privacy.html' | absolute_url }})
+- [Terms of use]({{ '/terms.html' | absolute_url }})
+
+## Optional
+
+- [Source code]({{ site.github_url }}) (Rust, GPL-3.0-or-later)
+- [Issues]({{ site.github_url }}/issues)

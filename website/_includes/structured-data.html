@@ -1,0 +1,49 @@
+{%- comment -%}
+schema.org JSON-LD for the home page: the app, its source code and the FAQ (from
+_data/support.yml, English). Search engines and AI answer engines read these facts directly.
+{%- endcomment -%}
+{%- assign home = '/' | absolute_url -%}
+{%- assign en = site.data.i18n.en -%}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": {{ home | append: '#app' | jsonify }},
+      "name": "Flowie",
+      "alternateName": "Flowie 大纲笔记",
+      "description": {{ en.tagline | jsonify }},
+      "url": {{ home | jsonify }},
+      "image": {{ '/images/icon.png' | absolute_url | jsonify }},
+      "screenshot": [{{ '/images/01-outline-en-US.jpg' | absolute_url | jsonify }}, {% for g in site.data.gallery %}{{ '/images/' | append: g.file | append: '-en-US.jpg' | absolute_url | jsonify }}{% unless forloop.last %}, {% endunless %}{% endfor %}],
+      "applicationCategory": "ProductivityApplication",
+      "applicationSubCategory": "Outliner",
+      "operatingSystem": "macOS 13 or later (Apple silicon and Intel)",
+      "inLanguage": ["en", "zh-CN"],
+      "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+      "downloadUrl": [{{ site.app_store_url | jsonify }}, {{ site.github_url | append: '/releases/latest' | jsonify }}],
+      "installUrl": {{ site.app_store_url | jsonify }},
+      "featureList": [{% for f in site.data.features %}{% for item in f.en.items %}{{ item | strip_html | jsonify }}{% unless forloop.last %}, {% endunless %}{% endfor %}{% unless forloop.last %}, {% endunless %}{% endfor %}],
+      "author": { "@type": "Person", "name": "Wesley Yang", "url": "https://github.com/wesleyel" },
+      "sameAs": [{{ site.app_store_url | jsonify }}, {{ site.github_url | jsonify }}]
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "name": "Flowie",
+      "codeRepository": {{ site.github_url | jsonify }},
+      "programmingLanguage": "Rust",
+      "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+      "targetProduct": { "@id": {{ home | append: '#app' | jsonify }} }
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {%- for item in site.data.support.en.faq %}
+        { "@type": "Question", "name": {{ item.q | jsonify }}, "acceptedAnswer": { "@type": "Answer", "text": {{ item.a | strip_html | jsonify }} } }{% unless forloop.last %},{% endunless %}
+        {%- endfor %}
+      ]
+    }
+  ]
+}
+</script>

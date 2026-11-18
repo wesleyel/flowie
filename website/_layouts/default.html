@@ -12,7 +12,17 @@
 <meta property="og:description" content="{{ page.og_description | default: page.description | default: site.description }}">
 <meta property="og:image" content="{{ '/images/01-outline-en-US.jpg' | absolute_url }}">
 <meta property="og:url" content="{{ page.url | absolute_url }}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Flowie">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="canonical" href="{{ page.url | absolute_url }}">
+<link rel="alternate" type="text/markdown" href="{{ '/llms.txt' | relative_url }}" title="Flowie for LLMs">
+<link rel="sitemap" type="application/xml" href="{{ '/sitemap.xml' | relative_url }}">
+{%- if page.url == '/' %}
+{% include structured-data.html %}
+{%- endif %}
 <link rel="icon" href="{{ '/images/icon.png' | relative_url }}">
 <link rel="apple-touch-icon" href="{{ '/images/icon.png' | relative_url }}">
 <link rel="stylesheet" href="{{ '/style.css' | relative_url }}">

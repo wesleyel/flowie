@@ -3,7 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**", "website/**", "assets/**", "appstore/fastlane/metadata/**", "appstore/fastlane/screenshots/**"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**", "website/**", "assets/**", "appstore/fastlane/metadata/**", "appstore/fastlane/screenshots/**"]
   workflow_dispatch:
 
 concurrency:
@@ -16,6 +18,11 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # CI builds once and throws the result away: no debug info, no incremental state.
+  # Smaller target/ means a smaller cache to save and restore.
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
   fmt:
@@ -46,14 +53,21 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Only main writes the cache; pull requests (Dependabot opens many) restore
+          # main's instead of each saving a multi-GB copy and evicting it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked
       - name: Test
         run: cargo test --workspace --locked
       - name: Build the app bundle
+        # A debug build reuses what `cargo test` just compiled; the release build is made
+        # locally for the App Store (appstore/README.md), so CI doesn't compile everything twice.
         run: |
-          cargo build --release --locked -p flowie-app
-          scripts/bundle-macos.sh target/release/flowie Flowie flowie.spokey.cn
+          cargo build --locked -p flowie-app
+          scripts/bundle-macos.sh target/debug/flowie Flowie flowie.spokey.cn
           plutil -lint build/Flowie.app/Contents/Info.plist
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" build/Flowie.app/Contents/Info.plist
       - name: Smoke test (launch, then quit)

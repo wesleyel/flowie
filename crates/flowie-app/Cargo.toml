@@ -2,6 +2,7 @@
 name = "flowie-app"
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 edition.workspace = true
 publish.workspace = true
 

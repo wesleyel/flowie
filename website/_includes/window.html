@@ -1,0 +1,11 @@
+{%- comment -%}
+A screenshot framed as a macOS window. The screenshots already contain the title bar
+and traffic lights, so the frame adds only the window's corners, edge and shadow.
+Params: src, alt, caption (optional), lazy (optional).
+{%- endcomment -%}
+<figure class="window">
+  <img src="{{ include.src | relative_url }}" width="1600" height="1000"{% if include.lazy %} loading="lazy"{% endif %} alt="{{ include.alt }}">
+  {%- if include.caption %}
+  <figcaption>{{ include.caption }}</figcaption>
+  {%- endif %}
+</figure>

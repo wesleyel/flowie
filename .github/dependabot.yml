@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    # GPUI pins much of the tree; only take patch and minor updates of direct dependencies.
+    allow:
+      - dependency-type: direct
+    ignore:
+      - dependency-name: gpui
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

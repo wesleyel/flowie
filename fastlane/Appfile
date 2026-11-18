@@ -1,5 +1,0 @@
-# Nothing secret here. Authentication uses an App Store Connect API key whose
-# id, issuer and .p8 path come from the environment (fastlane/.env, git-ignored)
-# — see fastlane/README.md.
-app_identifier "flowie.spokey.cn"
-team_id "5D26F33GNM"

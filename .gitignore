@@ -1,14 +1,16 @@
 /target
 /build
 .DS_Store
-/packaging/macos/embedded.provisionprofile
-/fastlane/.env
-/fastlane/report.xml
-/fastlane/README.md.bak
-# Personal App Review contact: kept locally, never published (see docs/appstore/README.md)
-/fastlane/metadata/review_information/first_name.txt
-/fastlane/metadata/review_information/last_name.txt
-/fastlane/metadata/review_information/phone_number.txt
-/fastlane/metadata/review_information/email_address.txt
+.claude/
+
+/appstore/macos/embedded.provisionprofile
+/appstore/fastlane/.env
+/appstore/fastlane/report.xml
+/appstore/fastlane/README.md.bak
+# Personal App Review contact: kept locally, never published (see appstore/README.md)
+/appstore/fastlane/metadata/review_information/first_name.txt
+/appstore/fastlane/metadata/review_information/last_name.txt
+/appstore/fastlane/metadata/review_information/phone_number.txt
+/appstore/fastlane/metadata/review_information/email_address.txt
 # Wrangler's local cache (account id and e-mail)
 .wrangler/

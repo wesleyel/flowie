@@ -9,7 +9,7 @@
 #
 # environment (signed build):
 #   FLOWIE_BUNDLE_ID   default flowie.spokey.cn (must match the App ID in App Store Connect)
-#   FLOWIE_PROFILE     Mac App Store provisioning profile (.provisionprofile); default packaging/macos/embedded.provisionprofile
+#   FLOWIE_PROFILE     Mac App Store provisioning profile (.provisionprofile); default appstore/macos/embedded.provisionprofile
 #   FLOWIE_BUILD       build number (CFBundleVersion); default: git commit count
 #   APP_IDENTITY       default: the first "Apple Distribution" / "3rd Party Mac Developer Application" identity
 #   INSTALLER_IDENTITY default: the first "3rd Party Mac Developer Installer" identity
@@ -24,7 +24,7 @@ BID="${FLOWIE_BUNDLE_ID:-flowie.spokey.cn}"
 VERSION=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="flowie-app"))')
 BUILD="${FLOWIE_BUILD:-$(git rev-list --count HEAD)}"
 OUT=build/appstore
-PKG_DIR=packaging/macos
+PKG_DIR=appstore/macos
 APP="$OUT/$NAME.app"
 
 echo "== $NAME $VERSION ($BUILD), $BID"
@@ -114,4 +114,4 @@ codesign --verify --strict --verbose=1 "$APP"
 PKG="$OUT/$NAME-$VERSION-$BUILD.pkg"
 productbuild --component "$APP" /Applications --sign "$INSTALLER_IDENTITY" "$PKG"
 pkgutil --check-signature "$PKG" | head -3
-echo "upload with: fastlane mac upload ($PKG)"
+echo "upload with: cd appstore && fastlane mac upload ($PKG)"

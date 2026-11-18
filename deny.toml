@@ -1,0 +1,38 @@
+# cargo-deny: every dependency's license must be compatible with Flowie's GPL-3.0-or-later
+# (the same list appstore/macos/about.toml bundles notices for). CI runs `cargo deny check`.
+[graph]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+all-features = false
+
+[licenses]
+allow = [
+    "MIT", "MIT-0", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause",
+    "ISC", "Zlib", "Unicode-3.0", "Unlicense", "MPL-2.0", "CC0-1.0", "BSL-1.0", "0BSD",
+    "GPL-3.0-or-later",
+]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+
+[advisories]
+# "Unmaintained" notices count only for crates Flowie depends on directly; the ones deep in
+# GPUI's tree are GPUI's to replace. Vulnerabilities fail CI wherever they are.
+unmaintained = "workspace"
+ignore = [
+    # chrono: only Local::now() and date arithmetic; no maintained drop-in yet. Revisit with jiff.
+    { id = "RUSTSEC-2026-0543", reason = "no maintained replacement yet; dates only, no parsing of untrusted input" },
+    # ttf-parser: flowie-math reads glyph metrics from the bundled math font only, and GPUI's
+    # usvg/fontdb use it too, so it goes when they move.
+    { id = "RUSTSEC-2026-0192", reason = "parses only the bundled font; shared with GPUI's tree" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

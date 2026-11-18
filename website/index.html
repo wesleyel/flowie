@@ -1,0 +1,89 @@
+---
+layout: default
+main_class: home
+og_description: Think in lists. Zoom into any bullet, link and mirror ideas, write math, and find anything instantly.
+---
+<section class="hero">
+  <div class="container">
+    <img class="app-icon" src="{{ '/images/icon.png' | relative_url }}" width="256" height="256" alt="">
+    {%- for pair in site.data.i18n %}{% assign t = pair[1] %}
+    <div class="hero-copy" lang="{{ t.lang }}">
+      <h1>{{ t.name }}</h1>
+      <p class="tagline">{{ t.tagline }}</p>
+      <div class="cta">
+        {% include badge.html t=t %}
+        <a class="button" href="{{ site.github_url }}">{{ t.source }}<span class="chevron" aria-hidden="true">›</span></a>
+      </div>
+    </div>
+    {%- endfor %}
+  </div>
+</section>
+
+<section class="stage" aria-label="Screenshot">
+  <div class="container">
+    {%- for pair in site.data.i18n %}{% assign t = pair[1] %}
+    <div lang="{{ t.lang }}">
+      {%- capture src %}/images/01-outline-{{ t.shot }}.jpg{% endcapture %}
+      {% include window.html src=src alt=t.shot_alt %}
+    </div>
+    {%- endfor %}
+  </div>
+</section>
+
+<section class="band">
+  <div class="container">
+    {%- for pair in site.data.i18n %}{% assign k = pair[0] %}{% assign t = pair[1] %}
+    <div lang="{{ t.lang }}">
+      <h2 class="section-title" id="features-{{ k }}">{{ t.features }}</h2>
+      <div class="features">
+        {%- for f in site.data.features %}
+        <section class="card feature">
+          <span class="tile tile-{{ f.tint }}">{% include icon.html name=f.icon %}</span>
+          <h3>{{ f[k].title }}</h3>
+          <ul>
+            {%- for item in f[k].items %}
+            <li>{{ item }}</li>
+            {%- endfor %}
+          </ul>
+        </section>
+        {%- endfor %}
+      </div>
+    </div>
+    {%- endfor %}
+  </div>
+</section>
+
+<section class="band">
+  <div class="container">
+    {%- for pair in site.data.i18n %}{% assign k = pair[0] %}{% assign t = pair[1] %}
+    <div lang="{{ t.lang }}">
+      <h2 class="section-title" id="gallery-{{ k }}">{{ t.gallery }}</h2>
+      <div class="gallery">
+        {%- for g in site.data.gallery %}
+        {%- capture src %}/images/{{ g.file }}-{{ t.shot }}.jpg{% endcapture %}{% assign label = g[k] %}
+        {% include window.html src=src alt=label caption=label lazy=true %}
+        {%- endfor %}
+      </div>
+    </div>
+    {%- endfor %}
+  </div>
+</section>
+
+<section class="band" id="support">
+  <div class="container narrow">
+    {%- for pair in site.data.i18n %}{% assign k = pair[0] %}{% assign s = site.data.support[k] %}
+    <div lang="{{ pair[1].lang }}">
+      <h2 class="section-title" id="{{ s.id }}">{{ s.heading }}</h2>
+      <p class="card contact">{{ s.intro }}</p>
+      <dl class="card inset-list">
+        {%- for item in s.faq %}
+        <div class="row">
+          <dt>{{ item.q }}</dt>
+          <dd>{{ item.a }}</dd>
+        </div>
+        {%- endfor %}
+      </dl>
+    </div>
+    {%- endfor %}
+  </div>
+</section>

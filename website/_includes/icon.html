@@ -1,0 +1,11 @@
+{%- comment -%} Line glyphs for the feature tiles (24×24, stroked in currentColor). {%- endcomment -%}
+<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+{%- case include.name -%}
+{%- when 'write' -%}<circle cx="5" cy="6.5" r="1.2" fill="currentColor" stroke="none"/><path d="M9 6.5h11"/><circle cx="9" cy="12" r="1.2" fill="currentColor" stroke="none"/><path d="M13 12h7"/><circle cx="9" cy="17.5" r="1.2" fill="currentColor" stroke="none"/><path d="M13 17.5h7"/>
+{%- when 'math' -%}<path d="M17.5 5H7l6 7-6 7h10.5"/>
+{%- when 'link' -%}<path d="M10 13.5a4 4 0 0 0 5.7.3l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.3 1.3"/><path d="M14 10.5a4 4 0 0 0-5.7-.3l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.3-1.3"/>
+{%- when 'search' -%}<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>
+{%- when 'lock' -%}<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>
+{%- when 'keyboard' -%}<rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14h8"/>
+{%- endcase -%}
+</svg>

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and help
+    url: https://wesleyel.github.io/flowie/#support
+    about: FAQ and how to reach the developer.
+  - name: Security issue
+    url: https://github.com/wesleyel/flowie/security/advisories/new
+    about: Please report vulnerabilities privately.

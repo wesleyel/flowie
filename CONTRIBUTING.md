@@ -10,7 +10,9 @@ cargo clippy --workspace --all-targets
 cargo test --workspace
 ```
 
-CI runs the same checks on macOS (see `.github/workflows/ci.yml`).
+CI runs the same checks on macOS (see `.github/workflows/ci.yml`), plus
+[`cargo deny check`](https://github.com/EmbarkStudios/cargo-deny) for dependency licenses and
+advisories (`deny.toml`).
 
 - Keep changes focused; one topic per pull request.
 - UI text goes through `t!(…)` with keys in `crates/flowie-app/locales/en.json`

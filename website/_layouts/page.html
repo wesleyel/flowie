@@ -1,0 +1,12 @@
+---
+layout: default
+---
+{%- comment -%}
+A bilingual document page (privacy.md, terms.md). The Markdown holds one
+<section lang="en" markdown="1"> and one <section lang="zh-CN" markdown="1">,
+each starting with an h1 and a {: .updated} date line.
+{%- endcomment -%}
+<article class="paper">
+  <div class="paper-mark"><img src="{{ '/images/icon.png' | relative_url }}" width="64" height="64" alt=""><span>Flowie</span></div>
+  {{ content }}
+</article>

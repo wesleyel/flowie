@@ -1,0 +1,35 @@
+# Support section on the home page (#support). Values are HTML.
+en:
+  heading: Support
+  id: support-en
+  intro: 'Questions, bug reports and ideas: <a href="mailto:wesleyel@icloud.com?subject=Flowie%20support">wesleyel@icloud.com</a> or <a href="https://github.com/wesleyel/flowie/issues">GitHub issues</a>. <b>Help → Send Feedback…</b> in the app fills in your Flowie and macOS versions.'
+  faq:
+    - q: Where are my notes stored?
+      a: "Only on your Mac, inside Flowie's app container. Flowie has no account and no cloud sync, and it makes no network requests of its own."
+    - q: How do I move my notes from Workflowy or another outliner?
+      a: "Export from the other app as OPML or Markdown, then use <b>File → Import…</b> (⌘⇧I)."
+    - q: How do I back up or export?
+      a: "Use <b>File → Export</b> to save Markdown, OPML or plain text. Time Machine also backs up Flowie's data."
+    - q: I deleted something by mistake.
+      a: "Press ⌘Z, or open <b>File → Trash</b>: deleted bullets stay there for 30 days."
+    - q: How do AI assistants connect?
+      a: "Turn it on in Settings → Agent, then register Flowie's MCP server, for example: <code>claude mcp add flowie -- /Applications/Flowie.app/Contents/MacOS/Flowie mcp</code>"
+    - q: Is Flowie free?
+      a: "Flowie is free software under the GPL-3.0; you can build it yourself from GitHub. The Mac App Store version is the same app, signed and updated for you — buying it supports development."
+zh:
+  heading: 支持
+  id: support-zh
+  intro: '问题、错误报告与建议：<a href="mailto:wesleyel@icloud.com?subject=Flowie%20%E5%8F%8D%E9%A6%88">wesleyel@icloud.com</a>，或在 <a href="https://github.com/wesleyel/flowie/issues">GitHub Issues</a> 提交。在应用中选择<b>「帮助 → 发送反馈…」</b>会自动附上 Flowie 和 macOS 版本。'
+  faq:
+    - q: 笔记保存在哪里？
+      a: "只保存在你的 Mac 上、Flowie 的应用容器内。Flowie 没有账号和云同步，自身不发起任何网络请求。"
+    - q: 如何从 Workflowy 等大纲工具迁移？
+      a: "在原应用中导出 OPML 或 Markdown，然后在 Flowie 中选择<b>「文件 → 导入…」</b>（⌘⇧I）。"
+    - q: 如何备份或导出？
+      a: "通过<b>「文件 → 导出」</b>保存为 Markdown、OPML 或纯文本。时间机器也会备份 Flowie 的数据。"
+    - q: 误删了内容怎么办？
+      a: "按 ⌘Z，或打开<b>「文件 → 废纸篓」</b>：删除的条目会保留 30 天。"
+    - q: 如何连接 AI 助手？
+      a: "在「设置 → Agent」中开启，然后注册 Flowie 的 MCP 服务器，例如：<code>claude mcp add flowie -- /Applications/Flowie.app/Contents/MacOS/Flowie mcp</code>"
+    - q: Flowie 免费吗？
+      a: "Flowie 是以 GPL-3.0 授权的自由软件，可以从 GitHub 自行编译。Mac App Store 版本是同一个应用，已签名并自动更新——购买它就是对开发的支持。"

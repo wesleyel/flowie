@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in Flowie doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please search [existing issues](https://github.com/wesleyel/flowie/issues) first.
+        **Help → Send Feedback…** in the app shows your Flowie and macOS versions.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create a bullet …
+        2. Press …
+  - type: input
+    id: flowie
+    attributes:
+      label: Flowie version
+      placeholder: "1.0.0 (23)"
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Installed from
+      options: [Mac App Store, TestFlight, Built from source]
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "26.1"
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or logs
+      description: Please leave out anything private from your outline.

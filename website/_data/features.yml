@@ -1,0 +1,87 @@
+# Home page feature cards. `icon` picks a glyph in _includes/icon.html; `tint` a tile colour in style.css.
+- icon: write
+  tint: blue
+  en:
+    title: Write and organize
+    items:
+      - "Every bullet is a page — zoom in to focus, out for the big picture"
+      - "Headings, to-dos, numbered lists, quotes and code blocks"
+      - "Bold, italic, highlight, colors and links from the keyboard or the <code>/</code> menu"
+      - "Notes under any bullet; undo for everything"
+  zh:
+    title: 书写与整理
+    items:
+      - "每个条目都是一个页面：进入专注细节，退出纵览全局"
+      - "标题、待办、编号列表、引用、代码块"
+      - "加粗、斜体、高亮、颜色和链接，快捷键或 <code>/</code> 菜单即可"
+      - "任意条目可写备注，所有操作都能撤销"
+- icon: math
+  tint: purple
+  en:
+    title: Math
+    items:
+      - "Inline <code>$…$</code> and display <code>$$…$$</code> LaTeX"
+      - "Rendered natively as you type, with a live preview"
+  zh:
+    title: 数学公式
+    items:
+      - "行内 <code>$…$</code> 与独立 <code>$$…$$</code> LaTeX 公式"
+      - "原生实时渲染，编辑时即时预览"
+- icon: link
+  tint: green
+  en:
+    title: Connect ideas
+    items:
+      - "<code>[[</code> links with backlinks"
+      - "Mirrors: one bullet in several places"
+      - "Tags, mentions and clickable dates"
+      - "Daily journal pages and a calendar"
+  zh:
+    title: 连接想法
+    items:
+      - "<code>[[</code> 链接与反向链接"
+      - "镜像：同一条目出现在多个地方"
+      - "标签、提及与可点击的日期"
+      - "每日日记页与日历"
+- icon: search
+  tint: orange
+  en:
+    title: Find anything
+    items:
+      - "⌘P to jump to any bullet or create a page"
+      - "Search with filters for tags, to-dos, dates and recent changes"
+      - "Starred pages and saved searches"
+  zh:
+    title: 查找一切
+    items:
+      - "⌘P 跳转到任意条目，或新建页面"
+      - "按标签、待办、日期、最近修改筛选搜索"
+      - "收藏页面与保存的搜索"
+- icon: lock
+  tint: teal
+  en:
+    title: Your data, on your Mac
+    items:
+      - "One local database — no account, no cloud, no tracking"
+      - "Import OPML, Markdown and text (Workflowy works)"
+      - "Export Markdown, OPML or text; a 30-day Trash"
+  zh:
+    title: 数据只在你的 Mac 上
+    items:
+      - "一个本地数据库：无需账号，没有云端，没有追踪"
+      - "导入 OPML、Markdown 和纯文本（支持 Workflowy）"
+      - "导出 Markdown、OPML 或纯文本；废纸篓保留 30 天"
+- icon: keyboard
+  tint: indigo
+  en:
+    title: Keyboard and AI
+    items:
+      - "Every shortcut can be changed, mouse side buttons too"
+      - "A built-in tutorial covers every feature"
+      - "An MCP server lets AI assistants read — and, if you allow it, edit — your outline"
+  zh:
+    title: 键盘与 AI
+    items:
+      - "所有快捷键都能修改，也支持鼠标侧键"
+      - "内置教程，覆盖全部功能"
+      - "MCP 服务器让 AI 助手读取你的大纲，允许后还能编辑"

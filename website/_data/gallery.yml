@@ -1,0 +1,13 @@
+# Screenshots under the feature cards: images/<file>-<en-US|zh-Hans>.jpg, 1600×1000.
+- file: 02-quick-open
+  en: Quick open
+  zh: 快速跳转
+- file: 03-commands
+  en: The / command menu
+  zh: / 命令菜单
+- file: 04-journal-calendar
+  en: Journal and calendar
+  zh: 日记与日历
+- file: 05-search
+  en: Search with filters
+  zh: 带条件的搜索

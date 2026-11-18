@@ -1,0 +1,15 @@
+<header class="toolbar">
+  <nav class="toolbar-inner" aria-label="Site">
+    <a class="brand" href="{{ '/' | relative_url }}"><img src="{{ '/images/icon.png' | relative_url }}" width="28" height="28" alt="">Flowie</a>
+    <div class="nav-links">
+      <a href="{{ '/privacy.html' | relative_url }}"{% if page.url == '/privacy.html' %} aria-current="page"{% endif %}><span lang="en">{{ site.data.i18n.en.privacy }}</span><span lang="zh-CN">{{ site.data.i18n.zh.privacy }}</span></a>
+      <a href="{{ '/terms.html' | relative_url }}"{% if page.url == '/terms.html' %} aria-current="page"{% endif %}><span lang="en">{{ site.data.i18n.en.terms }}</span><span lang="zh-CN">{{ site.data.i18n.zh.terms }}</span></a>
+      <a href="{{ '/#support' | relative_url }}"><span lang="en">{{ site.data.i18n.en.support }}</span><span lang="zh-CN">{{ site.data.i18n.zh.support }}</span></a>
+      <a href="{{ site.github_url }}">GitHub</a>
+    </div>
+    <div class="segmented" role="group" aria-label="Language / 语言">
+      <button type="button" data-lang-set="en" aria-pressed="false">EN</button>
+      <button type="button" data-lang-set="zh" aria-pressed="false">中文</button>
+    </div>
+  </nav>
+</header>

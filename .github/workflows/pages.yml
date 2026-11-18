@@ -1,0 +1,70 @@
+name: Website
+
+# Builds website/ with Jekyll and publishes it to GitHub Pages: https://wesleyel.github.io/flowie/
+# (home page, privacy policy and terms of use — the App Store listing and the app's Help
+# menu link to /flowie/, /flowie/privacy.html, /flowie/terms.html and /flowie/#support).
+on:
+  push:
+    branches: [main]
+    paths: [website/**, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Build with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./website
+          destination: ./_site
+      - name: Check links and images in the built site
+        # Every href/src on this site must resolve to a file in _site: /flowie/... and
+        # https://wesleyel.github.io/flowie/... map to _site/..., a trailing / to index.html,
+        # and a #fragment must match an id in the target page.
+        run: |
+          cd _site
+          rc=0
+          for f in $(find . -name '*.html' | sort); do
+            dir=$(dirname "$f")
+            for ref in $(grep -oE '(href|src)="[^"]*"' "$f" | sed -E 's/^(href|src)="//; s/"$//' | sort -u); do
+              case "$ref" in
+                https://wesleyel.github.io/flowie/*) path="./${ref#https://wesleyel.github.io/flowie/}" ;;
+                /flowie/*) path="./${ref#/flowie/}" ;;
+                /flowie) path="./" ;;
+                http:*|https:*|mailto:*|//*) continue ;;
+                /*) echo "$f: $ref is missing the /flowie base path"; rc=1; continue ;;
+                \#*) path="$f$ref" ;;
+                *) path="$dir/$ref" ;;
+              esac
+              frag=""
+              case "$path" in *\#*) frag="${path#*#}"; path="${path%%#*}" ;; esac
+              path="${path%%\?*}"
+              case "$path" in */|.) path="${path%/}/index.html" ;; esac
+              if [ ! -f "$path" ]; then
+                echo "$f: $ref -> missing $path"; rc=1
+              elif [ -n "$frag" ] && ! grep -q "id=\"$frag\"" "$path"; then
+                echo "$f: $ref -> no id=\"$frag\" in $path"; rc=1
+              fi
+            done
+          done
+          exit $rc
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_site
+      - id: deployment
+        uses: actions/deploy-pages@v4

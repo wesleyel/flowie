@@ -307,11 +307,13 @@ mod tests {
                 } else if path.extension().is_some_and(|e| e == "rs") {
                     let src = std::fs::read_to_string(path).unwrap();
                     // Whole-word `t!` calls only, not the tail of `format!`.
-                    for (i, _) in src.match_indices("t!(\"") {
+                    // rustfmt may break the line after `t!(`, so skip whitespace before the key.
+                    // (Pattern spelled in two halves so this scanner doesn't read itself.)
+                    for (i, _) in src.match_indices(concat!("t", "!(")) {
                         if i > 0 && src[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
                             continue;
                         }
-                        let rest = &src[i + 4..];
+                        let Some(rest) = src[i + 3..].trim_start().strip_prefix('"') else { continue };
                         used.insert(rest[..rest.find('"').unwrap()].to_string());
                     }
                 }

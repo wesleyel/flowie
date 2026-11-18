@@ -78,10 +78,7 @@ fn connect(socket: &Path) -> Result<UnixStream, String> {
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut cmd = std::process::Command::new(&exe);
-    cmd.arg("--background")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+    cmd.arg("--background").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);

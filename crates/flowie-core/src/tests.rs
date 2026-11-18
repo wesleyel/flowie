@@ -1,8 +1,8 @@
+use crate::flatten::flatten_mapped;
 use crate::io;
 use crate::markup::{self, Kind};
 use crate::search::{find_highlights, Query};
 use crate::*;
-use crate::flatten::flatten_mapped;
 
 fn texts(tree: &Tree, parent: NodeId) -> Vec<String> {
     tree.children(parent).iter().map(|id| tree.node(*id).text.clone()).collect()
@@ -284,7 +284,7 @@ fn opml_roundtrip_and_workflowy_html() {
     let (mut t, [a, b, ..]) = sample();
     t.set_note(a, "line1\nline2 & <x>");
     t.set_completed(b, true);
-    let items = t.to_items(&t.children(ROOT).to_vec());
+    let items = t.to_items(t.children(ROOT));
     let xml = io::to_opml("Test", &items);
     assert_eq!(io::parse_opml(&xml), items);
     let wf = r#"<opml><body><outline text="&lt;b&gt;Bold&lt;/b&gt; and &lt;a href=&quot;https://x.y&quot;&gt;link&lt;/a&gt;" _complete="true"><outline text="kid"/></outline></body></opml>"#;

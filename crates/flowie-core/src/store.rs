@@ -50,9 +50,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
 }
 
 pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, String)>)> {
-    let mut stmt = conn.prepare(
-        "SELECT id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror FROM nodes",
-    )?;
+    let mut stmt = conn.prepare("SELECT id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror FROM nodes")?;
     let nodes = stmt
         .query_map([], |r| {
             Ok(Node {
@@ -71,18 +69,11 @@ pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, Stri
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut stmt = conn.prepare("SELECT key, value FROM meta")?;
-    let meta = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let meta = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok((nodes, meta))
 }
 
-pub fn write_batch(
-    conn: &mut Connection,
-    upserts: &[Node],
-    deletes: &[NodeId],
-    meta: &[(String, String)],
-) -> rusqlite::Result<()> {
+pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], meta: &[(String, String)]) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     {
         let mut up = tx.prepare_cached(
@@ -110,9 +101,7 @@ pub fn write_batch(
         for id in deletes {
             del.execute(params![*id as i64])?;
         }
-        let mut m = tx.prepare_cached(
-            "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2",
-        )?;
+        let mut m = tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2")?;
         for (k, v) in meta {
             m.execute(params![k, v])?;
         }
@@ -166,10 +155,8 @@ pub struct Writer {
 impl Writer {
     pub fn spawn(path: PathBuf) -> Writer {
         let (tx, rx) = mpsc::channel();
-        let thread = std::thread::Builder::new()
-            .name("flowie-store".into())
-            .spawn(move || writer_loop(path, rx))
-            .expect("spawn store thread");
+        let thread =
+            std::thread::Builder::new().name("flowie-store".into()).spawn(move || writer_loop(path, rx)).expect("spawn store thread");
         Writer { tx: Some(tx), thread: Some(thread) }
     }
 

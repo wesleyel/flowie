@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  check:
+    name: clippy, test and build (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build the app bundle
+        run: |
+          cargo build --release --locked -p flowie-app
+          scripts/bundle-macos.sh target/release/flowie Flowie flowie.spokey.cn
+          plutil -lint build/Flowie.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" build/Flowie.app/Contents/Info.plist
+      - name: Smoke test (launch, then quit)
+        run: |
+          FLOWIE_DB="$RUNNER_TEMP/smoke.sqlite" build/Flowie.app/Contents/MacOS/Flowie &
+          pid=$!
+          sleep 10
+          kill -0 "$pid"   # still running: it started without crashing
+          kill "$pid"

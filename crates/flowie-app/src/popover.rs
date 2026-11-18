@@ -13,8 +13,7 @@ use std::time::Duration;
 use flowie_core::markup;
 use flowie_core::tree::{NodeId, ROOT};
 use gpui::{
-    anchored, deferred, div, point, prelude::*, px, AnyElement, Context, MouseButton, MouseDownEvent, Pixels, Point,
-    Stateful, Task, Window,
+    anchored, deferred, div, point, prelude::*, px, AnyElement, Context, MouseButton, MouseDownEvent, Pixels, Point, Stateful, Task, Window,
 };
 
 use crate::i18n::t;
@@ -148,7 +147,8 @@ impl Outline {
                 if ids.is_empty() {
                     return None;
                 }
-                let mut out = vec![div().pb_2().px_2().text_color(theme.muted).child(t!("outline.link_count", count = ids.len())).into_any_element()];
+                let mut out =
+                    vec![div().pb_2().px_2().text_color(theme.muted).child(t!("outline.link_count", count = ids.len())).into_any_element()];
                 for src in ids {
                     let (text, note) = self.plain_text_and_note(src);
                     let path = self.render_path(src, 392., false, window, cx);
@@ -240,6 +240,10 @@ impl Outline {
             return t!("common.home").into();
         }
         let text = markup::plain_text(&self.tree.node(self.tree.source(id)).text).replace(['\n', '\r'], " ");
-        if text.trim().is_empty() { t!("common.untitled").into() } else { text }
+        if text.trim().is_empty() {
+            t!("common.untitled").into()
+        } else {
+            text
+        }
     }
 }

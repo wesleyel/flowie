@@ -117,10 +117,7 @@ impl Node {
 }
 
 pub fn now_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 /// One recorded change: the node before and after (None = absent).
@@ -559,11 +556,7 @@ impl Tree {
         }
         self.reindex();
         // Reversed so that reverting the inverse replays the original order.
-        changes
-            .iter()
-            .rev()
-            .map(|c| Change { id: c.id, before: c.after.clone(), after: c.before.clone() })
-            .collect()
+        changes.iter().rev().map(|c| Change { id: c.id, before: c.after.clone(), after: c.before.clone() }).collect()
     }
 
     /// Rebuild the children index from parent pointers (after bulk state changes).

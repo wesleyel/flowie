@@ -179,33 +179,68 @@ impl Outline {
         match &mode {
             Mode::Jump => {
                 if q.trim().is_empty() {
-                    entries.push(Entry { label: t!("common.home").into(), detail: String::new(), icon: "house", action: Action::Node(ROOT) });
+                    entries.push(Entry {
+                        label: t!("common.home").into(),
+                        detail: String::new(),
+                        icon: "house",
+                        action: Action::Node(ROOT),
+                    });
                     for &id in &self.starred {
                         if self.tree.contains(id) {
-                            entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "star", action: Action::Node(id) });
+                            entries.push(Entry {
+                                label: node_label(self, id),
+                                detail: path_label(self, id),
+                                icon: "star",
+                                action: Action::Node(id),
+                            });
                         }
                     }
                     for s in &self.saved_searches {
-                        entries.push(Entry { label: s.clone(), detail: t!("palette.saved_search").into(), icon: "search", action: Action::Search(s.clone()) });
+                        entries.push(Entry {
+                            label: s.clone(),
+                            detail: t!("palette.saved_search").into(),
+                            icon: "search",
+                            action: Action::Search(s.clone()),
+                        });
                     }
                 } else {
                     for s in self.saved_searches.iter().filter(|s| s.to_lowercase().contains(&q.to_lowercase())) {
-                        entries.push(Entry { label: s.clone(), detail: t!("palette.saved_search").into(), icon: "search", action: Action::Search(s.clone()) });
+                        entries.push(Entry {
+                            label: s.clone(),
+                            detail: t!("palette.saved_search").into(),
+                            icon: "search",
+                            action: Action::Search(s.clone()),
+                        });
                     }
                     for id in self.search_nodes(&q, 40, &[]) {
                         let icon = if self.starred.contains(&id) { "star" } else { "dot" };
                         entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon, action: Action::Node(id) });
                     }
                     entries.extend(self.new_page_entry(&q));
-                    entries.push(Entry { label: t!("palette.search_for", query = q), detail: t!("palette.filter_outline").into(), icon: "search", action: Action::Search(q.clone()) });
+                    entries.push(Entry {
+                        label: t!("palette.search_for", query = q),
+                        detail: t!("palette.filter_outline").into(),
+                        icon: "search",
+                        action: Action::Search(q.clone()),
+                    });
                 }
             }
             Mode::MoveTo(ids) => {
                 if q.trim().is_empty() || ("home".contains(&q.to_lowercase()) || t!("common.home").contains(q.trim())) {
-                    entries.push(Entry { label: t!("common.home").into(), detail: t!("palette.top_level").into(), icon: "house", action: Action::Node(ROOT) });
+                    entries.push(Entry {
+                        label: t!("common.home").into(),
+                        detail: t!("palette.top_level").into(),
+                        icon: "house",
+                        action: Action::Node(ROOT),
+                    });
                 }
                 for id in self.search_nodes(&q, 40, ids) {
-                    entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "corner-down-right", action: Action::Node(id) });
+                    entries.push(Entry {
+                        label: node_label(self, id),
+                        detail: path_label(self, id),
+                        icon: "corner-down-right",
+                        action: Action::Node(id),
+                    });
                 }
                 entries.extend(self.new_page_entry(&q));
             }
@@ -220,7 +255,12 @@ impl Outline {
                     self.search_nodes(&q, 40, &[])
                 };
                 for id in ids.into_iter().filter(|id| !exclude.contains(id)) {
-                    entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon: "link", action: Action::Node(id) });
+                    entries.push(Entry {
+                        label: node_label(self, id),
+                        detail: path_label(self, id),
+                        icon: "link",
+                        action: Action::Node(id),
+                    });
                 }
                 if matches!(mode, Mode::LinkTo { .. }) {
                     entries.extend(self.new_page_entry(&q));
@@ -235,11 +275,13 @@ impl Outline {
 
     pub fn close_palette(&mut self, cx: &mut Context<Self>) {
         if let Some(p) = self.palette.take() {
-            self.edit = p.return_to.filter(|(t, _)| match t {
-                Target::Text(id) | Target::Note(id) => self.tree.contains(*id),
-                _ => true,
-            })
-            .map(|(t, off)| Edit::new(t, off));
+            self.edit = p
+                .return_to
+                .filter(|(t, _)| match t {
+                    Target::Text(id) | Target::Note(id) => self.tree.contains(*id),
+                    _ => true,
+                })
+                .map(|(t, off)| Edit::new(t, off));
             if self.edit.is_none() {
                 self.block = self.block_saved.take();
             }
@@ -341,7 +383,8 @@ impl Outline {
         let (font, _) = (window.text_style().font(), ());
         let run = gpui::TextRun { len: query.len(), font, color: theme.text, background_color: None, underline: None, strikethrough: None };
         let input = self.editor_element(query.clone(), vec![run], theme.caret, theme.selection, cx);
-        let placeholder = query.is_empty().then(|| div().absolute().top_0().left_0().text_color(theme.faint).child(t!("palette.placeholder")));
+        let placeholder =
+            query.is_empty().then(|| div().absolute().top_0().left_0().text_color(theme.faint).child(t!("palette.placeholder")));
         let rows = entries.into_iter().enumerate().map(|(i, e)| {
             div()
                 .id(("palette", i))
@@ -356,7 +399,9 @@ impl Outline {
                 .hover(|s| s.bg(theme.hover))
                 .child(crate::icons::slot(e.icon, crate::icons::MD, if e.icon == "star" { theme.colors[2] } else { theme.muted }))
                 .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(e.label))
-                .child(div().max_w(px(220.)).overflow_hidden().whitespace_nowrap().text_size(px(12.)).text_color(theme.muted).child(e.detail))
+                .child(
+                    div().max_w(px(220.)).overflow_hidden().whitespace_nowrap().text_size(px(12.)).text_color(theme.muted).child(e.detail),
+                )
                 .on_click(cx.listener(move |this, _, window, cx| this.palette_click(i, window, cx)))
         });
         Some(
@@ -384,17 +429,19 @@ impl Outline {
                         .shadow_lg()
                         .p_2()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(div().px_3().pt_1().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted).child(SharedString::from(title)))
+                        .child(
+                            div()
+                                .px_3()
+                                .pt_1()
+                                .text_size(px(11.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme.muted)
+                                .child(SharedString::from(title)),
+                        )
                         .child(div().relative().mx_3().my_2().child(input).children(placeholder))
                         .child(div().h(px(1.)).bg(theme.border).mb_1())
                         .child(
-                            div()
-                                .id("palette-list")
-                                .flex_1()
-                                .min_h_0()
-                                .overflow_y_scroll()
-                                .track_scroll(&self.popup_scroll)
-                                .children(rows),
+                            div().id("palette-list").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.popup_scroll).children(rows),
                         ),
                 )
                 .into_any_element(),

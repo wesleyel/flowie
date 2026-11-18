@@ -57,16 +57,26 @@ impl Outline {
         let c = self.calendar.as_ref()?;
         let theme = self.theme;
         let first = NaiveDate::from_ymd_opt(c.year, c.month, 1)?;
-        let next = if c.month == 12 { NaiveDate::from_ymd_opt(c.year + 1, 1, 1)? } else { NaiveDate::from_ymd_opt(c.year, c.month + 1, 1)? };
+        let next =
+            if c.month == 12 { NaiveDate::from_ymd_opt(c.year + 1, 1, 1)? } else { NaiveDate::from_ymd_opt(c.year, c.month + 1, 1)? };
         let days = (next - first).num_days() as u32;
         let lead = first.weekday().num_days_from_monday();
         let today = today();
         let journal = self.journal_days();
         let title: SharedString = {
             let months = [
-                t!("calendar.month.jan"), t!("calendar.month.feb"), t!("calendar.month.mar"), t!("calendar.month.apr"),
-                t!("calendar.month.may"), t!("calendar.month.jun"), t!("calendar.month.jul"), t!("calendar.month.aug"),
-                t!("calendar.month.sep"), t!("calendar.month.oct"), t!("calendar.month.nov"), t!("calendar.month.dec"),
+                t!("calendar.month.jan"),
+                t!("calendar.month.feb"),
+                t!("calendar.month.mar"),
+                t!("calendar.month.apr"),
+                t!("calendar.month.may"),
+                t!("calendar.month.jun"),
+                t!("calendar.month.jul"),
+                t!("calendar.month.aug"),
+                t!("calendar.month.sep"),
+                t!("calendar.month.oct"),
+                t!("calendar.month.nov"),
+                t!("calendar.month.dec"),
             ];
             t!("calendar.title", month = months[c.month as usize - 1], year = c.year).into()
         };
@@ -95,21 +105,32 @@ impl Outline {
                     .when(has_page, |s| s.border_1().border_color(theme.accent.opacity(0.6)))
                     .child(d.to_string())
                     .child(div().size(px(4.)).rounded_full().when(count > 0, |s| s.bg(theme.accent)))
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                        cx.stop_propagation();
-                        if ev.modifiers.alt {
-                            this.calendar = None;
-                            this.search_for(&format!("date:{date2}"), cx);
-                        } else {
-                            this.open_day(&date2, cx);
-                        }
-                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            if ev.modifiers.alt {
+                                this.calendar = None;
+                                this.search_for(&format!("date:{date2}"), cx);
+                            } else {
+                                this.open_day(&date2, cx);
+                            }
+                        }),
+                    )
                     .into_any_element(),
             );
         }
-        let head = [t!("calendar.weekday.mon"), t!("calendar.weekday.tue"), t!("calendar.weekday.wed"), t!("calendar.weekday.thu"), t!("calendar.weekday.fri"), t!("calendar.weekday.sat"), t!("calendar.weekday.sun")]
-            .into_iter()
-            .map(|w| div().w(px(36.)).flex().justify_center().text_size(px(11.)).text_color(theme.muted).child(w));
+        let head = [
+            t!("calendar.weekday.mon"),
+            t!("calendar.weekday.tue"),
+            t!("calendar.weekday.wed"),
+            t!("calendar.weekday.thu"),
+            t!("calendar.weekday.fri"),
+            t!("calendar.weekday.sat"),
+            t!("calendar.weekday.sun"),
+        ]
+        .into_iter()
+        .map(|w| div().w(px(36.)).flex().justify_center().text_size(px(11.)).text_color(theme.muted).child(w));
         let nav = |icon: &'static str, delta: i32, cx: &mut Context<Self>| {
             div()
                 .id(icon)
@@ -122,20 +143,26 @@ impl Outline {
                 .cursor_pointer()
                 .hover(|s| s.bg(theme.hover))
                 .child(crate::icons::icon(icon, crate::icons::MD, theme.muted))
-                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.shift_month(delta, cx);
-                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.shift_month(delta, cx);
+                    }),
+                )
         };
         Some(
             div()
                 .absolute()
                 .inset_0()
                 .occlude()
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                    this.calendar = None;
-                    cx.notify();
-                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.calendar = None;
+                        cx.notify();
+                    }),
+                )
                 .child(
                     div()
                         .absolute()
@@ -162,13 +189,7 @@ impl Outline {
                         )
                         .child(div().flex().children(head))
                         .child(div().flex().flex_wrap().children(cells))
-                        .child(
-                            div()
-                                .pt_2()
-                                .text_size(px(11.))
-                                .text_color(theme.muted)
-                                .child(t!("calendar.hint")),
-                        ),
+                        .child(div().pt_2().text_size(px(11.)).text_color(theme.muted).child(t!("calendar.hint"))),
                 )
                 .into_any_element(),
         )

@@ -1,8 +1,5 @@
 use flowie_math::math;
-use gpui::{
-    div, prelude::*, px, rgb, size, App, Application, Bounds, Context, Window, WindowBounds,
-    WindowOptions,
-};
+use gpui::{div, prelude::*, px, rgb, size, App, Application, Bounds, Context, Window, WindowBounds, WindowOptions};
 
 struct Demo;
 
@@ -17,23 +14,16 @@ const FORMULAS: &[(&str, bool)] = &[
 
 impl Render for Demo {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .size_full()
-            .bg(rgb(0xffffff))
-            .text_color(rgb(0x202020))
-            .text_size(px(20.))
-            .p_6()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .children(FORMULAS.iter().map(|(src, display)| {
+        div().size_full().bg(rgb(0xffffff)).text_color(rgb(0x202020)).text_size(px(20.)).p_6().flex().flex_col().gap_4().children(
+            FORMULAS.iter().map(|(src, display)| {
                 div()
                     .flex()
                     .items_center()
                     .gap_3()
                     .child(div().w(px(80.)).child(if *display { "display" } else { "inline" }))
                     .child(math(*src, *display))
-            }))
+            }),
+        )
     }
 }
 
@@ -41,10 +31,9 @@ fn main() {
     Application::new().run(|cx: &mut App| {
         flowie_math::load_fonts(cx);
         let bounds = Bounds::centered(None, size(px(720.), px(620.)), cx);
-        cx.open_window(
-            WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() },
-            |_, cx| cx.new(|_| Demo),
-        )
+        cx.open_window(WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() }, |_, cx| {
+            cx.new(|_| Demo)
+        })
         .unwrap();
         cx.activate(true);
     });

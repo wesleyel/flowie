@@ -75,7 +75,7 @@ fn walk(
         if ignore_collapse && node.mirror != crate::tree::ROOT {
             continue;
         }
-        if !(ignore_collapse || !node.collapsed) {
+        if node.collapsed && !ignore_collapse {
             continue;
         }
         let src = tree.source(real);

@@ -21,13 +21,7 @@ pub fn icon(name: &str, size: f32, color: Hsla) -> Svg {
 
 /// An icon centered in a square slot (slot = size + 4), for aligned lists.
 pub fn slot(name: &str, size: f32, color: Hsla) -> gpui::Div {
-    div()
-        .flex_none()
-        .size(px(size + 4.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(icon(name, size, color))
+    div().flex_none().size(px(size + 4.0)).flex().items_center().justify_center().child(icon(name, size, color))
 }
 
 /// One token of a shortcut: an icon name (macOS key glyph) or a text label.
@@ -86,25 +80,27 @@ pub fn key_chip(keys: &str, color: Hsla, bg: Hsla, border: Hsla) -> AnyElement {
                 .flex()
                 .items_center()
                 .gap(px(1.))
-                .children(tokens(stroke).into_iter().map(|t| match t {
-                    KeyToken::Icon(name, angle) => div()
-                        .flex_none()
-                        .size(px(KEY + 2.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(icon(name, KEY, color).with_transformation(Transformation::rotate(radians(angle.to_radians()))))
-                        .into_any_element(),
-                    KeyToken::Text(t) => div()
-                        .flex_none()
-                        .min_w(px(KEY + 2.0))
-                        .flex()
-                        .justify_center()
-                        .text_size(px(11.))
-                        .line_height(px(KEY + 2.0))
-                        .text_color(color)
-                        .child(t)
-                        .into_any_element(),
+                .children(tokens(stroke).into_iter().map(|t| {
+                    match t {
+                        KeyToken::Icon(name, angle) => div()
+                            .flex_none()
+                            .size(px(KEY + 2.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(icon(name, KEY, color).with_transformation(Transformation::rotate(radians(angle.to_radians()))))
+                            .into_any_element(),
+                        KeyToken::Text(t) => div()
+                            .flex_none()
+                            .min_w(px(KEY + 2.0))
+                            .flex()
+                            .justify_center()
+                            .text_size(px(11.))
+                            .line_height(px(KEY + 2.0))
+                            .text_color(color)
+                            .child(t)
+                            .into_any_element(),
+                    }
                 }))
                 .into_any_element()
         })

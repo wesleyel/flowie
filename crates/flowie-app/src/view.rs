@@ -3,8 +3,8 @@
 use flowie_core::{markup, BlockKind, NodeId, ROOT};
 use flowie_math::math;
 use gpui::{
-    div, list, prelude::*, px, radians, relative, svg, AnyElement, Context, FontWeight, KeyContext, MouseButton,
-    MouseDownEvent, MouseMoveEvent, SharedString, StyledText, Transformation, Window,
+    div, list, prelude::*, px, radians, relative, svg, AnyElement, Context, FontWeight, KeyContext, MouseButton, MouseDownEvent,
+    MouseMoveEvent, SharedString, StyledText, Transformation, Window,
 };
 
 use crate::anim::{self, ease_in_out, ease_out, Channel};
@@ -74,7 +74,16 @@ impl Outline {
     /// text: shift extends the block selection, a press on a link / tag /
     /// date acts on it, anything else starts editing at `raw_ix` with drag
     /// selection armed — so one press, drag and release selects text.
-    fn press_text(&mut self, id: NodeId, target: Target, raw_ix: usize, click: Option<Click>, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+    fn press_text(
+        &mut self,
+        id: NodeId,
+        target: Target,
+        raw_ix: usize,
+        click: Option<Click>,
+        ev: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         cx.stop_propagation();
         if ev.modifiers.shift {
             return self.shift_click(id, cx);
@@ -186,13 +195,7 @@ impl Outline {
     }
 
     /// Text of a node, as the editor (when active) or as rendered rich text.
-    fn render_text(
-        &mut self,
-        id: NodeId,
-        note: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn render_text(&mut self, id: NodeId, note: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let bold_title = !note && id == self.zoom && id != ROOT;
         let kind = self.tree.node(id).kind;
         let node = self.tree.node(self.tree.source(id));
@@ -203,9 +206,7 @@ impl Outline {
         if bold_title || heading {
             font.weight = FontWeight::BOLD;
         }
-        if note {
-            color = self.theme.muted;
-        } else if kind == BlockKind::Quote && !completed {
+        if note || (kind == BlockKind::Quote && !completed) {
             color = self.theme.muted;
         }
         let target = if note { Target::Note(id) } else { Target::Text(id) };
@@ -246,13 +247,13 @@ impl Outline {
                     .flex_wrap()
                     .items_center()
                     .gap_4()
-                    .children(formulas.into_iter().map(|(src, display)| math(src, display).font_size(px(FONT_SIZE * MATH_SCALE)).color(theme.text)))
+                    .children(
+                        formulas
+                            .into_iter()
+                            .map(|(src, display)| math(src, display).font_size(px(FONT_SIZE * MATH_SCALE)).color(theme.text)),
+                    )
             });
-            return self
-                .editor_mouse(cx)
-                .child(editor)
-                .children(preview)
-                .into_any_element();
+            return self.editor_mouse(cx).child(editor).children(preview).into_any_element();
         }
 
         let pieces = rich::build(&raw, false, &style);
@@ -313,17 +314,25 @@ impl Outline {
                         let styled = StyledText::new(t).with_runs(r);
                         let layout = styled.layout().clone();
                         let (map, clicks) = (map.clone(), clicks.clone());
-                        children.push(div().h(px(LINE_H))
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
-                                let (d, inside) = match layout.index_for_position(ev.position) {
-                                    Ok(i) => (start + i, true),
-                                    Err(i) => (start + i, false),
-                                };
-                                let click = inside.then(|| clicks.iter().find(|(r, _)| r.contains(&d)).map(|(_, c)| c.clone())).flatten();
-                                let raw_ix = rich::display_to_raw(&map, d).min(raw_len);
-                                this.press_text(id, target, raw_ix, click, ev, window, cx);
-                            }))
-                            .child(styled).into_any_element());
+                        children.push(
+                            div()
+                                .h(px(LINE_H))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                                        let (d, inside) = match layout.index_for_position(ev.position) {
+                                            Ok(i) => (start + i, true),
+                                            Err(i) => (start + i, false),
+                                        };
+                                        let click =
+                                            inside.then(|| clicks.iter().find(|(r, _)| r.contains(&d)).map(|(_, c)| c.clone())).flatten();
+                                        let raw_ix = rich::display_to_raw(&map, d).min(raw_len);
+                                        this.press_text(id, target, raw_ix, click, ev, window, cx);
+                                    }),
+                                )
+                                .child(styled)
+                                .into_any_element(),
+                        );
                     }
                 }
                 Piece::Math { source, display } => {
@@ -390,10 +399,16 @@ impl Outline {
                         .line_height(px(20.))
                         .hover(|s| s.text_color(theme.link))
                         .child(crate::icons::slot(if mirror { "copy" } else { "link" }, crate::icons::SM, theme.faint))
-                        .child(div().flex_1().min_w_0().flex().flex_col()
-                            .child(label)
-                            .when(!note.is_empty(), |d| d.child(div().text_color(theme.muted).child(note)))
-                            .child(div().text_color(theme.muted).child(path)))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(label)
+                                .when(!note.is_empty(), |d| d.child(div().text_color(theme.muted).child(note)))
+                                .child(div().text_color(theme.muted).child(path)),
+                        )
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(target, cx)))
                         .into_any_element(),
@@ -406,11 +421,7 @@ impl Outline {
             .min_h(px(240.))
             .flex()
             .flex_col()
-            .child(
-                div()
-                    .px(px(PAD_X + 24.))
-                    .children(section),
-            )
+            .child(div().px(px(PAD_X + 24.)).children(section))
             .child(div().flex_1().min_h(px(200.)))
             .on_mouse_down(
                 MouseButton::Left,
@@ -432,15 +443,8 @@ impl Outline {
         let has_kids = self.tree.has_children(self.tree.source(id));
         let collapsed = node.collapsed;
         let label: String = markup::plain_text(&src.text).chars().take(60).collect();
-        let base = div()
-            .id(("bullet", id as usize))
-            .flex_none()
-            .w(px(18.))
-            .h(px(line_h))
-            .flex()
-            .items_center()
-            .justify_center()
-            .cursor_pointer();
+        let base =
+            div().id(("bullet", id as usize)).flex_none().w(px(18.)).h(px(line_h)).flex().items_center().justify_center().cursor_pointer();
         let inner = match kind {
             BlockKind::Todo => {
                 return base
@@ -457,7 +461,9 @@ impl Outline {
                             .when(completed, |d| d.child(crate::icons::icon("check", 11., theme.bg))),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_checkbox(id, cx)))
-                    .on_drag(DragNode { id, label }, move |drag, _, _, cx| cx.new(|_| DragPreview { label: drag.label.clone().into(), theme }))
+                    .on_drag(DragNode { id, label }, move |drag, _, _, cx| {
+                        cx.new(|_| DragPreview { label: drag.label.clone().into(), theme })
+                    })
                     .into_any_element();
             }
             BlockKind::Numbered => {
@@ -474,13 +480,9 @@ impl Outline {
                 }
                 div().text_size(px(13.)).text_color(theme.muted).child(format!("{n}.")).into_any_element()
             }
-            BlockKind::Paragraph => div()
-                .size(px(5.))
-                .rounded_full()
-                .bg(theme.faint)
-                .opacity(0.)
-                .group_hover("row", |s| s.opacity(1.))
-                .into_any_element(),
+            BlockKind::Paragraph => {
+                div().size(px(5.)).rounded_full().bg(theme.faint).opacity(0.).group_hover("row", |s| s.opacity(1.)).into_any_element()
+            }
             _ => div()
                 .size(px(17.))
                 .rounded_full()
@@ -520,7 +522,15 @@ impl Outline {
                     .pl(px(left))
                     .pr(px(PAD_X))
                     .py(px(3.))
-                    .child(div().w(px(18.)).h(px(LINE_H)).flex().items_center().justify_center().child(div().size(px(6.)).rounded_full().bg(theme.faint)))
+                    .child(
+                        div()
+                            .w(px(18.))
+                            .h(px(LINE_H))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(div().size(px(6.)).rounded_full().bg(theme.faint)),
+                    )
                     .child(div().pl(px(6.)).text_color(theme.muted).child(markup::plain_text(&node.text))),
             )
             .into_any_element()
@@ -587,25 +597,11 @@ impl Outline {
 
         let mut guides = Vec::new();
         for k in 0..d.row.depth {
-            guides.push(
-                div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .left(px(PAD_X + k as f32 * INDENT + 8.5))
-                    .w(px(1.))
-                    .bg(theme.guide),
-            );
+            guides.push(div().absolute().top_0().bottom_0().left(px(PAD_X + k as f32 * INDENT + 8.5)).w(px(1.)).bg(theme.guide));
         }
 
         let drop_line = self.drop.filter(|t| t.node == id).map(|t| {
-            let el = div()
-                .absolute()
-                .left(px(PAD_X + t.depth as f32 * INDENT))
-                .right(px(PAD_X))
-                .h(px(2.))
-                .rounded_full()
-                .bg(theme.accent);
+            let el = div().absolute().left(px(PAD_X + t.depth as f32 * INDENT)).right(px(PAD_X)).h(px(2.)).rounded_full().bg(theme.accent);
             if t.below {
                 el.bottom(px(-1.))
             } else {
@@ -633,10 +629,13 @@ impl Outline {
                     .text_color(theme.muted)
                     .with_transformation(Transformation::rotate(radians(angle.to_radians()))),
             )
-            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                cx.stop_propagation();
-                this.toggle_fold(id, cx);
-            }));
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.toggle_fold(id, cx);
+                }),
+            );
 
         let content = div()
             .flex_1()
@@ -707,11 +706,7 @@ impl Outline {
                 }
             }));
 
-        let row = if p < 1.0 {
-            row.opacity(p).max_h(px(est_h * p)).overflow_hidden()
-        } else {
-            row
-        };
+        let row = if p < 1.0 { row.opacity(p).max_h(px(est_h * p)).overflow_hidden() } else { row };
         row.into_any_element()
     }
 
@@ -731,7 +726,14 @@ impl Outline {
         let widths: Vec<f32> = labels
             .iter()
             .map(|t| {
-                let run = gpui::TextRun { len: t.len(), font: font.clone(), color: theme.muted, background_color: None, underline: None, strikethrough: None };
+                let run = gpui::TextRun {
+                    len: t.len(),
+                    font: font.clone(),
+                    color: theme.muted,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                };
                 f32::from(window.text_system().shape_line(t.clone().into(), px(13.), &[run], None).width) + 8.
             })
             .collect();
@@ -780,23 +782,37 @@ impl Outline {
                     crumb = self.popover_anchor(crumb, PopoverKind::Path(levels), target.is_none(), cx);
                 }
                 if let Some(target) = target {
-                    crumb = crumb
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                    crumb = crumb.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_click(cx.listener(
+                        move |this, _, _, cx| {
                             cx.stop_propagation();
                             this.zoom_to(target, cx);
-                        }));
+                        },
+                    ));
                 }
                 let level = div().min_w_0().flex().items_center().gap_1();
                 if ix + 1 < count {
-                    level.flex_none().child(crumb).child(crate::icons::icon("chevron-right", crate::icons::SM, theme.faint)).into_any_element()
+                    level
+                        .flex_none()
+                        .child(crumb)
+                        .child(crate::icons::icon("chevron-right", crate::icons::SM, theme.faint))
+                        .into_any_element()
                 } else {
                     level.flex_1().child(crumb).into_any_element()
                 }
             })
             .collect();
-        div().min_w_0().w_full().overflow_hidden().flex().items_center().gap_1()
-            .text_size(px(13.)).line_height(px(20.)).text_color(theme.muted).children(children).into_any_element()
+        div()
+            .min_w_0()
+            .w_full()
+            .overflow_hidden()
+            .flex()
+            .items_center()
+            .gap_1()
+            .text_size(px(13.))
+            .line_height(px(20.))
+            .text_color(theme.muted)
+            .children(children)
+            .into_any_element()
     }
 
     fn render_search(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -858,10 +874,13 @@ impl Outline {
                         .cursor_pointer()
                         .hover(|s| s.bg(theme.hover))
                         .child(crate::icons::icon("circle-x", crate::icons::SM, theme.muted))
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.clear_search(cx);
-                        })),
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.clear_search(cx);
+                            }),
+                        ),
                 )
             })
             .on_mouse_down(
@@ -883,8 +902,9 @@ impl Outline {
         let id = self.zoom;
         let text = self.render_text(id, false, window, cx);
         let references = self.render_reference_count(id, cx);
-        let note = (!self.tree.node(self.tree.source(id)).note.is_empty() || self.edit.as_ref().is_some_and(|e| e.target == Target::Note(id)))
-            .then(|| self.render_text(id, true, window, cx));
+        let note = (!self.tree.node(self.tree.source(id)).note.is_empty()
+            || self.edit.as_ref().is_some_and(|e| e.target == Target::Note(id)))
+        .then(|| self.render_text(id, true, window, cx));
         Some(
             div()
                 .px(px(PAD_X + 24.))
@@ -958,13 +978,12 @@ impl Render for Outline {
             .items_center()
             .gap_1()
             .when(self.zoom != ROOT, |d| {
-                d.child(
-                    tool("star", "star", if starred { theme.colors[2] } else { theme.muted })
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let z = this.zoom;
-                            this.star(z, cx);
-                        })),
-                )
+                d.child(tool("star", "star", if starred { theme.colors[2] } else { theme.muted }).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        let z = this.zoom;
+                        this.star(z, cx);
+                    },
+                )))
             })
             .when(!self.query.trim().is_empty(), |d| {
                 d.child(
@@ -972,7 +991,10 @@ impl Render for Outline {
                         .on_click(cx.listener(|this, _, window, cx| this.save_search(&SaveSearch, window, cx))),
                 )
             })
-            .child(tool("calendar", "calendar", theme.muted).on_click(cx.listener(|this, _, window, cx| this.show_calendar(&ShowCalendar, window, cx))))
+            .child(
+                tool("calendar", "calendar", theme.muted)
+                    .on_click(cx.listener(|this, _, window, cx| this.show_calendar(&ShowCalendar, window, cx))),
+            )
             .child(div().w(px(6.)))
             .child(self.render_search(window, cx));
         let header = div()
@@ -984,8 +1006,13 @@ impl Render for Outline {
             .pt(px(10.))
             .pb(px(6.))
             .gap_3()
-            .child(div().flex_1().min_w_0().child(self.render_path(self.zoom,
-                f32::from(window.viewport_size().width) - 520., true, window, cx)))
+            .child(div().flex_1().min_w_0().child(self.render_path(
+                self.zoom,
+                f32::from(window.viewport_size().width) - 520.,
+                true,
+                window,
+                cx,
+            )))
             .child(tools.flex_none());
         let title_el = if self.trash.is_some() { None } else { self.render_title(window, cx) };
 
@@ -1003,7 +1030,10 @@ impl Render for Outline {
                         cx.notify();
                     }
                 }))
-                .child(list(self.list.clone(), move |ix, window, cx| entity.update(cx, |this, cx| this.render_row(ix, window, cx))).size_full())
+                .child(
+                    list(self.list.clone(), move |ix, window, cx| entity.update(cx, |this, cx| this.render_row(ix, window, cx)))
+                        .size_full(),
+                )
                 .into_any_element()
         };
         let palette = self.render_palette(window, cx);
@@ -1014,31 +1044,29 @@ impl Render for Outline {
         let format_menu = self.render_format_menu(cx);
         let toast = self.toast.as_ref().filter(|(_, t)| !t.done()).map(|(msg, t)| {
             let tt = t.t();
-            let o = if tt < 0.08 { tt / 0.08 } else if tt > 0.85 { (1.0 - tt) / 0.15 } else { 1.0 };
-            div()
-                .absolute()
-                .bottom(px(22.))
-                .left_0()
-                .right_0()
-                .flex()
-                .justify_center()
-                .child(
-                    div()
-                        .px_3()
-                        .py(px(6.))
-                        .rounded_lg()
-                        .bg(theme.text)
-                        .text_color(theme.bg)
-                        .text_size(px(13.))
-                        .shadow_md()
-                        .opacity(o)
-                        .child(msg.clone()),
-                )
+            let o = if tt < 0.08 {
+                tt / 0.08
+            } else if tt > 0.85 {
+                (1.0 - tt) / 0.15
+            } else {
+                1.0
+            };
+            div().absolute().bottom(px(22.)).left_0().right_0().flex().justify_center().child(
+                div()
+                    .px_3()
+                    .py(px(6.))
+                    .rounded_lg()
+                    .bg(theme.text)
+                    .text_color(theme.bg)
+                    .text_size(px(13.))
+                    .shadow_md()
+                    .opacity(o)
+                    .child(msg.clone()),
+            )
         });
 
-        let empty_hint = (self.rows.is_empty() && !self.query.is_empty()).then(|| {
-            div().px(px(PAD_X + 24.)).py_4().text_color(theme.muted).child(t!("outline.no_match", query = self.query))
-        });
+        let empty_hint = (self.rows.is_empty() && !self.query.is_empty())
+            .then(|| div().px(px(PAD_X + 24.)).py_4().text_color(theme.muted).child(t!("outline.no_match", query = self.query)));
 
         if self.is_animating() {
             window.request_animation_frame();
@@ -1145,20 +1173,29 @@ impl Render for Outline {
                     this.settings_key(ev, window, cx);
                 }
             }))
-            .on_mouse_down(MouseButton::Navigate(gpui::NavigationDirection::Back), cx.listener(|this, _, window, cx| {
-                cx.stop_propagation();
-                this.mouse_shortcut(gpui::NavigationDirection::Back, window, cx);
-            }))
-            .on_mouse_down(MouseButton::Navigate(gpui::NavigationDirection::Forward), cx.listener(|this, _, window, cx| {
-                cx.stop_propagation();
-                this.mouse_shortcut(gpui::NavigationDirection::Forward, window, cx);
-            }))
-            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| {
-                this.mouse_block = false;
-                if let Some(e) = this.edit.as_mut() {
-                    e.selecting_with_mouse = false;
-                }
-            }))
+            .on_mouse_down(
+                MouseButton::Navigate(gpui::NavigationDirection::Back),
+                cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.mouse_shortcut(gpui::NavigationDirection::Back, window, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(gpui::NavigationDirection::Forward),
+                cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.mouse_shortcut(gpui::NavigationDirection::Forward, window, cx);
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                    this.mouse_block = false;
+                    if let Some(e) = this.edit.as_mut() {
+                        e.selecting_with_mouse = false;
+                    }
+                }),
+            )
             .relative()
             .child(header)
             .child(
@@ -1212,8 +1249,16 @@ impl Outline {
                 .py(px(6.))
                 .border_b_1()
                 .border_color(theme.border)
-                .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(if e.label.is_empty() { t!("common.untitled").to_string() } else { e.label.clone() }))
-                .child(div().text_size(px(12.)).text_color(theme.muted).whitespace_nowrap().child(t!("trash.entry", count = count, ago = ago(e.deleted_at))))
+                .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(if e.label.is_empty() {
+                    t!("common.untitled").to_string()
+                } else {
+                    e.label.clone()
+                }))
+                .child(div().text_size(px(12.)).text_color(theme.muted).whitespace_nowrap().child(t!(
+                    "trash.entry",
+                    count = count,
+                    ago = ago(e.deleted_at)
+                )))
                 .child(
                     div()
                         .id(("restore", seq as usize))

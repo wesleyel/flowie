@@ -140,8 +140,8 @@ pub fn install(cx: &mut App, overrides: &HashMap<String, Vec<String>>) {
     let mut out = Vec::new();
     for b in BINDINGS {
         if let Some(keys) = overrides.get(b.id) {
-            let first_in_ctx = BINDINGS.iter().position(|x| x.id == b.id && x.context == b.context)
-                == BINDINGS.iter().position(|x| std::ptr::eq(x, b));
+            let first_in_ctx =
+                BINDINGS.iter().position(|x| x.id == b.id && x.context == b.context) == BINDINGS.iter().position(|x| std::ptr::eq(x, b));
             if first_in_ctx {
                 for key in keys.iter().filter(|k| !k.starts_with("mouse-")) {
                     out.push((b.make)(key, b.context));
@@ -171,31 +171,30 @@ fn effective(id: &str, overrides: &HashMap<String, Vec<String>>) -> Vec<(String,
 }
 
 pub fn mouse_action(key: &str, overrides: &HashMap<String, Vec<String>>, editing: bool, selecting: bool) -> Option<Box<dyn gpui::Action>> {
-    BINDINGS.iter().rev().find(|b| {
-        let active = match b.context {
-            Some("editing") => editing,
-            Some("selecting") => selecting,
-            _ => true,
-        };
-        active && keys_for(b.id, overrides).iter().any(|k| k == key)
-    }).map(|b| (b.make)("space", b.context).action().boxed_clone())
+    BINDINGS
+        .iter()
+        .rev()
+        .find(|b| {
+            let active = match b.context {
+                Some("editing") => editing,
+                Some("selecting") => selecting,
+                _ => true,
+            };
+            active && keys_for(b.id, overrides).iter().any(|k| k == key)
+        })
+        .map(|b| (b.make)("space", b.context).action().boxed_clone())
 }
 
 /// Whether two binding contexts can be active at the same time
 /// ("editing" and "selecting" never are).
 fn overlap(a: Option<&str>, b: Option<&str>) -> bool {
-    match (a, b) {
-        (Some("editing"), Some("selecting")) | (Some("selecting"), Some("editing")) => false,
-        _ => true,
-    }
+    !matches!((a, b), (Some("editing"), Some("selecting")) | (Some("selecting"), Some("editing")))
 }
 
 /// Ids whose shortcut collides with another action's in an overlapping context.
 pub fn conflicts(overrides: &HashMap<String, Vec<String>>) -> std::collections::HashSet<&'static str> {
-    let all: Vec<(&'static str, String, Option<&'static str>)> = rows()
-        .into_iter()
-        .flat_map(|r| effective(r.id, overrides).into_iter().map(move |(k, c)| (r.id, k, c)))
-        .collect();
+    let all: Vec<(&'static str, String, Option<&'static str>)> =
+        rows().into_iter().flat_map(|r| effective(r.id, overrides).into_iter().map(move |(k, c)| (r.id, k, c))).collect();
     let mut out = std::collections::HashSet::new();
     for (i, a) in all.iter().enumerate() {
         for b in &all[i + 1..] {
@@ -223,23 +222,6 @@ pub fn group_label(group: &str) -> &'static str {
 pub fn rows() -> Vec<&'static Binding> {
     let mut seen = std::collections::HashSet::new();
     BINDINGS.iter().filter(|b| seen.insert(b.id)).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mouse_bindings_can_be_replaced_and_report_conflicts() {
-        let mut overrides = HashMap::new();
-        assert!(mouse_action("mouse-back", &overrides, true, false).unwrap().as_any().is::<PageBack>());
-        overrides.insert("page-back".into(), vec!["cmd-alt-left".into()]);
-        assert!(mouse_action("mouse-back", &overrides, true, false).is_none());
-        overrides.insert("page-forward".into(), vec!["mouse-forward".into(), "cmd-alt-left".into()]);
-        let conflicts = conflicts(&overrides);
-        assert!(conflicts.contains("page-back"));
-        assert!(conflicts.contains("page-forward"));
-    }
 }
 
 pub fn set_menus(cx: &mut App) {
@@ -349,4 +331,21 @@ pub fn set_menus(cx: &mut App) {
             ],
         },
     ]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mouse_bindings_can_be_replaced_and_report_conflicts() {
+        let mut overrides = HashMap::new();
+        assert!(mouse_action("mouse-back", &overrides, true, false).unwrap().as_any().is::<PageBack>());
+        overrides.insert("page-back".into(), vec!["cmd-alt-left".into()]);
+        assert!(mouse_action("mouse-back", &overrides, true, false).is_none());
+        overrides.insert("page-forward".into(), vec!["mouse-forward".into(), "cmd-alt-left".into()]);
+        let conflicts = conflicts(&overrides);
+        assert!(conflicts.contains("page-back"));
+        assert!(conflicts.contains("page-forward"));
+    }
 }

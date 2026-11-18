@@ -3,14 +3,8 @@
 
 use std::ops::Range;
 
-use flowie_core::{
-    merge_leaving, store::Writer, Caret, DisplayRow, History, HistoryKind, NodeId, Query, Row,
-    Tree, ViewOptions, ROOT,
-};
-use gpui::{
-    actions, px, Bounds, ClipboardItem, Context, FocusHandle, ListAlignment, ListState, Pixels, TextLayout,
-    Window,
-};
+use flowie_core::{merge_leaving, store::Writer, Caret, DisplayRow, History, HistoryKind, NodeId, Query, Row, Tree, ViewOptions, ROOT};
+use gpui::{actions, px, Bounds, ClipboardItem, Context, FocusHandle, ListAlignment, ListState, Pixels, TextLayout, Window};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::anim::{self, Anims, Channel, Tween};
@@ -128,15 +122,7 @@ pub struct Edit {
 
 impl Edit {
     pub fn new(target: Target, offset: usize) -> Edit {
-        Edit {
-            target,
-            sel: offset..offset,
-            reversed: false,
-            marked: None,
-            layout: None,
-            bounds: None,
-            selecting_with_mouse: false,
-        }
+        Edit { target, sel: offset..offset, reversed: false, marked: None, layout: None, bounds: None, selecting_with_mouse: false }
     }
 
     pub fn caret(&self) -> usize {
@@ -385,7 +371,13 @@ impl Outline {
         let mut pos = std::collections::HashMap::with_capacity(new.len());
         for (ix, d) in new.iter().enumerate() {
             // A live row wins over a leaving copy of the same id.
-            pos.entry(d.row.id).and_modify(|v| if !d.leaving { *v = ix }).or_insert(ix);
+            pos.entry(d.row.id)
+                .and_modify(|v| {
+                    if !d.leaving {
+                        *v = ix
+                    }
+                })
+                .or_insert(ix);
         }
         self.display_pos = pos;
         self.splice_list(old, &new);
@@ -397,12 +389,7 @@ impl Outline {
         let scroll_top = self.list.logical_scroll_top();
         let anchor = old.get(scroll_top.item_ix).map(|d| d.row.id);
         let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
-        let suffix = old[prefix..]
-            .iter()
-            .rev()
-            .zip(new[prefix..].iter().rev())
-            .take_while(|(a, b)| a == b)
-            .count();
+        let suffix = old[prefix..].iter().rev().zip(new[prefix..].iter().rev()).take_while(|(a, b)| a == b).count();
         let old_end = old.len() - suffix;
         let new_count = new.len() - suffix - prefix;
         // The list has one extra item at the end: the click-to-add footer.
@@ -421,11 +408,17 @@ impl Outline {
             self.list.scroll_to(gpui::ListOffset { item_ix: new.len(), offset_in_item: scroll_top.offset_in_item });
         } else if let Some(row) = old.get(scroll_top.item_ix) {
             let positions = &self.display_pos;
-            let ancestor = old[..scroll_top.item_ix].iter().rev()
+            let ancestor = old[..scroll_top.item_ix]
+                .iter()
+                .rev()
                 .filter(|d| d.row.depth < row.row.depth)
                 .find_map(|d| positions.get(&d.row.id).copied());
-            let neighbor = || old[scroll_top.item_ix..].iter().chain(old[..scroll_top.item_ix].iter().rev())
-                .find_map(|d| positions.get(&d.row.id).copied());
+            let neighbor = || {
+                old[scroll_top.item_ix..]
+                    .iter()
+                    .chain(old[..scroll_top.item_ix].iter().rev())
+                    .find_map(|d| positions.get(&d.row.id).copied())
+            };
             self.list.scroll_to(gpui::ListOffset { item_ix: ancestor.or_else(neighbor).unwrap_or(0), offset_in_item: px(0.) });
         }
     }
@@ -434,11 +427,7 @@ impl Outline {
     pub fn tick(&mut self) {
         if self.display.iter().any(|d| d.leaving && self.anims.is_leaving_done(d.row.id)) {
             let old = std::mem::take(&mut self.display);
-            let ids: Vec<NodeId> = old
-                .iter()
-                .filter(|d| d.leaving && self.anims.is_leaving_done(d.row.id))
-                .map(|d| d.row.id)
-                .collect();
+            let ids: Vec<NodeId> = old.iter().filter(|d| d.leaving && self.anims.is_leaving_done(d.row.id)).map(|d| d.row.id).collect();
             let new: Vec<DisplayRow> = old.iter().copied().filter(|d| !(d.leaving && self.anims.is_leaving_done(d.row.id))).collect();
             for id in ids {
                 self.anims.clear_leave(id);
@@ -459,9 +448,7 @@ impl Outline {
     }
 
     pub fn is_animating(&self) -> bool {
-        self.anims.any_running()
-            || self.zoom_tween.is_some()
-            || self.display.iter().any(|d| d.leaving)
+        self.anims.any_running() || self.zoom_tween.is_some() || self.display.iter().any(|d| d.leaving)
     }
 
     pub fn row_index(&self, id: NodeId) -> Option<usize> {
@@ -580,7 +567,7 @@ impl Outline {
         if let Some(e) = self.edit.as_mut() {
             e.sel = caret..caret;
             e.reversed = false;
-            e.marked = (mark && !new.is_empty()).then(|| range.start..caret);
+            e.marked = (mark && !new.is_empty()).then_some(range.start..caret);
         }
         match target {
             Target::Text(id) => {
@@ -671,11 +658,7 @@ impl Outline {
     }
 
     fn prev_boundary(&self, offset: usize) -> usize {
-        self.edit_text()
-            .grapheme_indices(true)
-            .rev()
-            .find_map(|(i, _)| (i < offset).then_some(i))
-            .unwrap_or(0)
+        self.edit_text().grapheme_indices(true).rev().find_map(|(i, _)| (i < offset).then_some(i)).unwrap_or(0)
     }
 
     fn next_boundary(&self, offset: usize) -> usize {
@@ -685,11 +668,7 @@ impl Outline {
 
     fn prev_word(&self, offset: usize) -> usize {
         let text = self.edit_text();
-        text.split_word_bound_indices()
-            .rev()
-            .find(|(i, w)| *i < offset && !w.trim().is_empty())
-            .map(|(i, _)| i)
-            .unwrap_or(0)
+        text.split_word_bound_indices().rev().find(|(i, w)| *i < offset && !w.trim().is_empty()).map(|(i, _)| i).unwrap_or(0)
     }
 
     fn next_word(&self, offset: usize) -> usize {
@@ -1182,7 +1161,7 @@ impl Outline {
         let Target::Text(id) = e.target else { return };
         let len = self.edit_text().len();
         let at_edge = if dir < 0 { e.sel.start == 0 && e.sel.end == e.caret() && e.caret() == 0 } else { e.caret() == len };
-        if !at_edge && !(dir < 0 && e.caret() == 0) {
+        if !at_edge && (dir >= 0 || e.caret() != 0) {
             let to = if dir < 0 { 0 } else { len };
             self.move_caret(to, true, cx);
             return;
@@ -1294,12 +1273,7 @@ impl Outline {
 
     fn page_location(&self) -> PageLocation {
         let scroll = self.list.logical_scroll_top();
-        PageLocation {
-            zoom: self.zoom,
-            query: self.query.clone(),
-            top_row: self.display.get(scroll.item_ix).map(|d| d.row.id),
-            scroll,
-        }
+        PageLocation { zoom: self.zoom, query: self.query.clone(), top_row: self.display.get(scroll.item_ix).map(|d| d.row.id), scroll }
     }
 
     pub fn navigate_page(&mut self, direction: gpui::NavigationDirection, cx: &mut Context<Self>) {
@@ -1327,8 +1301,7 @@ impl Outline {
         self.calendar = None;
         self.trash = None;
         self.show_page(location.zoom, cx);
-        let item_ix = location.top_row.and_then(|id| self.display_index(id))
-            .unwrap_or(location.scroll.item_ix.min(self.display.len()));
+        let item_ix = location.top_row.and_then(|id| self.display_index(id)).unwrap_or(location.scroll.item_ix.min(self.display.len()));
         self.list.scroll_to(gpui::ListOffset { item_ix, offset_in_item: location.scroll.offset_in_item });
     }
 
@@ -1515,13 +1488,7 @@ impl Outline {
                 gpui::ClipboardEntry::String(s) => s.metadata_json::<Vec<flowie_core::Item>>(),
                 _ => None,
             })
-            .unwrap_or_else(|| {
-                if text.trim_end_matches('\n').contains('\n') {
-                    flowie_core::io::parse_any(&text)
-                } else {
-                    Vec::new()
-                }
-            });
+            .unwrap_or_else(|| if text.trim_end_matches('\n').contains('\n') { flowie_core::io::parse_any(&text) } else { Vec::new() });
         let multiline = !items.is_empty();
         match self.edit_target() {
             Some(Target::Text(id)) if multiline && id != self.zoom => {
@@ -1548,7 +1515,11 @@ impl Outline {
                     let before = self.caret();
                     let parent = self.tree.parent(b.head);
                     let index = self.tree.index_in_parent(b.head) + 1;
-                    let top = if items.is_empty() { self.tree.insert_indented_text(parent, index, &text) } else { self.tree.insert_items(parent, index, &items) };
+                    let top = if items.is_empty() {
+                        self.tree.insert_indented_text(parent, index, &text)
+                    } else {
+                        self.tree.insert_items(parent, index, &items)
+                    };
                     self.block = top.first().zip(top.last()).map(|(a, h)| BlockSel { anchor: *a, head: *h });
                     self.commit_structure(before, cx);
                 }

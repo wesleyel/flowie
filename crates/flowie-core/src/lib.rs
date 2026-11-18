@@ -12,8 +12,8 @@ pub mod tree;
 
 pub use flatten::{flatten, flatten_mapped, merge_leaving, DisplayRow, Row, ViewOptions};
 pub use history::{Caret, History, Kind as HistoryKind};
-pub use search::Query;
 pub use io::Item;
+pub use search::Query;
 pub use tree::{BlockKind, Node, NodeId, Tree, ROOT};
 
 #[cfg(test)]

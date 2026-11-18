@@ -104,7 +104,12 @@ impl Outline {
                 .into_iter()
                 .filter(|(t, _)| t[1..].to_lowercase().starts_with(&q) && t.len() > q.len() + 1)
                 .take(8)
-                .map(|(t, n)| Entry { label: t.clone(), detail: format!("{n}"), icon: if sigil == '@' { "at-sign" } else { "hash" }, action: Action::InsertText(format!("{t} ")) })
+                .map(|(t, n)| Entry {
+                    label: t.clone(),
+                    detail: format!("{n}"),
+                    icon: if sigil == '@' { "at-sign" } else { "hash" },
+                    action: Action::InsertText(format!("{t} ")),
+                })
                 .collect(),
             InlineKind::Link => {
                 let mut entries: Vec<Entry> = self
@@ -306,10 +311,13 @@ impl Outline {
                 })
                 .child(div().flex_1().whitespace_nowrap().overflow_hidden().child(en.label))
                 .child(div().text_size(px(11.)).text_color(theme.faint).child(en.detail))
-                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
-                    cx.stop_propagation();
-                    this.inline_confirm(Some(ix), window, cx);
-                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.inline_confirm(Some(ix), window, cx);
+                    }),
+                )
         });
         Some(
             div()
@@ -325,14 +333,7 @@ impl Outline {
                 .rounded_lg()
                 .shadow_lg()
                 .text_size(px(13.))
-                .child(
-                    div()
-                        .id("inline-list")
-                        .max_h(px(300.))
-                        .overflow_y_scroll()
-                        .track_scroll(&self.popup_scroll)
-                        .children(items),
-                )
+                .child(div().id("inline-list").max_h(px(300.)).overflow_y_scroll().track_scroll(&self.popup_scroll).children(items))
                 .into_any_element(),
         )
     }

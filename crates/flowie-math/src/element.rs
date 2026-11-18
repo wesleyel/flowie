@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    px, size, App, Bounds, Element, ElementId, GlobalElementId, Hsla, InspectorElementId,
-    IntoElement, LayoutId, Pixels, SharedString, Style, TextRun, Window,
+    px, size, App, Bounds, Element, ElementId, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, Pixels, SharedString,
+    Style, TextRun, Window,
 };
 
 use crate::MathLayout;
@@ -67,8 +67,7 @@ impl Element for MathElement {
         let mut style = Style::default();
         let state = match crate::layout(&self.source, self.display) {
             Ok(layout) => {
-                style.size = size(px(layout.width * f32::from(fs)), px(layout.total_height() * f32::from(fs)))
-                    .map(Into::into);
+                style.size = size(px(layout.width * f32::from(fs)), px(layout.total_height() * f32::from(fs))).map(Into::into);
                 MathState::Ok(layout, fs)
             }
             Err(_) => {

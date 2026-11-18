@@ -1,8 +1,46 @@
-# Flowie
+<p align="center"><img src="assets/icon.png" width="128" alt="Flowie icon"></p>
 
-A fast, animated outliner in the spirit of Workflowy, built with [GPUI](https://gpui.rs) (Zed's GPU UI framework) and [RaTeX](https://github.com/erweixin/RaTeX) for KaTeX-compatible math. macOS first; the core is platform-free and GPUI also runs on Windows and Linux.
+<h1 align="center">Flowie</h1>
 
-## Build and run
+<p align="center"><b>A fast, keyboard-first outliner for thinking in lists.</b><br>
+Zoom into any bullet, link and mirror ideas, write math, and find anything instantly — all stored locally on your Mac.</p>
+
+<p align="center">
+  <a href="https://apps.apple.com/app/id6835913837"><img src="assets/mac-app-store-badge.svg" height="48" alt="Download on the Mac App Store"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/wesleyel/flowie/actions/workflows/ci.yml"><img src="https://github.com/wesleyel/flowie/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
+  <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13+">
+</p>
+
+<p align="center"><img src="fastlane/screenshots/en-US/01-outline.png" width="820" alt="Flowie showing an outline with headings, to-dos and math"></p>
+
+Flowie is an outliner in the spirit of Workflowy, built natively with [GPUI](https://gpui.rs)
+(Zed's GPU UI framework) and [RaTeX](https://github.com/erweixin/RaTeX) for KaTeX-compatible math.
+
+- **Every bullet is a page** — zoom in to focus, zoom out to see the whole picture, with smooth animations.
+- **Write fast** — headings, to-dos, numbered lists, quotes, code, colors and highlights from the keyboard or the `/` menu.
+- **Math** — inline `$…$` and display `$$…$$` LaTeX, rendered as you type.
+- **Connect ideas** — `[[links]]` with backlinks, mirrors, `#tags`, `@mentions`, daily journal and calendar.
+- **Find anything** — ⌘P to jump anywhere, search with filters, starred pages and saved searches.
+- **Yours, offline** — one SQLite file on your Mac, no account, no tracking; import and export OPML, Markdown and text.
+- **Works with AI assistants** — a built-in MCP server lets Claude and other agents read (and, if you allow it, edit) your outline.
+- English and 简体中文; every shortcut can be rebound.
+
+> **简体中文**：Flowie 是一款键盘优先的 Mac 原生大纲笔记。每个条目都是一个页面，支持双向链接、镜像、LaTeX 公式、日记与日历、强大的搜索，数据只保存在你的 Mac 上。可在 Mac App Store 购买（中国大陆以外地区），也可按下文自行编译。
+
+## Open source and the App Store
+
+Flowie is free software under the [GPL-3.0-or-later](LICENSE). You can build it yourself
+from this repository at no cost. The [Mac App Store version](https://apps.apple.com/app/id6835913837)
+is the same code, signed, sandboxed and updated automatically — buying it is the easy way
+to get Flowie and the way to support its development.
+
+## Build from source
+
+Requirements: macOS 13+, the Xcode Command Line Tools and a recent stable Rust (`rustup`).
 
 ```bash
 cargo build --release -p flowie-app
@@ -10,7 +48,8 @@ scripts/bundle-macos.sh target/release/flowie Flowie flowie.spokey.cn
 open build/Flowie.app
 ```
 
-No Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at launch.
+No full Xcode is needed: GPUI's `runtime_shaders` feature compiles Metal shaders at launch.
+The bundle is ad-hoc signed for your own Mac.
 
 - Data: `~/Library/Application Support/Flowie/flowie.sqlite` (override with `FLOWIE_DB=/path/file.sqlite`).
   The Mac App Store build is sandboxed and keeps it in `~/Library/Containers/flowie.spokey.cn/Data/Library/Application Support/Flowie/`.
@@ -63,11 +102,11 @@ Search terms: words, `"phrases"`, `-exclude`, `#tag`, `@person`, `is:done`, `is:
 ## Mac App Store build
 
 ```bash
-scripts/package-appstore.sh            # universal, sandboxed, signed .pkg for Transporter
+scripts/package-appstore.sh            # universal, sandboxed, signed .pkg (needs the maintainer's certificates)
 scripts/package-appstore.sh --local    # sandboxed, ad-hoc signed app for testing
 ```
 
-Checklist, listing texts and privacy policy: [docs/appstore](docs/appstore/README.md).
+Releases are managed with fastlane: [docs/appstore](docs/appstore/README.md).
 
 ## Agents (MCP)
 
@@ -102,6 +141,13 @@ UI text lives in `crates/flowie-app/locales/<code>.json` (nested JSON; a key is 
 cargo test -p flowie-app i18n -- --nocapture   # coverage report + key/placeholder checks
 ```
 
-## Credits
+## Contributing
 
-Icons: [Lucide](https://lucide.dev) (ISC license, `crates/flowie-app/assets/icons/LICENSE`).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and ideas: [issues](https://github.com/wesleyel/flowie/issues) or Help → Send Feedback… in the app.
+
+## License and credits
+
+Flowie is © 2026 Wesley Yang, licensed under the [GNU General Public License v3.0 or later](LICENSE).
+
+
+Third-party crates are listed with their licenses in the app bundle (`Contents/Resources/ThirdPartyNotices.txt`, generated by cargo-about). Math fonts: KaTeX (SIL OFL). Icons: [Lucide](https://lucide.dev) (ISC license, `crates/flowie-app/assets/icons/LICENSE`).

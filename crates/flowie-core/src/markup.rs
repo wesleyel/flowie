@@ -16,8 +16,13 @@ pub enum Kind {
     Marker,
     Code,
     /// Whole `$…$` / `$$…$$` span; `source` is the LaTeX inside.
-    Math { source: Range<usize>, display: bool },
-    Link { url: String },
+    Math {
+        source: Range<usize>,
+        display: bool,
+    },
+    Link {
+        url: String,
+    },
     Tag,
     Mention,
     /// An ISO date (`2026-11-17`).
@@ -106,16 +111,7 @@ impl<'a> Parser<'a> {
 }
 
 pub fn parse(s: &str) -> Vec<Run> {
-    let mut p = Parser {
-        s,
-        runs: Vec::new(),
-        bold: false,
-        italic: false,
-        strike: false,
-        highlight: false,
-        color: None,
-        text_start: 0,
-    };
+    let mut p = Parser { s, runs: Vec::new(), bold: false, italic: false, strike: false, highlight: false, color: None, text_start: 0 };
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < s.len() {
@@ -132,8 +128,8 @@ pub fn parse(s: &str) -> Vec<Run> {
             }
         }
         // Display math $$…$$
-        if rest.starts_with("$$") {
-            if let Some(end) = rest[2..].find("$$") {
+        if let Some(after) = rest.strip_prefix("$$") {
+            if let Some(end) = after.find("$$") {
                 if end > 0 {
                     let src = i + 2..i + 2 + end;
                     p.emit(i, i..src.end + 2, Kind::Math { source: src, display: true });
@@ -174,12 +170,8 @@ pub fn parse(s: &str) -> Vec<Run> {
                 continue;
             }
         }
-        if (rest.starts_with("http://") || rest.starts_with("https://"))
-            && p.prev_char(i).is_none_or(|c| !is_word_char(c))
-        {
-            let len = rest
-                .find(|c: char| c.is_whitespace() || "<>\"".contains(c))
-                .unwrap_or(rest.len());
+        if (rest.starts_with("http://") || rest.starts_with("https://")) && p.prev_char(i).is_none_or(|c| !is_word_char(c)) {
+            let len = rest.find(|c: char| c.is_whitespace() || "<>\"".contains(c)).unwrap_or(rest.len());
             let mut len = len;
             while len > 0 && ".,;:!?)".contains(rest[..len].chars().next_back().unwrap()) {
                 len -= 1;
@@ -251,9 +243,7 @@ pub fn parse(s: &str) -> Vec<Run> {
                 && next.is_some_and(|n| !n.is_whitespace())
                 && (c == '*' || prev.is_none_or(|ch| !is_word_char(ch)))
                 && rest[1..].contains(c);
-            let can_close = p.italic
-                && prev.is_some_and(|ch| !ch.is_whitespace())
-                && (c == '*' || next.is_none_or(|ch| !is_word_char(ch)));
+            let can_close = p.italic && prev.is_some_and(|ch| !ch.is_whitespace()) && (c == '*' || next.is_none_or(|ch| !is_word_char(ch)));
             if can_open || can_close {
                 p.emit(i, i..i + 1, Kind::Marker);
                 p.italic = !p.italic;
@@ -331,9 +321,5 @@ fn find_link(s: &str) -> Option<(usize, usize)> {
 
 /// Text with markers removed, e.g. for window titles and breadcrumbs.
 pub fn plain_text(s: &str) -> String {
-    parse(s)
-        .into_iter()
-        .filter(|r| r.kind != Kind::Marker)
-        .map(|r| &s[r.range])
-        .collect()
+    parse(s).into_iter().filter(|r| r.kind != Kind::Marker).map(|r| &s[r.range]).collect()
 }

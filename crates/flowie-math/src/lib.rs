@@ -5,10 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use gpui::{
-    point, px, App, Bounds, FontStyle, FontWeight, GlyphId, Hsla, PathBuilder, Pixels, Point,
-    SharedString, TextRun, Window,
-};
+use gpui::{point, px, App, Bounds, FontStyle, FontWeight, GlyphId, Hsla, PathBuilder, Pixels, Point, SharedString, TextRun, Window};
 use ratex_types::{Color, DisplayItem, MathStyle, PathCommand};
 
 const FONT_FILES: &[&str] = &[
@@ -36,10 +33,7 @@ const FONT_FILES: &[&str] = &[
 
 /// Register the embedded KaTeX fonts with GPUI. Call once at startup.
 pub fn load_fonts(cx: &App) {
-    let fonts = FONT_FILES
-        .iter()
-        .filter_map(|name| ratex_katex_fonts::ttf_bytes(name))
-        .collect::<Vec<_>>();
+    let fonts = FONT_FILES.iter().filter_map(|name| ratex_katex_fonts::ttf_bytes(name)).collect::<Vec<_>>();
     if let Err(err) = cx.text_system().add_fonts(fonts) {
         eprintln!("flowie-math: failed to load KaTeX fonts: {err}");
     }
@@ -85,19 +79,11 @@ pub fn layout(source: &str, display: bool) -> Result<Arc<MathLayout>, String> {
 
 fn layout_uncached(source: &str, display: bool) -> Result<Arc<MathLayout>, String> {
     let nodes = ratex_parser::parse(source).map_err(|e| e.to_string())?;
-    let options = ratex_layout::LayoutOptions {
-        style: if display { MathStyle::Display } else { MathStyle::Text },
-        ..Default::default()
-    };
+    let options = ratex_layout::LayoutOptions { style: if display { MathStyle::Display } else { MathStyle::Text }, ..Default::default() };
     let root = ratex_layout::layout(&nodes, &options);
     ratex_layout::validate_layout(&root)?;
     let list = ratex_layout::to_display_list(&root);
-    Ok(Arc::new(MathLayout {
-        width: list.width as f32,
-        height: list.height as f32,
-        depth: list.depth as f32,
-        items: list.items,
-    }))
+    Ok(Arc::new(MathLayout { width: list.width as f32, height: list.height as f32, depth: list.depth as f32, items: list.items }))
 }
 
 fn font_for(name: &str) -> gpui::Font {
@@ -157,9 +143,12 @@ impl ttf_parser::OutlineBuilder for OutlineSink {
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
         let k = self.1;
         self.0.push(PathCommand::CubicTo {
-            x1: x1 as f64 * k, y1: -y1 as f64 * k,
-            x2: x2 as f64 * k, y2: -y2 as f64 * k,
-            x: x as f64 * k, y: -y as f64 * k,
+            x1: x1 as f64 * k,
+            y1: -y1 as f64 * k,
+            x2: x2 as f64 * k,
+            y2: -y2 as f64 * k,
+            x: x as f64 * k,
+            y: -y as f64 * k,
         });
     }
     fn close(&mut self) {
@@ -200,22 +189,14 @@ fn resolve_glyph(font: &str, char_code: u32, window: &Window) -> Option<GlyphSou
     resolved
 }
 
-fn paint_commands(
-    commands: &[PathCommand],
-    fill: bool,
-    map: impl Fn(f64, f64) -> Point<Pixels>,
-    color: Hsla,
-    window: &mut Window,
-) {
+fn paint_commands(commands: &[PathCommand], fill: bool, map: impl Fn(f64, f64) -> Point<Pixels>, color: Hsla, window: &mut Window) {
     let mut builder = if fill { PathBuilder::fill() } else { PathBuilder::stroke(px(1.)) };
     for cmd in commands {
         match *cmd {
             PathCommand::MoveTo { x, y } => builder.move_to(map(x, y)),
             PathCommand::LineTo { x, y } => builder.line_to(map(x, y)),
             PathCommand::QuadTo { x1, y1, x, y } => builder.curve_to(map(x, y), map(x1, y1)),
-            PathCommand::CubicTo { x1, y1, x2, y2, x, y } => {
-                builder.cubic_bezier_to(map(x, y), map(x1, y1), map(x2, y2))
-            }
+            PathCommand::CubicTo { x1, y1, x2, y2, x, y } => builder.cubic_bezier_to(map(x, y), map(x1, y1), map(x2, y2)),
             PathCommand::Close => builder.close(),
         }
     }
@@ -234,44 +215,27 @@ fn tint(c: &Color, fallback: Hsla) -> Hsla {
 
 /// Paint `layout` with its top-left at `origin`, at `font_size` px per em.
 /// Must be called during an element's paint phase.
-pub fn paint(
-    layout: &MathLayout,
-    origin: Point<Pixels>,
-    font_size: Pixels,
-    color: Hsla,
-    window: &mut Window,
-) {
+pub fn paint(layout: &MathLayout, origin: Point<Pixels>, font_size: Pixels, color: Hsla, window: &mut Window) {
     let fs = f32::from(font_size);
     let at = |x: f64, y: f64| point(origin.x + px(x as f32 * fs), origin.y + px(y as f32 * fs));
     for item in &layout.items {
         match item {
-            DisplayItem::GlyphPath { x, y, scale, font, char_code, color: c } => {
-                match resolve_glyph(font, *char_code, window) {
-                    Some(GlyphSource::Atlas(font_id, glyph_id)) => {
-                        let _ = window.paint_glyph(
-                            at(*x, *y),
-                            font_id,
-                            glyph_id,
-                            px(fs * *scale as f32),
-                            tint(c, color),
-                        );
-                    }
-                    Some(GlyphSource::Outline(cmds)) => {
-                        let (gx, gy, k) = (*x, *y, *scale);
-                        paint_commands(&cmds, true, |px_, py_| at(gx + px_ * k, gy + py_ * k), tint(c, color), window);
-                    }
-                    None => {}
+            DisplayItem::GlyphPath { x, y, scale, font, char_code, color: c } => match resolve_glyph(font, *char_code, window) {
+                Some(GlyphSource::Atlas(font_id, glyph_id)) => {
+                    let _ = window.paint_glyph(at(*x, *y), font_id, glyph_id, px(fs * *scale as f32), tint(c, color));
                 }
-            }
+                Some(GlyphSource::Outline(cmds)) => {
+                    let (gx, gy, k) = (*x, *y, *scale);
+                    paint_commands(&cmds, true, |px_, py_| at(gx + px_ * k, gy + py_ * k), tint(c, color), window);
+                }
+                None => {}
+            },
             DisplayItem::Line { x, y, width, thickness, color: c, .. } => {
                 // Keep rules at least one device pixel thick so fraction bars never vanish.
                 let min = 1.0 / window.scale_factor();
                 let h = (*thickness as f32 * fs).max(min);
                 let top = at(*x, *y) - point(px(0.), px(h / 2.));
-                window.paint_quad(gpui::fill(
-                    Bounds::new(top, gpui::size(px(*width as f32 * fs), px(h))),
-                    tint(c, color),
-                ));
+                window.paint_quad(gpui::fill(Bounds::new(top, gpui::size(px(*width as f32 * fs), px(h))), tint(c, color)));
             }
             DisplayItem::Rect { x, y, width, height, color: c } => {
                 window.paint_quad(gpui::fill(

@@ -87,7 +87,11 @@ impl Outline {
         match self.tree.create_mirror(source, parent, index) {
             Some(m) => {
                 // Replace an empty bullet the mirror was typed into.
-                if after != self.zoom && self.tree.node(after).text.is_empty() && !self.tree.has_children(after) && self.tree.node(after).mirror == ROOT {
+                if after != self.zoom
+                    && self.tree.node(after).text.is_empty()
+                    && !self.tree.has_children(after)
+                    && self.tree.node(after).mirror == ROOT
+                {
                     self.tree.delete(after);
                 }
                 self.edit = Some(Edit::new(Target::Text(m), self.tree.node(source).text.len()));
@@ -320,12 +324,8 @@ impl Outline {
         if let Some(w) = &self.writer {
             w.flush();
         }
-        let entries = self
-            .db_path
-            .as_ref()
-            .and_then(|p| store::open(p).ok())
-            .and_then(|c| store::list_trash(&c, 30).ok())
-            .unwrap_or_default();
+        let entries =
+            self.db_path.as_ref().and_then(|p| store::open(p).ok()).and_then(|c| store::list_trash(&c, 30).ok()).unwrap_or_default();
         // Hide entries whose bullet came back (undo or restore).
         self.trash = Some(entries.into_iter().filter(|e| !self.tree.contains(e.root)).collect());
     }

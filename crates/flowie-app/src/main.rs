@@ -4,18 +4,18 @@ mod calendar;
 mod commands;
 mod editor;
 mod format_menu;
-mod tutorial;
 mod i18n;
 mod icons;
 mod inline;
 mod keymap;
-mod palette;
-mod selectable;
-mod settings;
 mod outline;
+mod palette;
 mod popover;
 mod rich;
+mod selectable;
+mod settings;
 mod theme;
+mod tutorial;
 mod view;
 
 use std::borrow::Cow;
@@ -23,10 +23,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use flowie_core::{store, Tree, ROOT};
-use gpui::{
-    px, size, App, AppContext, Application, AssetSource, Bounds, SharedString,
-    TitlebarOptions, WindowBounds, WindowOptions,
-};
+use gpui::{px, size, App, AppContext, Application, AssetSource, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions};
 
 use outline::*;
 
@@ -69,16 +66,11 @@ pub fn data_path() -> PathBuf {
     if let Ok(p) = std::env::var("FLOWIE_DB") {
         return PathBuf::from(p);
     }
-    let home = sandbox_container()
-        .or_else(|| std::env::var("HOME").ok().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("."));
+    let home = sandbox_container().or_else(|| std::env::var("HOME").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("."));
     if cfg!(target_os = "macos") {
         home.join("Library/Application Support/Flowie/flowie.sqlite")
     } else {
-        std::env::var("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| home.join(".local/share"))
-            .join("flowie/flowie.sqlite")
+        std::env::var("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|_| home.join(".local/share")).join("flowie/flowie.sqlite")
     }
 }
 
@@ -189,6 +181,10 @@ fn main() {
         .detach();
         cx.on_window_closed(|cx| cx.quit()).detach();
 
-        eprintln!("flowie: {n} nodes loaded in {:.1} ms, window at {:.1} ms", loaded_at.as_secs_f64() * 1e3, t0.elapsed().as_secs_f64() * 1e3);
+        eprintln!(
+            "flowie: {n} nodes loaded in {:.1} ms, window at {:.1} ms",
+            loaded_at.as_secs_f64() * 1e3,
+            t0.elapsed().as_secs_f64() * 1e3
+        );
     });
 }

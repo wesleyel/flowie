@@ -214,7 +214,10 @@ impl Outline {
         if node.mirror != ROOT {
             tags.push(format!("mirror of id:{}", node.mirror));
         }
-        if !matches!(node.kind, BlockKind::Bullet | BlockKind::H1 | BlockKind::H2 | BlockKind::H3 | BlockKind::Todo | BlockKind::Quote | BlockKind::Code) {
+        if !matches!(
+            node.kind,
+            BlockKind::Bullet | BlockKind::H1 | BlockKind::H2 | BlockKind::H3 | BlockKind::Todo | BlockKind::Quote | BlockKind::Code
+        ) {
             tags.push(node.kind.name().to_string());
         }
         format!("{body}  [{}]", tags.join(", "))
@@ -281,7 +284,11 @@ impl Outline {
         let mut hits: Vec<NodeId> = self.tree.nodes().filter(|n| n.mirror == ROOT && query.matches(n)).map(|n| n.id).collect();
         hits.sort_by_key(|id| std::cmp::Reverse(self.tree.node(*id).modified));
         let total = hits.len();
-        let mut out = format!("{total} match{} for {q:?}{}\n", if total == 1 { "" } else { "es" }, if total > limit { format!(" (showing {limit})") } else { String::new() });
+        let mut out = format!(
+            "{total} match{} for {q:?}{}\n",
+            if total == 1 { "" } else { "es" },
+            if total > limit { format!(" (showing {limit})") } else { String::new() }
+        );
         for id in hits.into_iter().take(limit) {
             out.push_str(&format!("- {}  — in {}\n", self.line_for(id), self.path_of(id)));
         }
@@ -361,7 +368,12 @@ impl Outline {
             all.extend(self.tree.descendants(t));
         }
         self.agent_commit(&all, cx);
-        let mut out = format!("Created {} bullet{} under {}:\n", all.len(), if all.len() == 1 { "" } else { "s" }, if parent == ROOT { "Home".to_string() } else { format!("id:{parent}") });
+        let mut out = format!(
+            "Created {} bullet{} under {}:\n",
+            all.len(),
+            if all.len() == 1 { "" } else { "s" },
+            if parent == ROOT { "Home".to_string() } else { format!("id:{parent}") }
+        );
         for &t in &top {
             self.write_tree(t, 0, 20, &mut out);
         }
@@ -375,7 +387,10 @@ impl Outline {
         }
         // Validate everything before changing anything.
         let kind = match s(p, "kind") {
-            Some(k) => Some(BlockKind::from_name(k).ok_or_else(|| format!("unknown kind {k:?}; use bullet, paragraph, h1, h2, h3, todo, numbered, quote or code"))?),
+            Some(k) => Some(
+                BlockKind::from_name(k)
+                    .ok_or_else(|| format!("unknown kind {k:?}; use bullet, paragraph, h1, h2, h3, todo, numbered, quote or code"))?,
+            ),
             None => None,
         };
         let src = self.tree.source(id);

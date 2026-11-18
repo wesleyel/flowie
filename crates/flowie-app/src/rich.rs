@@ -141,7 +141,18 @@ pub fn build(raw: &str, edit: bool, style: &Style) -> Vec<Piece> {
         clicks: Vec::new(),
     };
     if style.code {
-        let mut t = template(style, &markup::Run { range: 0..raw.len(), kind: Kind::Text, bold: false, italic: false, strike: false, highlight: false, color: None });
+        let mut t = template(
+            style,
+            &markup::Run {
+                range: 0..raw.len(),
+                kind: Kind::Text,
+                bold: false,
+                italic: false,
+                strike: false,
+                highlight: false,
+                color: None,
+            },
+        );
         t.font = code_font();
         b.push(0..raw.len(), &t, None);
         b.flush_text();

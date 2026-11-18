@@ -41,7 +41,8 @@ FLOWIE_BUNDLE_ID=dev.flowie.sandboxtest scripts/package-appstore.sh --local
 - MCP registration stays the same: `/Applications/Flowie.app/Contents/MacOS/Flowie mcp`.
 
 Moving your current data into the App Store build (once, with Flowie quit,
-after the first launch of the App Store version created the container):
+after the first launch of the App Store version created the container). macOS only lets
+Terminal.app write into another app's container, so run it there:
 
 ```bash
 cp ~/Library/Application\ Support/Flowie/flowie.sqlite* ~/Library/Application\ Support/Flowie/settings.json ~/Library/Containers/flowie.spokey.cn/Data/Library/Application\ Support/Flowie/
@@ -61,6 +62,11 @@ ASC_KEY_ID=…
 ASC_ISSUER_ID=…
 ASC_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_….p8
 ```
+
+The App Review contact (`first_name.txt`, `last_name.txt`, `phone_number.txt`,
+`email_address.txt` in `fastlane/metadata/review_information/`) is git-ignored so the
+public repository doesn't carry a phone number; create those four files locally
+before running `fastlane mac metadata`.
 
 | Lane | What it does |
 |---|---|

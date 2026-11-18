@@ -4,8 +4,8 @@
 use std::ops::Range;
 
 use gpui::{
-    canvas, div, prelude::*, App, ClipboardItem, Context, FocusHandle, Focusable, Hsla, MouseButton, MouseDownEvent,
-    MouseMoveEvent, SharedString, StyledText, TextLayout, Window,
+    canvas, div, prelude::*, App, ClipboardItem, Context, FocusHandle, Focusable, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent,
+    SharedString, StyledText, TextLayout, Window,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -129,7 +129,9 @@ impl Render for SelectableText {
                     move |bounds, _, window, cx| {
                         if !sel.is_empty() {
                             let lh = layout.line_height();
-                            if let (Some(a), Some(b)) = (layout.position_for_index(sel.start.min(len)), layout.position_for_index(sel.end.min(len))) {
+                            if let (Some(a), Some(b)) =
+                                (layout.position_for_index(sel.start.min(len)), layout.position_for_index(sel.end.min(len)))
+                            {
                                 crate::editor::paint_selection(a, b, lh, bounds, color, window);
                             }
                         }

@@ -5,8 +5,8 @@
 use std::ops::Range;
 
 use gpui::{
-    canvas, div, fill, point, prelude::*, px, size, AnyElement, Bounds, Context, ElementInputHandler,
-    EntityInputHandler, Hsla, Pixels, Point, StyledText, TextRun, UTF16Selection, Window,
+    canvas, div, fill, point, prelude::*, px, size, AnyElement, Bounds, Context, ElementInputHandler, EntityInputHandler, Hsla, Pixels,
+    Point, StyledText, TextRun, UTF16Selection, Window,
 };
 
 use crate::outline::Outline;
@@ -39,7 +39,14 @@ impl Outline {
 
     /// The editor for the active target: styled text plus caret/selection overlay.
     /// An empty text still gets one line so the caret has somewhere to sit.
-    pub fn editor_element(&self, text: String, runs: Vec<TextRun>, caret_color: Hsla, sel_color: Hsla, cx: &mut Context<Self>) -> AnyElement {
+    pub fn editor_element(
+        &self,
+        text: String,
+        runs: Vec<TextRun>,
+        caret_color: Hsla,
+        sel_color: Hsla,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(edit) = self.edit.as_ref() else { return div().into_any_element() };
         let (shown, runs) = if text.is_empty() {
             let mut run = runs.first().cloned().unwrap_or_else(|| TextRun {
@@ -72,7 +79,7 @@ impl Outline {
                     |_, _, _| {},
                     move |bounds, _, window, cx| {
                         let lh = layout.line_height();
-                        let pos = |ix: usize| layout.position_for_index(ix.min(text_len.max(0)));
+                        let pos = |ix: usize| layout.position_for_index(ix.min(text_len));
                         // Selection: one rect per visual line between start and end.
                         if !sel.is_empty() {
                             if let (Some(a), Some(b)) = (pos(sel.start), pos(sel.end)) {
@@ -164,11 +171,7 @@ impl EntityInputHandler for Outline {
 
     fn replace_text_in_range(&mut self, range_utf16: Option<Range<usize>>, text: &str, _: &mut Window, cx: &mut Context<Self>) {
         let Some(e) = self.edit.as_ref() else { return };
-        let range = range_utf16
-            .as_ref()
-            .map(|r| self.range_from_utf16(r))
-            .or(e.marked.clone())
-            .unwrap_or(e.sel.clone());
+        let range = range_utf16.as_ref().map(|r| self.range_from_utf16(r)).or(e.marked.clone()).unwrap_or(e.sel.clone());
         self.replace_edit_text(range, text, false, cx);
     }
 
@@ -181,11 +184,7 @@ impl EntityInputHandler for Outline {
         cx: &mut Context<Self>,
     ) {
         let Some(e) = self.edit.as_ref() else { return };
-        let range = range_utf16
-            .as_ref()
-            .map(|r| self.range_from_utf16(r))
-            .or(e.marked.clone())
-            .unwrap_or(e.sel.clone());
+        let range = range_utf16.as_ref().map(|r| self.range_from_utf16(r)).or(e.marked.clone()).unwrap_or(e.sel.clone());
         self.replace_edit_text(range.clone(), new_text, true, cx);
         if let Some(sel) = new_selected_range_utf16 {
             // The new selection is relative to the inserted text.
@@ -202,7 +201,13 @@ impl EntityInputHandler for Outline {
         }
     }
 
-    fn bounds_for_range(&mut self, range_utf16: Range<usize>, element_bounds: Bounds<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<Bounds<Pixels>> {
+    fn bounds_for_range(
+        &mut self,
+        range_utf16: Range<usize>,
+        element_bounds: Bounds<Pixels>,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<Bounds<Pixels>> {
         let range = self.range_from_utf16(&range_utf16);
         let layout = self.edit.as_ref()?.layout.as_ref()?;
         let lh = layout.line_height();

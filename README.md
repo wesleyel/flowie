@@ -62,6 +62,7 @@ Zoom into any bullet, link and mirror ideas, write math, and find anything insta
 ## Get Flowie
 
 - **[Mac App Store](https://apps.apple.com/app/id6835913837)** — signed, sandboxed and updated automatically. Buying it is the easiest way to get Flowie and the way to support its development.
+- **Open-source version** — `Flowie-<version>-macos.zip` on the [Releases](https://github.com/wesleyel/flowie/releases/latest) page. It isn't notarized: right-click Flowie.app and choose **Open** the first time (on macOS 15 or later, **System Settings → Privacy & Security → Open Anyway**). It doesn't update itself.
 - **Build it yourself** — Flowie is free software; see [docs/building.md](docs/building.md).
 
 Requires macOS 13 Ventura or later, on Apple silicon or Intel.

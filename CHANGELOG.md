@@ -9,6 +9,11 @@ notes (`scripts/changelog-section.sh`).
 
 ## [Unreleased]
 
+### Added
+
+- Each GitHub release includes the open-source version, `Flowie-<version>-macos.zip`: a universal build
+  for macOS 13 or later, ad-hoc signed and not notarized.
+
 ## [1.0.0] - 2026-11-18
 
 The first release, on the [Mac App Store](https://apps.apple.com/app/id6835913837) and as

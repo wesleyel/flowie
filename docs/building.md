@@ -29,13 +29,13 @@ During development, `cargo run -p flowie-app` starts it without building a bundl
 
 | Build | Outline and settings |
 |---|---|
-| From source | `~/Library/Application Support/Flowie/` (`flowie.sqlite`, `settings.json`) |
+| From source or the release zip | `~/Library/Application Support/Flowie/` (`flowie.sqlite`, `settings.json`) |
 | Mac App Store / TestFlight | `~/Library/Containers/flowie.spokey.cn/Data/Library/Application Support/Flowie/` |
 
 `FLOWIE_DB=/path/file.sqlite` uses another database. `--stress 50000` opens an in-memory
 outline of 50,000 bullets (not saved) and logs timings.
 
-To move an outline from a source build into the App Store build, quit Flowie and copy
+To move an outline from a source build or the release zip into the App Store build, quit Flowie and copy
 `flowie.sqlite` (and `settings.json`) into the container folder above. macOS only lets
 Terminal.app write into another app's container, so run the copy there.
 

@@ -1,8 +1,9 @@
 name: Release
 
 # Push a tag vX.Y.Z (matching Cargo.toml) to publish a GitHub release whose notes are that
-# version's section of CHANGELOG.md. Source only: the signed app is distributed through
-# the Mac App Store.
+# version's section of CHANGELOG.md, with the open-source version: Flowie-X.Y.Z-macos.zip, a universal
+# (arm64 + x86_64) build of the tag, ad-hoc signed and not notarized, unsandboxed like a source
+# build. The signed, sandboxed app is distributed through the Mac App Store.
 on:
   push:
     tags: ["v*"]
@@ -12,6 +13,10 @@ on:
       tag:
         description: Tag to (re)publish, e.g. v1.0.0
         required: true
+      build:
+        description: Also rebuild and re-upload the macOS app zip
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -39,7 +44,9 @@ jobs:
             echo
             echo "---"
             echo
-            echo "**Get Flowie** on the [Mac App Store](https://apps.apple.com/app/id6835913837), or [build it from source](https://github.com/wesleyel/flowie/blob/$TAG/docs/building.md)."
+            echo "**Get Flowie** on the [Mac App Store](https://apps.apple.com/app/id6835913837) (signed, sandboxed, updated automatically), download the open-source version, **Flowie-${TAG#v}-macos.zip**, below, or [build it from source](https://github.com/wesleyel/flowie/blob/$TAG/docs/building.md)."
+            echo
+            echo "The zip is a universal app for macOS 13 or later that isn't notarized, so macOS blocks the first launch: unzip it, move Flowie.app to Applications, then right-click it and choose **Open** (on macOS 15 or later: open it once, then **System Settings → Privacy & Security → Open Anyway**). Or run \`xattr -dr com.apple.quarantine /Applications/Flowie.app\`. It doesn't update itself."
           } > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
       - name: Create or update the release
@@ -52,3 +59,61 @@ jobs:
           else
             gh release create "$TAG" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
           fi
+
+  macos-app:
+    name: macOS app zip
+    needs: release
+    # A tag push always builds; a manual run only when asked (it usually just fixes the notes).
+    if: github.event_name == 'push' || inputs.build
+    runs-on: macos-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      CARGO_TERM_COLOR: always
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Build a universal binary
+        run: |
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked -p flowie-app --target "$t"
+          done
+          mkdir -p build
+          lipo -create -output build/flowie \
+            target/aarch64-apple-darwin/release/flowie target/x86_64-apple-darwin/release/flowie
+          lipo -archs build/flowie
+      - name: Bundle and zip
+        run: |
+          app=$(scripts/bundle-macos.sh build/flowie Flowie flowie.spokey.cn)
+          plist="$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(git rev-list --count HEAD)" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.productivity" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations array" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:0 string en" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:1 string zh-Hans" "$plist"
+          plutil -lint "$plist"
+          # Editing Info.plist breaks the signature bundle-macos.sh made; sign again.
+          codesign --force --sign - "$app"
+          codesign --verify --strict "$app"
+          version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")
+          [ "v$version" = "$TAG" ] || { echo "::error::app version $version does not match $TAG"; exit 1; }
+          zip="build/Flowie-$version-macos.zip"
+          # ditto keeps the bundle's symlinks, permissions and signature intact.
+          ditto -c -k --keepParent "$app" "$zip"
+          (cd build && shasum -a 256 "$(basename "$zip")") | tee "$zip.sha256"
+          echo "ZIP=$zip" >> "$GITHUB_ENV"
+      - name: Smoke test (launch, then quit)
+        run: |
+          FLOWIE_DB="$RUNNER_TEMP/smoke.sqlite" build/Flowie.app/Contents/MacOS/Flowie &
+          pid=$!
+          sleep 10
+          kill -0 "$pid"
+          kill "$pid"
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber

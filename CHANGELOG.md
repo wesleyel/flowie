@@ -13,6 +13,7 @@ notes (`scripts/changelog-section.sh`).
 
 - Each GitHub release includes the open-source version, `Flowie-<version>-macos.zip`: a universal build
   for macOS 13 or later, ad-hoc signed and not notarized.
+- Homebrew cask: `brew install --cask wesleyel/tap/flowie`, updated by each release.
 
 ## [1.0.0] - 2026-11-18
 

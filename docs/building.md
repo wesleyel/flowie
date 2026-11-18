@@ -29,7 +29,7 @@ During development, `cargo run -p flowie-app` starts it without building a bundl
 
 | Build | Outline and settings |
 |---|---|
-| From source or the release zip | `~/Library/Application Support/Flowie/` (`flowie.sqlite`, `settings.json`) |
+| From source, the release zip or Homebrew | `~/Library/Application Support/Flowie/` (`flowie.sqlite`, `settings.json`) |
 | Mac App Store / TestFlight | `~/Library/Containers/flowie.spokey.cn/Data/Library/Application Support/Flowie/` |
 
 `FLOWIE_DB=/path/file.sqlite` uses another database. `--stress 50000` opens an in-memory

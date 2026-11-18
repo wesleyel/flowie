@@ -23,6 +23,9 @@ notes (`scripts/changelog-section.sh`).
 
 ### Fixed
 
+- The Mac's Emacs-style editing keys now work while editing a bullet: ⌃A / ⌃E for the start or end
+  of the line, ⌃B / ⌃F / ⌃P / ⌃N to move, ⌃H / ⌃D to delete, and ⌃K to delete to the end of the
+  line, with ⌃Y putting that text back. They can be changed in Settings like any other shortcut.
 - Selecting text with the mouse now snaps to the nearest character boundary, as in other Mac apps:
   a drag selects a character once it passes the character's middle, instead of only after crossing
   all of it.

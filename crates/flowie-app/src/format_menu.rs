@@ -21,7 +21,7 @@ enum Item {
 
 /// (label key, icon, shortcut id, what it does).
 const CLIPBOARD: &[(&str, &str, &str, Item)] = &[
-    ("shortcut.cut", "copy", "cut", Item::Cut),
+    ("shortcut.cut", "scissors", "cut", Item::Cut),
     ("shortcut.copy", "copy", "copy", Item::Copy),
     ("shortcut.paste", "corner-down-left", "paste", Item::Paste),
 ];

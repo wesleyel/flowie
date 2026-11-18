@@ -20,6 +20,8 @@ actions!(
         Backspace,
         Delete,
         DeleteWordLeft,
+        KillLine,
+        Yank,
         Left,
         Right,
         Up,
@@ -215,6 +217,8 @@ pub struct Outline {
     display_pos: std::collections::HashMap<NodeId, usize>,
     /// The one floating popover (references, hidden path levels).
     pub popover: crate::popover::PopoverState,
+    /// Text removed by ⌃K, put back by ⌃Y (macOS keeps this apart from the clipboard).
+    pub kill_buffer: String,
     /// The open right-click menu (text or bullet).
     pub menu: Option<crate::menu::ContextMenu>,
 }
@@ -287,6 +291,7 @@ impl Outline {
             display_pos: Default::default(),
             popover: Default::default(),
             menu: None,
+            kill_buffer: String::new(),
             mouse_block: false,
             ghosts: Default::default(),
             popup_scroll: gpui::ScrollHandle::new(),
@@ -913,6 +918,29 @@ impl Outline {
         let start = if e.sel.is_empty() { self.prev_word(caret) } else { e.sel.start };
         let end = if e.sel.is_empty() { caret } else { e.sel.end };
         self.replace_edit_text(start..end, "", false, cx);
+    }
+
+    /// ⌃K: delete to the end of the text into the kill buffer; at the end,
+    /// join the next bullet as Delete does.
+    pub fn kill_line(&mut self, _: &KillLine, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(e) = self.edit.as_ref() else { return };
+        let (start, len) = (e.sel.start, self.edit_text().len());
+        if start >= len {
+            return self.delete(&Delete, window, cx);
+        }
+        self.kill_buffer = self.edit_text()[start..].to_string();
+        self.replace_edit_text(start..len, "", false, cx);
+    }
+
+    /// ⌃Y: insert the kill buffer at the caret.
+    pub fn yank(&mut self, _: &Yank, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(e) = self.edit.as_ref() else { return };
+        if self.kill_buffer.is_empty() {
+            return;
+        }
+        let r = e.sel.clone();
+        let text = self.kill_buffer.clone();
+        self.replace_edit_text(r, &text, false, cx);
     }
 
     pub fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {

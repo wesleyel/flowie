@@ -1111,6 +1111,8 @@ impl Render for Outline {
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
             .on_action(cx.listener(Self::delete_word_left))
+            .on_action(cx.listener(Self::kill_line))
+            .on_action(cx.listener(Self::yank))
             .on_action(cx.listener(Self::left))
             .on_action(cx.listener(Self::right))
             .on_action(cx.listener(Self::up))

@@ -284,6 +284,8 @@
     "backspace": "Delete backward",
     "delete": "Delete forward",
     "delete-word": "Delete word",
+    "kill-line": "Delete to end of line",
+    "yank": "Paste deleted text",
     "left": "Caret left",
     "right": "Caret right",
     "up": "Up",

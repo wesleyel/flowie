@@ -260,6 +260,8 @@
     "backspace": "向前删除",
     "delete": "向后删除",
     "delete-word": "删除单词",
+    "kill-line": "删除到行尾",
+    "yank": "粘回删除的文字",
     "left": "光标左移",
     "right": "光标右移",
     "up": "上移光标",

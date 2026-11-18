@@ -43,7 +43,7 @@ impl SelectableText {
     }
 
     fn index_at(&self, p: gpui::Point<gpui::Pixels>) -> usize {
-        match self.layout.as_ref().map(|l| l.index_for_position(p)) {
+        match self.layout.as_ref().map(|l| crate::editor::caret_index_for_position(l, p)) {
             Some(Ok(i)) | Some(Err(i)) => i.min(self.text.len()),
             None => 0,
         }

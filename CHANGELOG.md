@@ -15,6 +15,12 @@ notes (`scripts/changelog-section.sh`).
   for macOS 13 or later, ad-hoc signed and not notarized.
 - Homebrew cask: `brew install --cask wesleyel/tap/flowie`, updated by each release.
 
+### Fixed
+
+- Selecting text with the mouse now snaps to the nearest character boundary, as in other Mac apps:
+  a drag selects a character once it passes the character's middle, instead of only after crossing
+  all of it.
+
 ## [1.0.0] - 2026-11-18
 
 The first release, on the [Mac App Store](https://apps.apple.com/app/id6835913837) and as

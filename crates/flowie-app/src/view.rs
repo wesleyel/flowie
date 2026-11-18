@@ -8,6 +8,7 @@ use gpui::{
 };
 
 use crate::anim::{self, ease_in_out, ease_out, Channel};
+use crate::editor::caret_index_for_position;
 use crate::i18n::t;
 use crate::outline::*;
 use crate::popover::PopoverKind;
@@ -286,7 +287,10 @@ impl Outline {
                             Err(i) => (i, false),
                         };
                         let click = inside.then(|| clicks.iter().find(|(r, _)| r.contains(&d)).map(|(_, c)| c.clone())).flatten();
-                        let raw_ix = rich::display_to_raw(&map, d).min(raw_len);
+                        let caret = match caret_index_for_position(&layout, ev.position) {
+                            Ok(i) | Err(i) => i,
+                        };
+                        let raw_ix = rich::display_to_raw(&map, caret).min(raw_len);
                         this.press_text(id, target, raw_ix, click, ev, window, cx);
                     }),
                 )
@@ -326,7 +330,11 @@ impl Outline {
                                         };
                                         let click =
                                             inside.then(|| clicks.iter().find(|(r, _)| r.contains(&d)).map(|(_, c)| c.clone())).flatten();
-                                        let raw_ix = rich::display_to_raw(&map, d).min(raw_len);
+                                        let caret = start
+                                            + match caret_index_for_position(&layout, ev.position) {
+                                                Ok(i) | Err(i) => i,
+                                            };
+                                        let raw_ix = rich::display_to_raw(&map, caret).min(raw_len);
                                         this.press_text(id, target, raw_ix, click, ev, window, cx);
                                     }),
                                 )

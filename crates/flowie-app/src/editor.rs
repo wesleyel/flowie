@@ -6,7 +6,7 @@ use std::ops::Range;
 
 use gpui::{
     canvas, div, fill, point, prelude::*, px, size, AnyElement, Bounds, Context, ElementInputHandler, EntityInputHandler, Hsla, Pixels,
-    Point, StyledText, TextRun, UTF16Selection, Window,
+    Point, StyledText, TextLayout, TextRun, UTF16Selection, Window,
 };
 
 use crate::outline::Outline;
@@ -116,12 +116,43 @@ impl Outline {
             .into_any_element()
     }
 
+    /// Caret index for a mouse position, snapped to the nearest character boundary.
     pub fn index_for_point(&self, p: Point<Pixels>) -> Option<usize> {
+        let layout = self.edit.as_ref()?.layout.as_ref()?;
+        let ix = match caret_index_for_position(layout, p) {
+            Ok(i) | Err(i) => i,
+        };
+        Some(ix.min(self.edit_text().len()))
+    }
+
+    /// Index of the character under a point (not rounded), as the IME expects.
+    fn char_index_for_point(&self, p: Point<Pixels>) -> Option<usize> {
         let layout = self.edit.as_ref()?.layout.as_ref()?;
         let ix = match layout.index_for_position(p) {
             Ok(i) | Err(i) => i,
         };
         Some(ix.min(self.edit_text().len()))
+    }
+}
+
+/// Like `TextLayout::index_for_position`, but a point past the middle of a
+/// glyph snaps to the boundary after it, as macOS text views do. GPUI's own
+/// version always returns the boundary before the glyph under the point, so a
+/// drag only reaches a character once the pointer has crossed all of it.
+/// `Ok` / `Err` keep GPUI's meaning (point over the text or not).
+pub(crate) fn caret_index_for_position(layout: &TextLayout, p: Point<Pixels>) -> Result<usize, usize> {
+    let hit = layout.index_for_position(p);
+    let Ok(ix) = hit else { return hit };
+    let (Some(line), Some(left)) = (layout.line_layout_for_index(ix), layout.position_for_index(ix)) else { return hit };
+    let line_start = layout.text()[..ix].rfind('\n').map_or(0, |n| n + 1);
+    let unwrapped = &line.unwrapped_layout;
+    let mut glyphs = unwrapped.runs.iter().flat_map(|r| r.glyphs.iter());
+    let Some(glyph) = glyphs.by_ref().find(|g| g.index == ix - line_start) else { return hit };
+    let (next_ix, next_x) = glyphs.find(|g| g.index > glyph.index).map_or((unwrapped.len, unwrapped.width), |g| (g.index, g.position.x));
+    if p.x - left.x > (next_x - glyph.position.x) / 2. {
+        Ok(line_start + next_ix)
+    } else {
+        hit
     }
 }
 
@@ -218,7 +249,7 @@ impl EntityInputHandler for Outline {
     }
 
     fn character_index_for_point(&mut self, p: Point<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
-        let ix = self.index_for_point(p)?;
+        let ix = self.char_index_for_point(p)?;
         Some(to_utf16(self.edit_text(), ix))
     }
 }

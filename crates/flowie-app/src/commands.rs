@@ -327,6 +327,7 @@ impl Outline {
         let entries =
             self.db_path.as_ref().and_then(|p| store::open(p).ok()).and_then(|c| store::list_trash(&c, 30).ok()).unwrap_or_default();
         // Hide entries whose bullet came back (undo or restore).
+        self.page_scroll = gpui::ScrollHandle::new();
         self.trash = Some(entries.into_iter().filter(|e| !self.tree.contains(e.root)).collect());
     }
 

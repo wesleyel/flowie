@@ -7,7 +7,7 @@ use flowie_core::markup::COLORS;
 use gpui::{div, prelude::*, AnyElement, Context, MouseDownEvent, Pixels, Point, Window};
 
 use crate::i18n::{t, text};
-use crate::menu::{card, heading, place, row, separator, ContextMenu};
+use crate::menu::{card, heading, place_menu, row, separator, ContextMenu};
 use crate::outline::{Copy, Cut, InsertLink, Outline, Paste};
 
 #[derive(Clone, Copy)]
@@ -43,6 +43,7 @@ impl Outline {
         self.inline = None;
         self.popover.close();
         self.menu = Some(ContextMenu::Text { at });
+        self.menu_scroll = gpui::ScrollHandle::new();
         cx.notify();
     }
 
@@ -64,7 +65,7 @@ impl Outline {
         cx.notify();
     }
 
-    pub fn render_format_menu(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub fn render_format_menu(&mut self, at: Point<Pixels>, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         // Only while a bullet is being edited.
         let Some(edit) =
             self.edit.as_ref().filter(|e| matches!(e.target, crate::outline::Target::Text(_) | crate::outline::Target::Note(_)))
@@ -106,6 +107,6 @@ impl Outline {
                 .child(heading(theme, t!("format_menu.color").into()))
                 .child(div().flex().justify_between().px_1().py_1().children(swatches));
         }
-        Some(place(at, c))
+        Some(place_menu(at, c, &self.menu_scroll, theme, window))
     }
 }

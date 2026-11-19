@@ -103,6 +103,13 @@ pub fn dot(color: Hsla) -> Div {
     div().size(px(12.)).rounded_full().bg(color)
 }
 
+/// Place a menu card at a window position. A menu taller than the window
+/// scrolls, with an overlay bar.
+pub fn place_menu(at: Point<Pixels>, card: Stateful<Div>, scroll: &gpui::ScrollHandle, theme: Theme, window: &gpui::Window) -> AnyElement {
+    let max_h = window.viewport_size().height - px(16.);
+    place(at, super::scrollbar::area("menu-bar", scroll, theme, card.max_h(max_h).overflow_y_scroll().track_scroll(scroll)))
+}
+
 /// Place a card at a window position, kept inside the window.
 pub fn place(at: Point<Pixels>, card: impl IntoElement) -> AnyElement {
     deferred(anchored().position(at + point(px(2.), px(2.))).snap_to_window_with_margin(px(8.)).child(card))

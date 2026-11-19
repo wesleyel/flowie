@@ -322,10 +322,12 @@ impl Outline {
         });
         Some(crate::ui::menu::place(
             at,
-            crate::ui::surface::popover(theme, "inline-popup")
-                .w(px(250.))
-                .p(px(6.))
-                .child(div().id("inline-list").max_h(px(300.)).overflow_y_scroll().track_scroll(&self.popup_scroll).children(items)),
+            crate::ui::surface::popover(theme, "inline-popup").w(px(250.)).p(px(6.)).child(crate::ui::scrollbar::area(
+                "inline-bar",
+                &self.popup_scroll,
+                theme,
+                div().id("inline-list").max_h(px(300.)).overflow_y_scroll().track_scroll(&self.popup_scroll).children(items),
+            )),
         ))
     }
 }

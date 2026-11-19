@@ -204,6 +204,10 @@ pub struct Outline {
     pub ghosts: std::collections::HashMap<NodeId, flowie_core::Node>,
     /// Scroll position of the open popup list (palette or inline menu).
     pub popup_scroll: gpui::ScrollHandle,
+    /// Scroll positions of the trash page, the link popover and the open menu.
+    pub page_scroll: gpui::ScrollHandle,
+    pub popover_scroll: gpui::ScrollHandle,
+    pub menu_scroll: gpui::ScrollHandle,
     pub settings: Option<crate::settings::SettingsUi>,
     pub settings_return: Option<(Target, usize)>,
     pub config: crate::settings::Config,
@@ -295,6 +299,9 @@ impl Outline {
             mouse_block: false,
             ghosts: Default::default(),
             popup_scroll: gpui::ScrollHandle::new(),
+            page_scroll: gpui::ScrollHandle::new(),
+            popover_scroll: gpui::ScrollHandle::new(),
+            menu_scroll: gpui::ScrollHandle::new(),
             settings: None,
             settings_return: None,
             config_path: crate::settings::Config::path(db_path_for_config.as_ref()),

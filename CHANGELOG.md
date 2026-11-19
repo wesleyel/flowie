@@ -18,6 +18,8 @@ notes (`scripts/changelog-section.sh`).
   star, change the block type, copy the bullet or its link, duplicate, move, mirror to another
   bullet, export and delete, plus when it was created and edited and what links to it. Inside a
   selection it acts on every selected bullet.
+- Scrollbars in the macOS overlay style on the outline, the trash, settings pages, popovers, the
+  palette, the `/` menu and right-click menus; menus taller than the window scroll.
 - The right-click menu on text now starts with Cut, Copy and Paste, and shows Paste alone when
   nothing is selected.
 

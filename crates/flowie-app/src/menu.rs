@@ -16,7 +16,7 @@ use gpui::{div, prelude::*, px, AnyElement, ClipboardItem, Context, MouseDownEve
 use crate::i18n::t;
 use crate::outline::*;
 use crate::palette::{node_label, Mode};
-pub use crate::ui::menu::{card, heading, place, row, separator};
+pub use crate::ui::menu::{card, heading, place_menu, row, separator};
 
 pub enum ContextMenu {
     /// On a text selection in the edited bullet.
@@ -133,6 +133,7 @@ impl Outline {
         };
         window.focus(&self.focus, cx);
         self.menu = Some(ContextMenu::Bullet { at, ids, restore });
+        self.menu_scroll = gpui::ScrollHandle::new();
         cx.notify();
     }
 
@@ -220,20 +221,20 @@ impl Outline {
 
     // ---------------------------------------------------------- render
 
-    pub fn render_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub fn render_menu(&mut self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         match self.menu.as_ref()? {
             ContextMenu::Text { at } => {
                 let at = *at;
-                self.render_format_menu(at, cx)
+                self.render_format_menu(at, window, cx)
             }
             ContextMenu::Bullet { at, ids, .. } => {
                 let (at, ids) = (*at, ids.clone());
-                self.render_bullet_menu(at, ids, cx)
+                self.render_bullet_menu(at, ids, window, cx)
             }
         }
     }
 
-    fn render_bullet_menu(&mut self, at: Point<Pixels>, ids: Vec<NodeId>, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn render_bullet_menu(&mut self, at: Point<Pixels>, ids: Vec<NodeId>, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let ids: Vec<NodeId> = ids.into_iter().filter(|id| self.tree.contains(*id)).collect();
         let Some(&first) = ids.first() else {
             self.menu = None;
@@ -361,6 +362,6 @@ impl Outline {
                     .children(facts.into_iter().map(|f| div().child(f))),
             );
         }
-        Some(place(at, c))
+        Some(place_menu(at, c, &self.menu_scroll, theme, window))
     }
 }

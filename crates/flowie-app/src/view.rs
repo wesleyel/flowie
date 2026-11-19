@@ -996,17 +996,23 @@ impl Render for Outline {
             // A popover sits at fixed window coordinates: scrolling the page
             // under it closes it.
             div()
-                .id("outline-scroll")
+                .relative()
                 .size_full()
-                .on_scroll(cx.listener(|this, _, _, cx| {
-                    if this.popover.close() | this.close_menu() {
-                        cx.notify();
-                    }
-                }))
                 .child(
-                    list(self.list.clone(), move |ix, window, cx| entity.update(cx, |this, cx| this.render_row(ix, window, cx)))
-                        .size_full(),
+                    div()
+                        .id("outline-scroll")
+                        .size_full()
+                        .on_scroll(cx.listener(|this, _, _, cx| {
+                            if this.popover.close() | this.close_menu() {
+                                cx.notify();
+                            }
+                        }))
+                        .child(
+                            list(self.list.clone(), move |ix, window, cx| entity.update(cx, |this, cx| this.render_row(ix, window, cx)))
+                                .size_full(),
+                        ),
                 )
+                .child(crate::ui::scrollbar::scrollbar("outline-bar", &self.list, self.theme))
                 .into_any_element()
         };
         let palette = self.render_palette(window, cx);
@@ -1014,7 +1020,7 @@ impl Render for Outline {
         let inline = self.render_inline(cx);
         let calendar = self.render_calendar(cx);
         let popover = self.render_popover(window, cx);
-        let menu = self.render_menu(cx);
+        let menu = self.render_menu(window, cx);
         let toast = self.toast.as_ref().filter(|(_, t)| !t.done()).map(|(msg, t)| {
             let tt = t.t();
             let o = if tt < 0.08 {
@@ -1226,10 +1232,11 @@ impl Outline {
                 )
         });
         let empty = self.trash.as_ref().is_some_and(|t| t.is_empty());
-        div()
+        let page = div()
             .id("trash")
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&self.page_scroll)
             .px(px(PAD_X + 24.))
             .child(
                 div()
@@ -1251,8 +1258,8 @@ impl Outline {
             )
             .child(div().text_size(px(12.)).text_color(theme.muted).pb_2().child(t!("trash.retention")))
             .when(empty, |d| d.child(div().py_4().text_color(theme.muted).child(t!("trash.empty"))))
-            .children(rows)
-            .into_any_element()
+            .children(rows);
+        crate::ui::scrollbar::area("trash-bar", &self.page_scroll, theme, page).size_full().into_any_element()
     }
 }
 

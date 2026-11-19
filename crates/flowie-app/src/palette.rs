@@ -427,7 +427,14 @@ impl Outline {
                         .child(div().relative().mx_3().my_2().child(input).children(placeholder))
                         .child(div().h(px(1.)).bg(theme.divider).mb_1())
                         .child(
-                            div().id("palette-list").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.popup_scroll).children(rows),
+                            crate::ui::scrollbar::area(
+                                "palette-bar",
+                                &self.popup_scroll,
+                                theme,
+                                div().id("palette-list").size_full().overflow_y_scroll().track_scroll(&self.popup_scroll).children(rows),
+                            )
+                            .flex_1()
+                            .min_h_0(),
                         ),
                 )
                 .into_any_element(),

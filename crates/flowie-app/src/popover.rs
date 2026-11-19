@@ -104,6 +104,7 @@ impl Outline {
                     cx.background_executor().timer(HOVER_OPEN).await;
                     this.update(cx, |this, cx| {
                         this.popover.timer = None;
+                        this.popover_scroll = gpui::ScrollHandle::new();
                         this.popover.open = Some(Open { kind, at, pinned: false, over_anchor: true, over_popup: false });
                         cx.notify();
                     })
@@ -203,7 +204,12 @@ impl Outline {
                     cx.notify();
                 }
             }))
-            .child(div().id("popover-scroll").max_h(px(340.)).overflow_y_scroll().p_1().children(body));
+            .child(crate::ui::scrollbar::area(
+                "popover-bar",
+                &self.popover_scroll,
+                theme,
+                div().id("popover-scroll").max_h(px(340.)).overflow_y_scroll().track_scroll(&self.popover_scroll).p_1().children(body),
+            ));
         Some(
             deferred(anchored().position(at + point(px(-10.), px(14.))).snap_to_window_with_margin(px(8.)).child(card))
                 .with_priority(2)

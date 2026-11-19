@@ -100,6 +100,8 @@ pub struct SettingsUi {
     pub tab: Tab,
     /// Binding id waiting for a new keystroke.
     pub recording: Option<Recording>,
+    /// The current page's scroll position.
+    pub scroll: gpui::ScrollHandle,
 }
 
 impl Outline {
@@ -138,7 +140,7 @@ impl Outline {
             self.calendar = None;
             self.settings_return = self.edit.take().map(|e| (e.target, e.caret()));
         }
-        self.settings = Some(SettingsUi { tab, recording: None });
+        self.settings = Some(SettingsUi { tab, recording: None, scroll: gpui::ScrollHandle::new() });
         cx.notify();
     }
 
@@ -298,15 +300,23 @@ impl Outline {
                         if let Some(s) = this.settings.as_mut() {
                             s.tab = t;
                             s.recording = None;
+                            s.scroll = gpui::ScrollHandle::new();
                         }
                         cx.notify();
                     }))
             }));
+        let scroll = ui.scroll.clone();
         let content = match tab {
+            // Only its list scrolls; it draws its own bar.
             Tab::Shortcuts => self.render_shortcuts(cx),
             Tab::Appearance => self.render_appearance(window, cx),
             Tab::Agent => self.render_agent(cx),
             Tab::About => self.render_about(cx),
+        };
+        let content = if tab == Tab::Shortcuts {
+            content
+        } else {
+            crate::ui::scrollbar::area("settings-bar", &scroll, theme, content).size_full().into_any_element()
         };
         Some(
             crate::ui::surface::scrim(theme)
@@ -326,6 +336,7 @@ impl Outline {
     }
 
     fn render_shortcuts(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let scroll = self.settings.as_ref().map(|s| s.scroll.clone()).unwrap_or_default();
         let theme = self.theme;
         let recording = self.settings.as_ref().and_then(|s| s.recording);
         let overrides = self.config.keys.clone();
@@ -473,11 +484,21 @@ impl Outline {
                         )
                     }),
             )
-            .child(div().id("shortcut-list").flex_1().min_h_0().overflow_y_scroll().px_3().pb_3().children(sections))
+            .child(
+                crate::ui::scrollbar::area(
+                    "settings-bar",
+                    &scroll,
+                    theme,
+                    div().id("shortcut-list").size_full().overflow_y_scroll().track_scroll(&scroll).px_3().pb_3().children(sections),
+                )
+                .flex_1()
+                .min_h_0(),
+            )
             .into_any_element()
     }
 
     fn render_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let scroll = self.settings.as_ref().map(|s| s.scroll.clone()).unwrap_or_default();
         let theme = self.theme;
         let mode = self.config.theme;
         let accent = if self.config.accent.is_empty() { "Blue".to_string() } else { self.config.accent.clone() };
@@ -506,19 +527,20 @@ impl Outline {
                 .items_center()
                 .gap_1()
                 .cursor_pointer()
-                // Selected: a ring in the background color, then the accent.
-                .child(div().size(px(26.)).rounded_full().bg(color).border_2().border_color(if selected { theme.bg } else { color }).when(
-                    selected,
-                    |d| {
-                        d.shadow(vec![gpui::BoxShadow {
-                            color,
-                            offset: gpui::point(px(0.), px(0.)),
-                            blur_radius: px(0.),
-                            spread_radius: px(2.),
-                            inset: false,
-                        }])
-                    },
-                ))
+                // Selected: the color, a gap in the background color, and a ring
+                // in the color, as nested circles (a spread shadow isn't round).
+                .child(
+                    div().size(px(30.)).rounded_full().flex().items_center().justify_center().when(selected, |d| d.bg(color)).child(
+                        div()
+                            .size(px(26.))
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .when(selected, |d| d.bg(theme.bg))
+                            .child(div().size(px(if selected { 22. } else { 26. })).rounded_full().bg(color)),
+                    ),
+                )
                 .child(
                     div()
                         .text_size(px(11.))
@@ -596,6 +618,7 @@ impl Outline {
             .id("appearance")
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&scroll)
             .px_4()
             .pt_3()
             .child(crate::ui::text::page_title(theme, t!("settings.appearance.title"), None).pb_1())
@@ -607,6 +630,7 @@ impl Outline {
     }
 
     fn render_agent(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let scroll = self.settings.as_ref().map(|s| s.scroll.clone()).unwrap_or_default();
         use crate::agent::AgentMode;
         let theme = self.theme;
         let mode = self.config.agent;
@@ -645,6 +669,7 @@ impl Outline {
             .id("agent")
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&scroll)
             .px_4()
             .pt_3()
             .pb_4()
@@ -670,6 +695,7 @@ impl Outline {
     }
 
     fn render_about(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let scroll = self.settings.as_ref().map(|s| s.scroll.clone()).unwrap_or_default();
         let theme = self.theme;
         let version = env!("CARGO_PKG_VERSION");
         let commit = option_env!("FLOWIE_COMMIT").unwrap_or("dev");
@@ -696,6 +722,7 @@ impl Outline {
             .id("about")
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&scroll)
             .flex()
             .flex_col()
             .items_center()

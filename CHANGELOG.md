@@ -10,6 +10,8 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+## [1.0.0-rc.2] - 2026-11-19
+
 ### Added
 
 - Each GitHub release includes the open-source version, `Flowie-<version>-macos.zip`: a universal build
@@ -78,5 +80,6 @@ itself comes to the [Mac App Store](https://apps.apple.com/app/id6835913837) and
 
 - Bundled SQLite 3.54.1 (through rusqlite 0.43), which fixes CVE-2026-119375.
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.2...HEAD
+[1.0.0-rc.2]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/wesleyel/flowie/releases/tag/v1.0.0-rc.1

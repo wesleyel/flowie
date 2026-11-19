@@ -5,7 +5,8 @@ All notable changes to Flowie are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Each version's section becomes its [GitHub release](https://github.com/wesleyel/flowie/releases)
-notes (`scripts/changelog-section.sh`).
+notes (`scripts/changelog-section.sh`). A version first ships as release candidates
+(`X.Y.Z-rc.N`, GitHub pre-releases and the `flowie@beta` Homebrew cask), then as `X.Y.Z`.
 
 ## [Unreleased]
 
@@ -43,10 +44,10 @@ notes (`scripts/changelog-section.sh`).
   a drag selects a character once it passes the character's middle, instead of only after crossing
   all of it.
 
-## [1.0.0] - 2026-11-18
+## [1.0.0-rc.1] - 2026-11-18
 
-The first release, on the [Mac App Store](https://apps.apple.com/app/id6835913837) and as
-free software under the GPL-3.0-or-later.
+The first release candidate of Flowie 1.0.0, free software under the GPL-3.0-or-later. 1.0.0
+itself comes to the [Mac App Store](https://apps.apple.com/app/id6835913837) and here.
 
 ### Added
 
@@ -77,5 +78,5 @@ free software under the GPL-3.0-or-later.
 
 - Bundled SQLite 3.54.1 (through rusqlite 0.43), which fixes CVE-2026-119375.
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/wesleyel/flowie/releases/tag/v1.0.0
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.1...HEAD
+[1.0.0-rc.1]: https://github.com/wesleyel/flowie/releases/tag/v1.0.0-rc.1

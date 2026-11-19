@@ -104,11 +104,15 @@ before running `fastlane mac metadata`.
    `fastlane mac metadata` for "What's New" and URLs.
 3. `fastlane mac beta` → try it from TestFlight.
 4. `fastlane mac submit`.
-5. Tag the commit `vX.Y.Z` and push the tag: `.github/workflows/release.yml` checks the
-   tag against `Cargo.toml` and creates the GitHub release with that version's
-   `CHANGELOG.md` section as its notes (source only — the signed app is sold on the App
-   Store). To fix notes later, edit `CHANGELOG.md` on main and run the Release workflow
-   by hand with the tag.
+5. Release candidates first: put the notes under `## [X.Y.Z-rc.N]` in `CHANGELOG.md`, tag
+   the commit `vX.Y.Z-rc.N` and push the tag. `.github/workflows/release.yml` checks the
+   tag against `Cargo.toml` (still `X.Y.Z`, which is what the App Store gets), publishes a
+   GitHub pre-release with that section as its notes and `Flowie-X.Y.Z-rc.N-macos.zip`,
+   and updates the `flowie@beta` cask.
+6. Once a candidate holds up (and App Review has passed), gather the candidates' notes
+   under `## [X.Y.Z]`, tag `vX.Y.Z` and push: a stable release, marked latest, and the
+   `flowie` cask. To fix notes later, edit `CHANGELOG.md` on main and run the Release
+   workflow by hand with the tag.
 
 The build number is the git commit count, so commit between uploads.
 

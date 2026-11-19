@@ -3,9 +3,14 @@ name: Release
 # Push a tag vX.Y.Z (matching Cargo.toml) to publish a GitHub release whose notes are that
 # version's section of CHANGELOG.md, with the open-source version: Flowie-X.Y.Z-macos.zip, a universal
 # (arm64 + x86_64) build of the tag, ad-hoc signed and not notarized, unsandboxed like a source
-# build. The macos-app job then updates Casks/flowie.rb in wesleyel/homebrew-tap (needs the
+# build. The macos-app job then updates the cask in wesleyel/homebrew-tap (needs the
 # HOMEBREW_TAP_GITHUB_TOKEN secret). The signed, sandboxed app is distributed through the Mac
 # App Store.
+#
+# Release candidates come first: a tag vX.Y.Z-rc.N (Cargo.toml still says X.Y.Z, which is what
+# the App Store gets) publishes a pre-release, Flowie-X.Y.Z-rc.N-macos.zip, and updates the
+# flowie@beta cask. Once it holds up, tag vX.Y.Z: a stable release, marked latest, and the
+# flowie cask.
 on:
   push:
     tags: ["v*"]
@@ -13,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to (re)publish, e.g. v1.0.0
+        description: Tag to (re)publish, e.g. v1.0.0 or v1.0.0-rc.1
         required: true
       build:
         description: Also rebuild and re-upload the macOS app zip
@@ -34,8 +39,14 @@ jobs:
           fetch-depth: 0
       - name: Check the tag matches its Cargo version
         run: |
+          # vX.Y.Z, or vX.Y.Z-rc.N for a release candidate of X.Y.Z.
+          if ! [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::tag $TAG is neither vX.Y.Z nor vX.Y.Z-rc.N"
+            exit 1
+          fi
           version=$(git show "$TAG:Cargo.toml" | sed -nE '/^\[workspace.package\]/,/^\[/ s/^version = "(.*)"/\1/p')
-          if [ "v$version" != "$TAG" ]; then
+          base=${TAG%%-*}
+          if [ "v$version" != "$base" ]; then
             echo "::error::tag $TAG does not match Cargo.toml version $version"
             exit 1
           fi
@@ -46,6 +57,10 @@ jobs:
             echo
             echo "---"
             echo
+            if [[ $TAG == *-rc.* ]]; then
+              echo "**This is a release candidate**, for trying out before ${TAG%%-*} is final: \`brew install --cask wesleyel/tap/flowie@beta\`, or the zip below."
+              echo
+            fi
             echo "**Get Flowie** on the [Mac App Store](https://apps.apple.com/app/id6835913837) (signed, sandboxed, updated automatically), download the open-source version, **Flowie-${TAG#v}-macos.zip**, below, or [build it from source](https://github.com/wesleyel/flowie/blob/$TAG/docs/building.md)."
             echo
             echo "The zip is a universal app for macOS 13 or later that isn't notarized, so macOS blocks the first launch: unzip it, move Flowie.app to Applications, then right-click it and choose **Open** (on macOS 15 or later: open it once, then **System Settings → Privacy & Security → Open Anyway**). Or run \`xattr -dr com.apple.quarantine /Applications/Flowie.app\`. It doesn't update itself."
@@ -56,10 +71,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Flowie ${TAG#v}"
+          # A release candidate is a pre-release; a final version becomes the latest release.
+          if [[ $TAG == *-rc.* ]]; then kind=(--prerelease); else kind=(--prerelease=false --latest); fi
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" "${kind[@]}"
           else
-            gh release create "$TAG" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release create "$TAG" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md" "${kind[@]}"
           fi
 
   macos-app:
@@ -101,9 +118,10 @@ jobs:
           # Editing Info.plist breaks the signature bundle-macos.sh made; sign again.
           codesign --force --sign - "$app"
           codesign --verify --strict "$app"
+          # A release candidate's app says X.Y.Z, like the App Store build; its zip says X.Y.Z-rc.N.
           version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")
-          [ "v$version" = "$TAG" ] || { echo "::error::app version $version does not match $TAG"; exit 1; }
-          zip="build/Flowie-$version-macos.zip"
+          [ "v$version" = "${TAG%%-*}" ] || { echo "::error::app version $version does not match $TAG"; exit 1; }
+          zip="build/Flowie-${TAG#v}-macos.zip"
           # ditto keeps the bundle's symlinks, permissions and signature intact.
           ditto -c -k --keepParent "$app" "$zip"
           (cd build && shasum -a 256 "$(basename "$zip")") | tee "$zip.sha256"
@@ -120,8 +138,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber
       - name: Update the Homebrew cask
-        # Casks/flowie.rb in wesleyel/homebrew-tap: `brew install --cask wesleyel/tap/flowie`.
+        # In wesleyel/homebrew-tap: Casks/flowie.rb takes final versions
+        # (`brew install --cask wesleyel/tap/flowie`); Casks/flowie@beta.rb takes release
+        # candidates and final versions alike, so it is never behind.
         # A failure here leaves the release and its zip in place; fix the token and re-run.
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-        run: scripts/update-tap-cask.sh "${TAG#v}" "$ZIP.sha256"
+        run: |
+          scripts/update-tap-cask.sh "${TAG#v}" "$ZIP.sha256" flowie@beta
+          if [[ $TAG != *-rc.* ]]; then
+            scripts/update-tap-cask.sh "${TAG#v}" "$ZIP.sha256" flowie
+          fi

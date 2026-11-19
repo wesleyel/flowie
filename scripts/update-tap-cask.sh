@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Write a new version and sha256 into Casks/flowie.rb in wesleyel/homebrew-tap and push it.
-# usage: scripts/update-tap-cask.sh VERSION SHA256_FILE   (the .sha256 next to the release zip)
+# Write a new version and sha256 into a cask in wesleyel/homebrew-tap and push it.
+# usage: scripts/update-tap-cask.sh VERSION SHA256_FILE [CASK]
+#   SHA256_FILE: the .sha256 next to the release zip
+#   CASK: flowie (final versions, the default) or flowie@beta (release candidates)
 # Needs GH_TOKEN with contents:write on wesleyel/homebrew-tap (secret HOMEBREW_TAP_GITHUB_TOKEN).
 set -euo pipefail
 
-cask=flowie
 version=$1
+cask=${3:-flowie}
 sha=$(awk 'NR == 1 { print $1 }' "$2")
 [[ $sha =~ ^[0-9a-f]{64}$ ]] || { echo "::error::no sha256 in $2"; exit 1; }
 [ -n "${GH_TOKEN:-}" ] || { echo "::error::HOMEBREW_TAP_GITHUB_TOKEN is not set"; exit 1; }

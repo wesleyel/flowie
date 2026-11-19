@@ -58,7 +58,7 @@ jobs:
             echo "---"
             echo
             if [[ $TAG == *-rc.* ]]; then
-              echo "**This is a release candidate**, for trying out before ${TAG%%-*} is final: \`brew install --cask wesleyel/tap/flowie@beta\`, or the zip below."
+              echo "**This is a release candidate**, for trying out before $(t=${TAG#v}; echo "${t%%-*}") is final: \`brew install --cask wesleyel/tap/flowie@beta\`, or the zip below."
               echo
             fi
             echo "**Get Flowie** on the [Mac App Store](https://apps.apple.com/app/id6835913837) (signed, sandboxed, updated automatically), download the open-source version, **Flowie-${TAG#v}-macos.zip**, below, or [build it from source](https://github.com/wesleyel/flowie/blob/$TAG/docs/building.md)."

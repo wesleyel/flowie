@@ -7,7 +7,7 @@ the open-source build.
 appstore/
   fastlane/            Appfile, Deliverfile, Fastfile (lanes), .env (git-ignored)
     metadata/          listing text per locale, categories, copyright, review notes
-    screenshots/       2880×1800 screenshots per locale
+    screenshots/       2880×1800 screenshots per locale (scripts/screenshots.py)
   macos/               sandbox entitlements, privacy manifest, cargo-about notices
                        (+ embedded.provisionprofile, git-ignored)
 ```
@@ -60,6 +60,27 @@ Terminal.app write into another app's container, so run it there:
 ```bash
 cp ~/Library/Application\ Support/Flowie/flowie.sqlite* ~/Library/Application\ Support/Flowie/settings.json ~/Library/Containers/flowie.spokey.cn/Data/Library/Application\ Support/Flowie/
 ```
+
+## Screenshots
+
+`scripts/screenshots.py` retakes every screenshot from the current code: the App Store
+PNGs in `fastlane/screenshots/<locale>/` and the website's 1600×1000 JPEGs in
+`website/images/`. It builds Flowie with the `screenshots` feature (into
+`target/screenshots`), runs it on a throwaway database with a 1440×900 window, fills it
+with demo pages through the agent socket and captures each state with `screencapture`.
+The demo text and the list of shots are at the top of the script.
+
+```bash
+scripts/screenshots.py
+```
+
+```bash
+scripts/screenshots.py --locale zh-Hans --only 03 bullet-menu
+```
+
+It needs a Retina display and Screen Recording permission for the terminal, and the
+mouse kept off the Flowie window while it runs. Dates follow today, so the journal and
+calendar show the current month. Then `fastlane mac screenshots` uploads them.
 
 ## Releasing with fastlane
 

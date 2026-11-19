@@ -33,6 +33,11 @@ pub enum AgentMode {
 
 /// Socket for the database at `db` (short path: Unix sockets allow ~100 bytes).
 pub fn socket_path(db: &std::path::Path) -> PathBuf {
+    // Screenshot builds: the script picks the socket.
+    #[cfg(feature = "screenshots")]
+    if let Ok(p) = std::env::var("FLOWIE_SHOT_SOCKET") {
+        return PathBuf::from(p);
+    }
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     db.hash(&mut h);
@@ -148,6 +153,12 @@ const WRITES: [&str; 6] = ["create", "update", "move", "delete", "journal", "com
 
 impl Outline {
     pub fn handle_agent(&mut self, method: &str, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
+        #[cfg(feature = "screenshots")]
+        if let Some(m) = method.strip_prefix("shot.") {
+            let result = self.handle_shot(m, p, cx);
+            cx.notify();
+            return result;
+        }
         match self.config.agent {
             AgentMode::Off => return Err("Agent access is turned off in Flowie → Settings → Agent.".into()),
             AgentMode::ReadOnly if WRITES.contains(&method) => {

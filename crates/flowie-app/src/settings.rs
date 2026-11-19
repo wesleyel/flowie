@@ -125,7 +125,7 @@ impl Outline {
         cx.open_url(&format!("{SITE_URL}/terms.html"));
     }
 
-    fn show_settings(&mut self, tab: Tab, cx: &mut Context<Self>) {
+    pub(crate) fn show_settings(&mut self, tab: Tab, cx: &mut Context<Self>) {
         if self.settings.as_ref().is_some_and(|s| s.tab == tab) {
             self.settings = None;
             if let Some((t, off)) = self.settings_return.take() {
@@ -647,6 +647,12 @@ impl Outline {
             }))
         }));
         let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "Flowie".into());
+        // Screenshots show where the app is installed, not the build directory.
+        #[cfg(feature = "screenshots")]
+        let exe = {
+            drop(exe);
+            "/Applications/Flowie.app/Contents/MacOS/Flowie".to_string()
+        };
         let db_env = self
             .db_path
             .as_ref()

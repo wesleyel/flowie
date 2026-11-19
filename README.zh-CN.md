@@ -17,7 +17,7 @@
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b> · <a href="https://wesleyel.github.io/flowie/">官网</a></p>
 
-<p align="center"><img src="appstore/fastlane/screenshots/zh-Hans/01-outline.png" width="820" alt="Flowie 中带有标题、待办和公式的大纲"></p>
+<p align="center"><img src="website/images/01-outline-zh-Hans.jpg" width="820" alt="Flowie 中带有标题、待办和公式的大纲"></p>
 
 ## 功能
 
@@ -28,6 +28,11 @@
 - 加粗、斜体、删除线、高亮、七种颜色和链接——只有正在编辑的条目才显示标记符号。
 - 任意条目都能写备注，所有操作都能撤销。
 
+<p align="center">
+  <img src="website/images/03-commands-zh-Hans.jpg" width="400" alt="/ 命令菜单">
+  <img src="website/images/06-bullet-menu-zh-Hans.jpg" width="400" alt="条目菜单">
+</p>
+
 **数学公式**
 - 行内 `$…$` 与独立 `$$…$$` LaTeX 公式，原生实时渲染，编辑时在行下方预览。
 
@@ -37,9 +42,19 @@
 - `#标签` 和 `@提及` 自动补全；日期可以点击。
 - 每天一页日记，配合日历快速跳转。
 
+<p align="center">
+  <img src="website/images/07-links-zh-Hans.jpg" width="400" alt="用 [[ 链接到页面">
+  <img src="website/images/04-journal-calendar-zh-Hans.jpg" width="400" alt="日记与日历">
+</p>
+
 **查找一切**
 - ⌘P 跳转到任意条目、收藏页面或保存的搜索，也能直接新建页面。
 - 带条件的搜索：短语、标签、人名、待办、已完成、标题、备注、日期，以及「最近 N 天修改过」。
+
+<p align="center">
+  <img src="website/images/02-quick-open-zh-Hans.jpg" width="400" alt="快速跳转">
+  <img src="website/images/05-search-zh-Hans.jpg" width="400" alt="带条件的搜索">
+</p>
 
 **数据只在你的 Mac 上**
 - 一个本地 SQLite 数据库。无需账号，没有云端，没有追踪。
@@ -51,13 +66,12 @@
 - 内置教程，覆盖全部功能。
 - 浅色与深色主题、强调色，支持简体中文与英文。
 
+<p align="center"><img src="website/images/08-dark-zh-Hans.jpg" width="640" alt="深色主题与紫色强调色"></p>
+
 **与 AI 助手协作**
 - 内置 [MCP](https://modelcontextprotocol.io) 服务器，Claude 等 AI 助手可以读取你的大纲；你允许后还能编辑。每次修改都实时可见，并且可以撤销。
 
-<p align="center">
-  <img src="appstore/fastlane/screenshots/zh-Hans/02-quick-open.png" width="400" alt="快速跳转">
-  <img src="appstore/fastlane/screenshots/zh-Hans/04-journal-calendar.png" width="400" alt="日记与日历">
-</p>
+<p align="center"><img src="website/images/09-agent-zh-Hans.jpg" width="640" alt="Agent 设置：通过 MCP 连接 Claude"></p>
 
 ## 获取 Flowie
 

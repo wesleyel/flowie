@@ -20,6 +20,10 @@ pub struct Calendar {
 
 impl Outline {
     pub fn show_calendar(&mut self, _: &ShowCalendar, _: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_calendar(cx);
+    }
+
+    pub fn toggle_calendar(&mut self, cx: &mut Context<Self>) {
         if self.calendar.take().is_some() {
             cx.notify();
             return;

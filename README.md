@@ -17,7 +17,7 @@ Zoom into any bullet, link and mirror ideas, write math, and find anything insta
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="https://wesleyel.github.io/flowie/">Website</a></p>
 
-<p align="center"><img src="appstore/fastlane/screenshots/en-US/01-outline.png" width="820" alt="An outline in Flowie with headings, to-dos and math"></p>
+<p align="center"><img src="website/images/01-outline-en-US.jpg" width="820" alt="An outline in Flowie with headings, to-dos and math"></p>
 
 ## Features
 
@@ -28,6 +28,11 @@ Zoom into any bullet, link and mirror ideas, write math, and find anything insta
 - Bold, italic, strikethrough, highlight, seven colors and links — markup shows only on the bullet you're editing.
 - Notes under any bullet, and undo for everything.
 
+<p align="center">
+  <img src="website/images/03-commands-en-US.jpg" width="400" alt="The / command menu">
+  <img src="website/images/06-bullet-menu-en-US.jpg" width="400" alt="The bullet menu">
+</p>
+
 **Math**
 - Inline `$…$` and display `$$…$$` LaTeX, rendered natively as you type, with a live preview while editing.
 
@@ -37,9 +42,19 @@ Zoom into any bullet, link and mirror ideas, write math, and find anything insta
 - `#tags` and `@mentions` with completion; clickable dates.
 - A journal page for every day and a calendar to get around.
 
+<p align="center">
+  <img src="website/images/07-links-en-US.jpg" width="400" alt="Linking to a page with [[">
+  <img src="website/images/04-journal-calendar-en-US.jpg" width="400" alt="Journal and calendar">
+</p>
+
 **Find anything**
 - ⌘P jumps to any bullet, starred page or saved search — or creates a new page.
 - Search with filters: phrases, tags, people, to-dos, completed, headings, notes, dates and "changed in the last N days".
+
+<p align="center">
+  <img src="website/images/02-quick-open-en-US.jpg" width="400" alt="Quick open">
+  <img src="website/images/05-search-en-US.jpg" width="400" alt="Search with filters">
+</p>
 
 **Your data, on your Mac**
 - One local SQLite database. No account, no cloud, no tracking.
@@ -51,13 +66,12 @@ Zoom into any bullet, link and mirror ideas, write math, and find anything insta
 - A built-in tutorial that covers every feature.
 - Light and dark themes, accent colors, English and 简体中文.
 
+<p align="center"><img src="website/images/08-dark-en-US.jpg" width="640" alt="Dark theme with a purple accent"></p>
+
 **Works with AI assistants**
 - A built-in [MCP](https://modelcontextprotocol.io) server lets Claude and other assistants read your outline — and edit it, if you allow it. Every change is live and undoable.
 
-<p align="center">
-  <img src="appstore/fastlane/screenshots/en-US/02-quick-open.png" width="400" alt="Quick open">
-  <img src="appstore/fastlane/screenshots/en-US/04-journal-calendar.png" width="400" alt="Journal and calendar">
-</p>
+<p align="center"><img src="website/images/09-agent-en-US.jpg" width="640" alt="Agent settings: connecting Claude through MCP"></p>
 
 ## Get Flowie
 

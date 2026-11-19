@@ -15,6 +15,8 @@ mod popover;
 mod rich;
 mod selectable;
 mod settings;
+#[cfg(feature = "screenshots")]
+mod shots;
 mod theme;
 mod tutorial;
 mod ui;
@@ -148,7 +150,17 @@ fn main() {
         keymap::install(cx, &keys);
         cx.on_action(|_: &Quit, cx| cx.quit());
 
-        let bounds = Bounds::centered(None, size(px(920.), px(760.)), cx);
+        // Screenshot builds: a fixed window size (points) for 2880×1800 shots on a Retina display.
+        #[cfg(feature = "screenshots")]
+        shots::apply_appearance();
+        #[cfg(feature = "screenshots")]
+        let window_size = std::env::var("FLOWIE_WINDOW_SIZE")
+            .ok()
+            .and_then(|v| v.split_once('x').and_then(|(w, h)| Some(size(px(w.parse().ok()?), px(h.parse().ok()?)))))
+            .unwrap_or(size(px(1440.), px(900.)));
+        #[cfg(not(feature = "screenshots"))]
+        let window_size = size(px(920.), px(760.));
+        let bounds = Bounds::centered(None, window_size, cx);
         let window = cx
             .open_window(
                 WindowOptions {

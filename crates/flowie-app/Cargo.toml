@@ -10,6 +10,10 @@ publish.workspace = true
 name = "flowie"
 path = "src/main.rs"
 
+[features]
+# `shot.*` agent methods and a fixed window size, for scripts/screenshots.py. Not for releases.
+screenshots = []
+
 [dependencies]
 gpui.workspace = true
 flowie-core.workspace = true

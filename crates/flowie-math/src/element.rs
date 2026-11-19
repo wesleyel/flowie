@@ -112,7 +112,7 @@ impl Element for MathElement {
         match state {
             MathState::Ok(layout, fs) => crate::paint(layout, bounds.origin, *fs, color, window),
             MathState::Err(line) => {
-                let _ = line.paint(bounds.origin, window.line_height(), window, cx);
+                let _ = line.paint(bounds.origin, window.line_height(), gpui::TextAlign::Left, None, window, cx);
             }
         }
     }

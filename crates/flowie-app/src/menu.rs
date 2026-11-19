@@ -208,7 +208,7 @@ impl Outline {
             self.block = Some(temp);
             (vec![id], Some(r))
         };
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         self.menu = Some(ContextMenu::Bullet { at, ids, restore });
         cx.notify();
     }

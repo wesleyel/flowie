@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use flowie_core::{store, Tree, ROOT};
-use gpui::{px, size, App, AppContext, Application, AssetSource, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions};
+use gpui::{px, size, App, AppContext, AssetSource, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions};
 
 use outline::*;
 
@@ -142,7 +142,7 @@ fn main() {
     }
     let loaded_at = t0.elapsed();
 
-    Application::new().with_assets(Assets).run(move |cx: &mut App| {
+    gpui::application().with_assets(Assets).run(move |cx: &mut App| {
         flowie_math::load_fonts(cx);
         keymap::install(cx, &keys);
         cx.on_action(|_: &Quit, cx| cx.quit());
@@ -162,8 +162,8 @@ fn main() {
             .expect("open window");
         let view = window.update(cx, |_, _, cx| cx.entity()).unwrap();
         window
-            .update(cx, |o, window, _| {
-                window.focus(&o.focus);
+            .update(cx, |o, window, cx| {
+                window.focus(&o.focus, cx);
             })
             .ok();
         if !background {
@@ -180,7 +180,7 @@ fn main() {
             async {}
         })
         .detach();
-        cx.on_window_closed(|cx| cx.quit()).detach();
+        cx.on_window_closed(|cx, _| cx.quit()).detach();
 
         eprintln!(
             "flowie: {n} nodes loaded in {:.1} ms, window at {:.1} ms",

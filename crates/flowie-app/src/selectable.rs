@@ -97,7 +97,7 @@ impl Render for SelectableText {
                 MouseButton::Left,
                 cx.listener(|this, ev: &MouseDownEvent, window, cx| {
                     cx.stop_propagation();
-                    window.focus(&this.focus);
+                    window.focus(&this.focus, cx);
                     let ix = this.index_at(ev.position);
                     if ev.click_count == 2 {
                         this.sel = this.word_at(ix);

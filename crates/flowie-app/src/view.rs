@@ -104,7 +104,7 @@ impl Outline {
         }
         // The row is under the pointer, so it is visible: don't scroll.
         self.begin_edit(target, raw_ix, false, cx);
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         let text = self.edit_text();
         let sel = match ev.click_count {
             2 => word_range(text, raw_ix),
@@ -961,7 +961,7 @@ impl Render for Outline {
         self.tick();
         let theme = self.theme;
 
-        let mut kc = KeyContext::new_with_defaults();
+        let mut kc = KeyContext::new_with_defaults(cx.platform_info().os);
         // While settings are open, only global shortcuts apply (so keys can be recorded).
         if self.settings.is_none() {
             kc.add("Outline");
@@ -1045,7 +1045,7 @@ impl Render for Outline {
             div()
                 .id("outline-scroll")
                 .size_full()
-                .on_scroll_wheel(cx.listener(|this, _, _, cx| {
+                .on_scroll(cx.listener(|this, _, _, cx| {
                     if this.popover.close() | this.close_menu() {
                         cx.notify();
                     }

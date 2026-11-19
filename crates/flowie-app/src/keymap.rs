@@ -3,7 +3,9 @@
 
 use std::collections::HashMap;
 
-use gpui::{App, KeyBinding, Menu, MenuItem};
+use std::rc::Rc;
+
+use gpui::{Action, App, KeyBinding, KeyBindingContextPredicate, Menu, MenuItem};
 
 use crate::i18n::{self, t};
 use crate::outline::*;
@@ -15,12 +17,12 @@ pub struct Binding {
     pub group: &'static str,
     pub keys: &'static str,
     context: Option<&'static str>,
-    make: fn(&str, Option<&str>) -> KeyBinding,
+    action: fn() -> Box<dyn Action>,
 }
 
 macro_rules! b {
     ($id:literal, $group:literal, $keys:literal, $ctx:expr, $action:expr) => {
-        Binding { id: $id, group: $group, keys: $keys, context: $ctx, make: |k, c| KeyBinding::new(k, $action, c) }
+        Binding { id: $id, group: $group, keys: $keys, context: $ctx, action: || Box::new($action) }
     };
 }
 
@@ -156,11 +158,11 @@ pub fn install(cx: &mut App, overrides: &HashMap<String, Vec<String>>) {
                 BINDINGS.iter().position(|x| x.id == b.id && x.context == b.context) == BINDINGS.iter().position(|x| std::ptr::eq(x, b));
             if first_in_ctx {
                 for key in keys.iter().filter(|k| !k.starts_with("mouse-")) {
-                    out.push((b.make)(key, b.context));
+                    out.extend(bind(key, b, cx));
                 }
             }
         } else if !b.keys.starts_with("mouse-") {
-            out.push((b.make)(b.keys, b.context));
+            out.extend(bind(b.keys, b, cx));
         }
     }
     // Read-only selectable labels (About panel).
@@ -168,6 +170,14 @@ pub fn install(cx: &mut App, overrides: &HashMap<String, Vec<String>>) {
     out.push(KeyBinding::new("cmd-a", SelectAll, Some("Selectable")));
     cx.bind_keys(out);
     set_menus(cx);
+}
+
+/// One key binding; `None` (logged) when user-entered keys don't parse.
+fn bind(keys: &str, b: &Binding, cx: &App) -> Option<KeyBinding> {
+    let ctx = b.context.map(|c| Rc::new(KeyBindingContextPredicate::parse(c).expect("valid context")));
+    KeyBinding::load(keys, (b.action)(), ctx, false, None, cx)
+        .map_err(|e| eprintln!("flowie: skipping shortcut {keys:?} for {}: {e}", b.id))
+        .ok()
 }
 
 /// Effective (keys, context) pairs of a binding id after overrides.
@@ -194,7 +204,7 @@ pub fn mouse_action(key: &str, overrides: &HashMap<String, Vec<String>>, editing
             };
             active && keys_for(b.id, overrides).iter().any(|k| k == key)
         })
-        .map(|b| (b.make)("space", b.context).action().boxed_clone())
+        .map(|b| (b.action)())
 }
 
 /// Whether two binding contexts can be active at the same time
@@ -239,6 +249,7 @@ pub fn rows() -> Vec<&'static Binding> {
 pub fn set_menus(cx: &mut App) {
     cx.set_menus(vec![
         Menu {
+            disabled: false,
             name: "Flowie".into(),
             items: vec![
                 MenuItem::action(t!("menu.app.about"), OpenAbout),
@@ -249,6 +260,7 @@ pub fn set_menus(cx: &mut App) {
             ],
         },
         Menu {
+            disabled: false,
             name: t!("menu.file.title").into(),
             items: vec![
                 MenuItem::action(t!("menu.file.import"), Import),
@@ -261,6 +273,7 @@ pub fn set_menus(cx: &mut App) {
             ],
         },
         Menu {
+            disabled: false,
             name: t!("menu.edit.title").into(),
             items: vec![
                 MenuItem::action(t!("menu.edit.undo"), Undo),
@@ -278,6 +291,7 @@ pub fn set_menus(cx: &mut App) {
             ],
         },
         Menu {
+            disabled: false,
             name: t!("menu.format.title").into(),
             items: vec![
                 MenuItem::action(t!("menu.format.bold"), Bold),
@@ -300,6 +314,7 @@ pub fn set_menus(cx: &mut App) {
             ],
         },
         Menu {
+            disabled: false,
             name: t!("menu.outline.title").into(),
             items: vec![
                 MenuItem::action(t!("menu.outline.complete"), ToggleComplete),
@@ -333,6 +348,7 @@ pub fn set_menus(cx: &mut App) {
             ],
         },
         Menu {
+            disabled: false,
             name: t!("menu.help.title").into(),
             items: vec![
                 MenuItem::action(t!("menu.help.tutorial"), OpenTutorial),

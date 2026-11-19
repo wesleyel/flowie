@@ -144,7 +144,7 @@ impl Outline {
 
     pub fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // Focus may be on a selectable label inside the panel; give it back.
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         self.settings = None;
         if let Some((t, off)) = self.settings_return.take() {
             self.start_edit(t, off, cx);

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/flowie-core", "crates/flowie-math", "crates/flowie-app"]
+exclude = ["third_party/gpui-pre-macos"]
 
 [workspace.package]
 version = "1.0.0"
@@ -16,7 +17,9 @@ type_complexity = "allow"
 large_enum_variant = "allow"
 
 [workspace.dependencies]
-gpui = { version = "0.2.2", features = ["runtime_shaders"] }
+# Zed's GPUI through Longbridge's gpui-kit (weekly gpui-pre snapshots), core only: Flowie draws
+# its own controls (crates/flowie-app/src/ui). Named `gpui` so `use gpui::…` paths stay as is.
+gpui = { package = "gpui-kit", version = "=0.10.0", default-features = false }
 ratex-parser = "0.1.16"
 ratex-layout = "0.1.16"
 ratex-types = "0.1.16"
@@ -31,3 +34,10 @@ opt-level = 3
 
 [profile.dev.package."*"]
 opt-level = 2
+
+
+# gpui-pre-macos (pulled in by gpui-kit) with its private AppKit selectors removed, since
+# App Review rejects binaries that reference non-public APIs (guideline 2.5.1).
+# See third_party/gpui-pre-macos/FLOWIE-PATCH.md.
+[patch.crates-io]
+gpui-pre-macos = { path = "third_party/gpui-pre-macos" }

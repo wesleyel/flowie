@@ -1,5 +1,5 @@
 use flowie_math::math;
-use gpui::{div, prelude::*, px, rgb, size, App, Application, Bounds, Context, Window, WindowBounds, WindowOptions};
+use gpui::{div, prelude::*, px, rgb, size, App, Bounds, Context, Window, WindowBounds, WindowOptions};
 
 struct Demo;
 
@@ -28,7 +28,7 @@ impl Render for Demo {
 }
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
+    gpui::application().run(|cx: &mut App| {
         flowie_math::load_fonts(cx);
         let bounds = Bounds::centered(None, size(px(720.), px(620.)), cx);
         cx.open_window(WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() }, |_, cx| {

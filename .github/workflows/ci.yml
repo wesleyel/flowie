@@ -36,10 +36,14 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
       - name: CHANGELOG.md has an entry for the Cargo version
-        # Release notes come from it (scripts/changelog-section.sh, release.yml).
+        # Release notes come from it (scripts/changelog-section.sh, release.yml). Before
+        # X.Y.Z itself ships, its release candidates' X.Y.Z-rc.N sections count.
         run: |
           version=$(sed -nE '/^\[workspace.package\]/,/^\[/ s/^version = "(.*)"/\1/p' Cargo.toml)
-          scripts/changelog-section.sh "$version" > /dev/null
+          if scripts/changelog-section.sh "$version" > /dev/null 2>&1; then exit 0; fi
+          rc=$(sed -nE "s/^## \[(${version//./\\.}-rc\.[0-9]+)\].*/\1/p" CHANGELOG.md | head -n 1)
+          [ -n "$rc" ] || { echo "::error::CHANGELOG.md has no entry for $version or a $version-rc.N"; exit 1; }
+          scripts/changelog-section.sh "$rc" > /dev/null
 
   deny:
     name: licenses and advisories (cargo-deny)

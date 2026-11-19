@@ -5,21 +5,18 @@
 //! - the bullet menu (here): whole bullets — open, fold, complete, star,
 //!   block type, copy, duplicate, move, mirror, export, delete.
 //!
-//! Only one is open at a time, both share the card, row and shortcut-chip
-//! style below, and both close on Esc, an outside click or scrolling.
+//! Only one is open at a time, both are built from `ui::menu` (card, rows,
+//! separators), and both close on Esc, an outside click or scrolling.
 
 use std::ops::Range;
 
 use flowie_core::{BlockKind, NodeId};
-use gpui::{
-    anchored, deferred, div, point, prelude::*, px, AnyElement, ClipboardItem, Context, ElementId, MouseButton, MouseDownEvent, Pixels,
-    Point, Stateful, Window,
-};
+use gpui::{div, prelude::*, px, AnyElement, ClipboardItem, Context, MouseDownEvent, Pixels, Point, Window};
 
 use crate::i18n::t;
 use crate::outline::*;
 use crate::palette::{node_label, Mode};
-use crate::theme::Theme;
+pub use crate::ui::menu::{card, heading, place, row, separator};
 
 pub enum ContextMenu {
     /// On a text selection in the edited bullet.
@@ -51,80 +48,6 @@ enum Item {
     MirrorTo,
     Export,
     Delete,
-}
-
-/// Block types in the type row: (kind, icon, label key).
-const KINDS: &[(BlockKind, &str, &str)] = &[
-    (BlockKind::Bullet, "list", "slash.bullet"),
-    (BlockKind::Paragraph, "pilcrow", "slash.text"),
-    (BlockKind::H1, "heading-1", "slash.h1"),
-    (BlockKind::H2, "heading-2", "slash.h2"),
-    (BlockKind::H3, "heading-3", "slash.h3"),
-    (BlockKind::Todo, "square-check", "slash.todo"),
-    (BlockKind::Numbered, "list-ordered", "slash.numbered"),
-    (BlockKind::Quote, "quote", "slash.quote"),
-    (BlockKind::Code, "square-code", "slash.code_block"),
-];
-
-// ------------------------------------------------------------ shared style
-
-pub const MENU_W: f32 = 232.;
-
-/// The floating card both menus sit in.
-pub fn card(theme: Theme, id: &'static str) -> Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .occlude()
-        .w(px(MENU_W))
-        .p_1()
-        .rounded_md()
-        .bg(theme.bg)
-        .border_1()
-        .border_color(theme.border)
-        .shadow_lg()
-        .text_size(px(13.))
-        .text_color(theme.text)
-}
-
-/// One clickable row: icon, label, and the current shortcut (if bound).
-pub fn row(
-    theme: Theme,
-    id: impl Into<ElementId>,
-    icon: &str,
-    label: String,
-    shortcut: Option<String>,
-    color: gpui::Hsla,
-) -> Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .gap_2()
-        .px_2()
-        .h(px(28.))
-        .rounded_sm()
-        .cursor_pointer()
-        .text_color(color)
-        .hover(|s| s.bg(theme.hover))
-        .child(crate::icons::slot(icon, crate::icons::MD, if color == theme.text { theme.muted } else { color }))
-        .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(label))
-        .children(shortcut.map(|k| crate::icons::key_chip(&k, theme.muted, theme.bg, theme.border)))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-}
-
-pub fn separator(theme: Theme) -> gpui::Div {
-    div().h(px(1.)).my_1().bg(theme.border)
-}
-
-pub fn heading(theme: Theme, label: String) -> gpui::Div {
-    div().px_2().pt_1().text_size(px(11.)).text_color(theme.muted).child(label)
-}
-
-/// Place a card at a window position, kept inside the window.
-pub fn place(at: Point<Pixels>, card: impl IntoElement) -> AnyElement {
-    deferred(anchored().position(at + point(px(2.), px(2.))).snap_to_window_with_margin(px(8.)).child(card))
-        .with_priority(2)
-        .into_any_element()
 }
 
 /// "3 min ago", from a millisecond timestamp.
@@ -321,8 +244,7 @@ impl Outline {
         let keys = &self.config.keys;
         let chip = |id: &str| crate::keymap::keys_for(id, keys).into_iter().next();
         let item = |ix: usize, icon: &str, label: String, shortcut: Option<String>, it: Item, cx: &mut Context<Self>| {
-            let color = if matches!(it, Item::Delete) { theme.colors[0] } else { theme.text };
-            row(theme, ("bullet-menu-item", ix), icon, label, shortcut, color)
+            row(theme, ("bullet-menu-item", ix), icon, label, shortcut, matches!(it, Item::Delete))
                 .on_click(cx.listener(move |this, _, window, cx| this.run_bullet_item(it, window, cx)))
         };
 
@@ -366,25 +288,15 @@ impl Outline {
         }
 
         // Block type: a row of icons, like the color row of the text menu.
-        let current = KINDS.iter().find(|k| same_kind && k.0 == kind).map(|k| crate::i18n::text(k.2));
+        let current = crate::inline::kinds().find(|k| same_kind && k.0 == kind).map(|k| k.2);
         let kind_title = match current {
             Some(name) => t!("bullet_menu.kind_current", kind = name),
             None => t!("bullet_menu.kind").into(),
         };
-        let kinds = KINDS.iter().enumerate().map(|(i, &(k, icon, _))| {
+        let kinds = crate::inline::kinds().enumerate().map(|(i, (k, icon, _))| {
             let on = same_kind && k == kind;
-            div()
-                .id(("bullet-menu-kind", i))
-                .size(px(23.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_sm()
-                .cursor_pointer()
-                .when(on, |d| d.bg(theme.hover))
-                .hover(|s| s.bg(theme.hover))
+            crate::ui::menu::cell(theme, ("bullet-menu-kind", i), on)
                 .child(crate::icons::icon(icon, crate::icons::SM, if on { theme.accent } else { theme.muted }))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |this, _, window, cx| this.run_bullet_item(Item::Kind(k), window, cx)))
         });
         c = c

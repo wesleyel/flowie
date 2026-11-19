@@ -43,7 +43,7 @@ pub struct Style<'a> {
 }
 
 fn code_font() -> Font {
-    gpui::font("Menlo")
+    gpui::font(crate::theme::MONO_FONT)
 }
 
 struct Builder<'a> {

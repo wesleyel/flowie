@@ -51,7 +51,7 @@ impl Outline {
         let (shown, runs) = if text.is_empty() {
             let mut run = runs.first().cloned().unwrap_or_else(|| TextRun {
                 len: 0,
-                font: gpui::font(".SystemUIFont"),
+                font: gpui::font(crate::theme::UI_FONT),
                 color: caret_color,
                 background_color: None,
                 underline: None,

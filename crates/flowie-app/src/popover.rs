@@ -153,13 +153,9 @@ impl Outline {
                     let (text, note) = self.plain_text_and_note(src);
                     let path = self.render_path(src, 392., false, window, cx);
                     out.push(
-                        div()
-                            .id(("popover-ref", src as usize))
+                        crate::ui::list::hover_row(theme, ("popover-ref", src as usize))
                             .py_2()
                             .px_2()
-                            .rounded_sm()
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme.hover))
                             .child(text)
                             .when(!note.is_empty(), |d| d.child(div().text_color(theme.muted).child(note)))
                             .child(path)
@@ -174,13 +170,10 @@ impl Outline {
                 .iter()
                 .filter(|id| **id == ROOT || self.tree.contains(**id))
                 .map(|&id| {
-                    div()
-                        .id(("popover-crumb", id as usize))
+                    crate::ui::list::hover_row(theme, ("popover-crumb", id as usize))
                         .px_2()
                         .py_1()
-                        .rounded_sm()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme.hover).text_color(theme.link))
+                        .hover(|s| s.text_color(theme.link))
                         .child(self.crumb_label(id))
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(id, cx)))
@@ -189,19 +182,10 @@ impl Outline {
                 .collect(),
         };
         let width = px(440.).min(window.viewport_size().width - px(32.));
-        let card = div()
-            .id("popover")
-            .occlude()
+        let card = crate::ui::surface::popover(theme, "popover")
             .w(width)
             .p_1()
-            .rounded_md()
-            .bg(theme.bg)
-            .border_1()
-            .border_color(theme.border)
-            .shadow_lg()
-            .text_size(px(13.))
             .line_height(px(20.))
-            .text_color(theme.text)
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                 if let Some(o) = this.popover.open.as_mut() {
                     o.over_popup = *hovered;

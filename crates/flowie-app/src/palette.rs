@@ -2,7 +2,7 @@
 //! and an inline popup at the caret (slash commands, tag/link completion).
 
 use flowie_core::{markup, BlockKind, NodeId, ROOT};
-use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, SharedString, Window};
+use gpui::{div, prelude::*, px, AnyElement, Context, MouseButton, Window};
 
 use crate::i18n::t;
 use crate::outline::{Edit, Outline, Target};
@@ -394,60 +394,38 @@ impl Outline {
         let placeholder =
             query.is_empty().then(|| div().absolute().top_0().left_0().text_color(theme.faint).child(t!("palette.placeholder")));
         let rows = entries.into_iter().enumerate().map(|(i, e)| {
-            div()
-                .id(("palette", i))
-                .flex()
-                .items_center()
-                .gap_2()
-                .px_2()
+            let on = i == selected;
+            let icon = if e.icon == "star" && !on { theme.star } else { crate::ui::list::icon_color(theme, on) };
+            crate::ui::list::row(theme, ("palette", i), on)
                 .h(px(32.))
-                .rounded_md()
-                .cursor_pointer()
-                .when(i == selected, |d| d.bg(theme.row_selected))
-                .hover(|s| s.bg(theme.hover))
-                .child(crate::icons::slot(e.icon, crate::icons::MD, if e.icon == "star" { theme.colors[2] } else { theme.muted }))
+                .child(crate::icons::slot(e.icon, crate::icons::MD, icon))
                 .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(e.label))
                 .child(
-                    div().max_w(px(220.)).overflow_hidden().whitespace_nowrap().text_size(px(12.)).text_color(theme.muted).child(e.detail),
+                    div()
+                        .max_w(px(220.))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_size(px(12.))
+                        .text_color(crate::ui::list::detail_color(theme, on))
+                        .child(e.detail),
                 )
                 .on_click(cx.listener(move |this, _, window, cx| this.palette_click(i, window, cx)))
         });
         Some(
-            div()
-                .absolute()
-                .inset_0()
-                .flex()
+            crate::ui::surface::scrim(theme)
                 .items_start()
-                .justify_center()
-                .bg(gpui::black().opacity(0.12))
-                .occlude()
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close_palette(cx)))
                 .child(
-                    div()
-                        .id("palette-card")
+                    crate::ui::surface::sheet(theme, "palette-card")
                         .mt(px(90.))
                         .w(px(580.))
                         .max_h(px(470.))
                         .flex()
                         .flex_col()
-                        .bg(theme.bg)
-                        .border_1()
-                        .border_color(theme.border)
-                        .rounded_lg()
-                        .shadow_lg()
-                        .p_2()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(
-                            div()
-                                .px_3()
-                                .pt_1()
-                                .text_size(px(11.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(theme.muted)
-                                .child(SharedString::from(title)),
-                        )
+                        .p(px(6.))
+                        .child(crate::ui::text::overline(theme, title).px_3().pt_1())
                         .child(div().relative().mx_3().my_2().child(input).children(placeholder))
-                        .child(div().h(px(1.)).bg(theme.border).mb_1())
+                        .child(div().h(px(1.)).bg(theme.divider).mb_1())
                         .child(
                             div().id("palette-list").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.popup_scroll).children(rows),
                         ),

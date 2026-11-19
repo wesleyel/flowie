@@ -1,16 +1,19 @@
 # Building Flowie from source
 
-Flowie is written in Rust on [GPUI](https://gpui.rs), Zed's GPU UI framework, with
-[RaTeX](https://github.com/erweixin/RaTeX) for KaTeX-compatible math.
+Flowie is written in Rust on [GPUI](https://gpui.rs), Zed's GPU UI framework, taken through
+[gpui-kit](https://crates.io/crates/gpui-kit)'s snapshots of Zed's GPUI, with
+[RaTeX](https://github.com/erweixin/RaTeX) for KaTeX-compatible math. Its controls
+(`crates/flowie-app/src/ui`) are its own, drawn in the macOS style.
 
 ## Requirements
 
 - macOS 13 or later
 - Xcode Command Line Tools (`xcode-select --install`); full Xcode isn't needed
-- Rust stable via [rustup](https://rustup.rs)
+- Rust via [rustup](https://rustup.rs); `rust-toolchain.toml` picks the version (1.98.1)
 
-GPUI's `runtime_shaders` feature compiles the Metal shaders when the app starts, so no
-Metal compiler is needed at build time.
+GPUI compiles its Metal shaders when the app starts, so no Metal compiler is needed at
+build time. `third_party/gpui-pre-macos` is GPUI's macOS backend with its private AppKit
+calls removed, for the App Store; see `FLOWIE-PATCH.md` there.
 
 ## Build and run
 

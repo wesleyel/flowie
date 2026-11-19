@@ -17,6 +17,7 @@ mod selectable;
 mod settings;
 mod theme;
 mod tutorial;
+mod ui;
 mod view;
 
 use std::borrow::Cow;

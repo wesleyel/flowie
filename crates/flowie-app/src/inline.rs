@@ -23,6 +23,15 @@ impl Cmd {
     }
 }
 
+/// Block types, in `/` menu order: (kind, icon, label). The bullet menu's
+/// type row shows the same list.
+pub(crate) fn kinds() -> impl Iterator<Item = (BlockKind, &'static str, &'static str)> {
+    SLASH.iter().filter_map(|c| match (c.action)() {
+        Action::Kind(k) => Some((k, c.icon, c.label())),
+        _ => None,
+    })
+}
+
 pub(crate) const SLASH: &[Cmd] = &[
     Cmd { id: "bullet", aliases: "list item normal", icon: "list", action: || Action::Kind(BlockKind::Bullet) },
     Cmd { id: "text", aliases: "paragraph plain", icon: "pilcrow", action: || Action::Kind(BlockKind::Paragraph) },
@@ -282,21 +291,13 @@ impl Outline {
             return None;
         }
         let theme = self.theme;
-        let at = point(pos.x - px(6.), pos.y + lh + px(4.));
+        // `place` adds 2px down and right.
+        let at = point(pos.x - px(8.), pos.y + lh + px(2.));
         let items = entries.into_iter().enumerate().map(|(ix, en)| {
-            div()
-                .id(("inline", ix))
-                .flex()
-                .items_center()
-                .gap_2()
-                .px_2()
-                .h(px(28.))
-                .rounded_md()
-                .cursor_pointer()
-                .when(ix == i.selected, |d| d.bg(theme.row_selected))
-                .hover(|s| s.bg(theme.hover))
+            let on = ix == i.selected;
+            crate::ui::list::row(theme, ("inline", ix), on)
                 .child(match &en.action {
-                    // Color commands show a filled swatch in that color, same slot size as icons.
+                    // Color commands show a dot in that color, in the icon slot.
                     Action::Color(name) => {
                         let c = flowie_core::markup::COLORS.iter().position(|c| c == name).map(|i| theme.colors[i]).unwrap_or(theme.muted);
                         div()
@@ -305,12 +306,12 @@ impl Outline {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(div().size(px(12.)).rounded_full().bg(c))
+                            .child(crate::ui::menu::dot(c).when(on, |d| d.border_1().border_color(theme.on_accent)))
                     }
-                    _ => crate::icons::slot(en.icon, crate::icons::MD, theme.muted),
+                    _ => crate::icons::slot(en.icon, crate::icons::MD, crate::ui::list::icon_color(theme, on)),
                 })
                 .child(div().flex_1().whitespace_nowrap().overflow_hidden().child(en.label))
-                .child(div().text_size(px(11.)).text_color(theme.faint).child(en.detail))
+                .child(div().text_size(px(11.)).text_color(crate::ui::list::detail_color(theme, on)).child(en.detail))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, window, cx| {
@@ -319,22 +320,12 @@ impl Outline {
                     }),
                 )
         });
-        Some(
-            div()
-                .absolute()
-                .left(at.x)
-                .top(at.y)
-                .occlude()
+        Some(crate::ui::menu::place(
+            at,
+            crate::ui::surface::popover(theme, "inline-popup")
                 .w(px(250.))
-                .p_1()
-                .bg(theme.bg)
-                .border_1()
-                .border_color(theme.border)
-                .rounded_lg()
-                .shadow_lg()
-                .text_size(px(13.))
-                .child(div().id("inline-list").max_h(px(300.)).overflow_y_scroll().track_scroll(&self.popup_scroll).children(items))
-                .into_any_element(),
-        )
+                .p(px(6.))
+                .child(div().id("inline-list").max_h(px(300.)).overflow_y_scroll().track_scroll(&self.popup_scroll).children(items)),
+        ))
     }
 }

@@ -21,6 +21,17 @@ notes (`scripts/changelog-section.sh`).
 - The right-click menu on text now starts with Cut, Copy and Paste, and shows Paste alone when
   nothing is selected.
 
+### Changed
+
+- A more Mac-like look: the macOS system colors and accent colors, menus whose highlighted item
+  fills with the accent, rounder menus, popovers and sheets with softer shadows, Mac-style
+  segmented controls, buttons, checkboxes, key caps and search field, and a toast that matches
+  the window instead of being inverted. Selected rows in Quick Open, the `/` menu and Settings
+  are filled with the accent.
+- Flowie now runs on a current snapshot of Zed's GPUI (through gpui-kit) instead of the 2025
+  release. A shortcut entered in Settings that can't be read is now skipped instead of stopping
+  the app.
+
 ### Fixed
 
 - The Mac's Emacs-style editing keys now work while editing a bullet: ⌃A / ⌃E for the start or end

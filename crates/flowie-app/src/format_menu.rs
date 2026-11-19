@@ -4,7 +4,7 @@
 //! removes it. Whole-bullet commands live in the bullet menu (`menu.rs`).
 
 use flowie_core::markup::COLORS;
-use gpui::{div, prelude::*, px, AnyElement, Context, MouseButton, MouseDownEvent, Pixels, Point, Window};
+use gpui::{div, prelude::*, AnyElement, Context, MouseDownEvent, Pixels, Point, Window};
 
 use crate::i18n::{t, text};
 use crate::menu::{card, heading, place, row, separator, ContextMenu};
@@ -80,7 +80,7 @@ impl Outline {
         // Without a selection only Paste applies.
         let clipboard =
             CLIPBOARD.iter().enumerate().filter(|(_, c)| has_sel || matches!(c.3, Item::Paste)).map(|(i, &(label, icon, keys, item))| {
-                row(theme, ("format-clip", i), icon, text(label).into(), chip(keys), theme.text)
+                row(theme, ("format-clip", i), icon, text(label).into(), chip(keys), false)
                     .on_click(cx.listener(move |this, _, window, cx| this.run_format_item(item, window, cx)))
             });
         let mut c = card(theme, "format-menu")
@@ -92,21 +92,11 @@ impl Outline {
             .children(clipboard);
         if has_sel {
             let styles = STYLES.iter().enumerate().map(|(i, &(label, icon, keys, item))| {
-                row(theme, ("format-item", i), icon, text(label).into(), keys.and_then(chip), theme.text)
+                row(theme, ("format-item", i), icon, text(label).into(), keys.and_then(chip), false)
                     .on_click(cx.listener(move |this, _, window, cx| this.run_format_item(item, window, cx)))
             });
             let swatches = COLORS.iter().enumerate().map(|(i, &name)| {
-                div()
-                    .id(("format-color", i))
-                    .size(px(22.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_full()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme.hover))
-                    .child(div().size(px(12.)).rounded_full().bg(theme.colors[i]))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                crate::ui::menu::swatch(theme, ("format-color", i), theme.colors[i])
                     .on_click(cx.listener(move |this, _, _, cx| this.run_format_color(name, cx)))
             });
             c = c

@@ -92,6 +92,8 @@ FONTS_DIR=$(dirname "$(cargo metadata --format-version 1 | python3 -c 'import js
     cat "$FONTS_DIR/FONT_NOTICE.txt" "$FONTS_DIR/OFL.txt"
     printf '\n================================================================================\nLucide icons\n--------------------------------------------------------------------------------\n'
     cat crates/flowie-app/assets/icons/LICENSE
+    printf '\n================================================================================\ngpui-macos (control metrics and colors)\n--------------------------------------------------------------------------------\n'
+    cat crates/flowie-app/src/ui/LICENSE-gpui-macos
 } >> "$NOTICES"
 
 # ---------------------------------------------------------------- sign

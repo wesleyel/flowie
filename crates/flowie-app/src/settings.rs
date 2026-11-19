@@ -287,31 +287,12 @@ impl Outline {
             .flex_col()
             .gap_1()
             .border_r_1()
-            .border_color(theme.border)
-            .child(
-                div()
-                    .px_2()
-                    .pt_1()
-                    .pb_2()
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.muted)
-                    .child(t!("settings.heading").to_uppercase()),
-            )
+            .border_color(theme.divider)
+            .child(crate::ui::text::overline(theme, t!("settings.heading")).px_2().pt_1().pb_2())
             .children(tabs.into_iter().map(|(t, label, icon)| {
-                div()
-                    .id(icon)
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_2()
-                    .h(px(30.))
-                    .rounded_md()
-                    .cursor_pointer()
-                    .when(t == tab, |d| d.bg(theme.row_selected).text_color(theme.text))
-                    .when(t != tab, |d| d.text_color(theme.muted))
-                    .hover(|s| s.bg(theme.hover))
-                    .child(crate::icons::slot(icon, crate::icons::MD, if t == tab { theme.text } else { theme.muted }))
+                let on = t == tab;
+                crate::ui::list::row(theme, icon, on)
+                    .child(crate::icons::slot(icon, crate::icons::MD, if on { theme.on_accent } else { theme.accent }))
                     .child(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(s) = this.settings.as_mut() {
@@ -328,30 +309,15 @@ impl Outline {
             Tab::About => self.render_about(cx),
         };
         Some(
-            div()
-                .absolute()
-                .inset_0()
-                .flex()
+            crate::ui::surface::scrim(theme)
                 .items_center()
-                .justify_center()
-                .bg(gpui::black().opacity(0.18))
-                .occlude()
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.close_settings(window, cx)))
                 .child(
-                    div()
-                        .id("settings-card")
+                    crate::ui::surface::sheet(theme, "settings-card")
                         .w(px(760.))
                         .h(px(540.))
                         .max_h(gpui::relative(0.9))
                         .flex()
-                        .bg(theme.bg)
-                        .border_1()
-                        .border_color(theme.border)
-                        .rounded_xl()
-                        .shadow_lg()
-                        .overflow_hidden()
-                        .text_size(px(13.))
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(sidebar)
                         .child(div().flex_1().min_w_0().flex().flex_col().child(content)),
                 )
@@ -390,16 +356,15 @@ impl Outline {
                         div()
                             .id(SharedString::from(format!("key-{id}-{index}")))
                             .cursor_pointer()
-                            .child(crate::icons::key_chip(
+                            .child(crate::ui::controls::keycap(
+                                theme,
                                 if active { t!("settings.shortcuts.press_keys") } else { key },
-                                theme.text,
-                                theme.code_bg,
                                 if active {
-                                    theme.accent
+                                    Some(theme.accent)
                                 } else if conflict {
-                                    theme.colors[0].opacity(0.6)
+                                    Some(theme.danger.opacity(0.6))
                                 } else {
-                                    theme.border
+                                    None
                                 },
                             ))
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -413,13 +378,8 @@ impl Outline {
                     })
                     .collect();
                 chips.push(
-                    div()
-                        .id(SharedString::from(format!("add-{id}")))
-                        .px_2()
-                        .rounded_sm()
-                        .cursor_pointer()
-                        .text_color(theme.link)
-                        .hover(|s| s.bg(theme.hover))
+                    crate::ui::button::button(theme, SharedString::from(format!("add-{id}")), crate::ui::button::Variant::Link)
+                        .h(px(20.))
                         .child(if is_rec && recording.is_some_and(|r| r.index.is_none()) {
                             t!("settings.shortcuts.press_keys")
                         } else {
@@ -435,36 +395,30 @@ impl Outline {
                         .into_any_element(),
                 );
                 sections.push(
-                    div()
-                        .id(SharedString::from(format!("key-{id}")))
+                    crate::ui::list::hover_row(theme, SharedString::from(format!("key-{id}")))
                         .flex()
                         .items_center()
                         .gap_2()
                         .px_2()
                         .min_h(px(30.))
                         .py_1()
-                        .rounded_md()
-                        .cursor_pointer()
                         .when(is_rec, |d| d.bg(theme.row_selected))
-                        .hover(|s| s.bg(theme.hover))
                         .child(div().flex_1().min_w_0().child(row.label()))
                         .when(conflict && !is_rec, |d| {
-                            d.child(div().text_size(px(11.)).text_color(theme.colors[0]).child(t!("settings.shortcuts.conflict")))
+                            d.child(div().text_size(px(11.)).text_color(theme.danger).child(t!("settings.shortcuts.conflict")))
                         })
                         .child(div().flex().flex_wrap().justify_end().max_w(gpui::relative(0.6)).gap_1().children(chips))
                         .child(
+                            // Keeps its place when there is nothing to reset.
                             div()
                                 .id(SharedString::from(format!("reset-{id}")))
                                 .flex_none()
-                                .size(px(20.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded_md()
+                                .size(px(24.))
                                 .when(custom, |d| {
-                                    d.cursor_pointer().hover(|s| s.bg(theme.hover)).child(crate::icons::icon(
+                                    d.child(crate::ui::button::icon_button(
+                                        theme,
+                                        SharedString::from(format!("reset-icon-{id}")),
                                         "rotate-ccw",
-                                        crate::icons::SM,
                                         theme.muted,
                                     ))
                                 })
@@ -498,28 +452,18 @@ impl Outline {
                     .pt_3()
                     .pb_2()
                     .border_b_1()
-                    .border_color(theme.border)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(t!("settings.shortcuts.title")))
-                            .child(div().text_size(px(12.)).text_color(theme.muted).child(if recording.is_some() {
-                                t!("settings.shortcuts.recording_hint")
-                            } else {
-                                t!("settings.shortcuts.hint")
-                            })),
-                    )
+                    .border_color(theme.divider)
+                    .child(crate::ui::text::page_title(
+                        theme,
+                        t!("settings.shortcuts.title"),
+                        Some(
+                            if recording.is_some() { t!("settings.shortcuts.recording_hint") } else { t!("settings.shortcuts.hint") }
+                                .into(),
+                        ),
+                    ))
                     .when(any_custom, |d| {
                         d.child(
-                            div()
-                                .id("reset-all")
-                                .px_2()
-                                .py(px(3.))
-                                .rounded_md()
-                                .cursor_pointer()
-                                .text_color(theme.link)
-                                .hover(|s| s.bg(theme.hover))
+                            crate::ui::button::button(theme, "reset-all", crate::ui::button::Variant::Link)
                                 .child(t!("settings.shortcuts.reset_all"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.config.keys.clear();
@@ -543,22 +487,13 @@ impl Outline {
             (ThemeMode::Light, "light", t!("settings.appearance.theme.light")),
             (ThemeMode::Dark, "dark", t!("settings.appearance.theme.dark")),
         ];
-        let segmented = div().flex().p(px(2.)).rounded_lg().bg(theme.input_bg).children(modes.into_iter().map(|(m, id, label)| {
-            div()
-                .id(id)
-                .px_4()
-                .py(px(4.))
-                .rounded_md()
-                .cursor_pointer()
-                .when(m == mode, |d| d.bg(theme.bg).shadow_sm().font_weight(FontWeight::SEMIBOLD))
-                .when(m != mode, |d| d.text_color(theme.muted))
-                .child(label)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.config.theme = m;
-                    this.save_config();
-                    this.apply_theme(window);
-                    cx.notify();
-                }))
+        let segmented = crate::ui::segmented::track(theme).children(modes.into_iter().map(|(m, id, label)| {
+            crate::ui::segmented::segment(theme, id, m == mode).child(label).on_click(cx.listener(move |this, _, window, cx| {
+                this.config.theme = m;
+                this.save_config();
+                this.apply_theme(window);
+                cx.notify();
+            }))
         }));
         let swatches = div().flex().gap_3().children(ACCENTS.iter().map(|(name, light, darkc)| {
             let name: &'static str = name;
@@ -571,11 +506,19 @@ impl Outline {
                 .items_center()
                 .gap_1()
                 .cursor_pointer()
-                .child(div().size(px(26.)).rounded_full().bg(color).border_2().border_color(if selected {
-                    theme.text
-                } else {
-                    gpui::transparent_black()
-                }))
+                // Selected: a ring in the background color, then the accent.
+                .child(div().size(px(26.)).rounded_full().bg(color).border_2().border_color(if selected { theme.bg } else { color }).when(
+                    selected,
+                    |d| {
+                        d.shadow(vec![gpui::BoxShadow {
+                            color,
+                            offset: gpui::point(px(0.), px(0.)),
+                            blur_radius: px(0.),
+                            spread_radius: px(2.),
+                            inset: false,
+                        }])
+                    },
+                ))
                 .child(
                     div()
                         .text_size(px(11.))
@@ -591,23 +534,16 @@ impl Outline {
         }));
         let language = self.config.language.clone();
         let choices = std::iter::once(("", t!("settings.appearance.language.system"))).chain(i18n::languages());
-        let languages = div().flex().flex_wrap().p(px(2.)).rounded_lg().bg(theme.input_bg).children(choices.map(|(code, label)| {
-            div()
-                .id(SharedString::from(format!("lang-{code}")))
-                .px_4()
-                .py(px(4.))
-                .rounded_md()
-                .cursor_pointer()
-                .when(code == language, |d| d.bg(theme.bg).shadow_sm().font_weight(FontWeight::SEMIBOLD))
-                .when(code != language, |d| d.text_color(theme.muted))
-                .child(label)
-                .on_click(cx.listener(move |this, _, _, cx| {
+        let languages = crate::ui::segmented::track(theme).children(choices.map(|(code, label)| {
+            crate::ui::segmented::segment(theme, SharedString::from(format!("lang-{code}")), code == language).child(label).on_click(
+                cx.listener(move |this, _, _, cx| {
                     this.config.language = code.to_string();
                     this.save_config();
                     i18n::set(code);
                     keymap::set_menus(cx);
                     cx.notify();
-                }))
+                }),
+            )
         }));
         let field = |label: &'static str, hint: &'static str, control: AnyElement| {
             div()
@@ -616,7 +552,7 @@ impl Outline {
                 .gap_2()
                 .py_3()
                 .border_b_1()
-                .border_color(theme.border)
+                .border_color(theme.divider)
                 .child(
                     div()
                         .flex()
@@ -629,7 +565,7 @@ impl Outline {
         let preview = div()
             .mt_3()
             .p_3()
-            .rounded_lg()
+            .rounded(px(crate::theme::R_LG))
             .border_1()
             .border_color(theme.border)
             .flex()
@@ -662,7 +598,7 @@ impl Outline {
             .overflow_y_scroll()
             .px_4()
             .pt_3()
-            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).pb_1().child(t!("settings.appearance.title")))
+            .child(crate::ui::text::page_title(theme, t!("settings.appearance.title"), None).pb_1())
             .child(field(t!("settings.appearance.theme.label"), t!("settings.appearance.theme.hint"), segmented.into_any_element()))
             .child(field(t!("settings.appearance.accent.label"), t!("settings.appearance.accent.hint"), swatches.into_any_element()))
             .child(field(t!("settings.appearance.language.label"), t!("settings.appearance.language.hint"), languages.into_any_element()))
@@ -679,23 +615,12 @@ impl Outline {
             (AgentMode::ReadOnly, "read-only", t!("settings.agent.mode.read_only")),
             (AgentMode::ReadWrite, "read-write", t!("settings.agent.mode.read_write")),
         ];
-        let segmented = div().flex().p(px(2.)).rounded_lg().bg(theme.input_bg).children(modes.into_iter().map(|(m, id, label)| {
-            div()
-                .id(id)
-                .px_4()
-                .h(px(26.))
-                .flex()
-                .items_center()
-                .rounded_md()
-                .cursor_pointer()
-                .when(m == mode, |d| d.bg(theme.bg).shadow_sm().font_weight(FontWeight::SEMIBOLD))
-                .when(m != mode, |d| d.text_color(theme.muted))
-                .child(label)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.config.agent = m;
-                    this.save_config();
-                    cx.notify();
-                }))
+        let segmented = crate::ui::segmented::track(theme).children(modes.into_iter().map(|(m, id, label)| {
+            crate::ui::segmented::segment(theme, id, m == mode).child(label).on_click(cx.listener(move |this, _, _, cx| {
+                this.config.agent = m;
+                this.save_config();
+                cx.notify();
+            }))
         }));
         let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "Flowie".into());
         let db_env = self
@@ -709,7 +634,7 @@ impl Outline {
         let claude_label = self.label("mcp-claude", claude, cx);
         let json_label = self.label("mcp-json", json_cfg, cx);
         let block = |label: gpui::Entity<crate::selectable::SelectableText>| {
-            div().p_2().rounded_md().bg(theme.code_bg).font_family("Menlo").text_size(px(12.)).child(label)
+            div().p_2().rounded_md().bg(theme.code_bg).font_family(crate::theme::MONO_FONT).text_size(px(12.)).child(label)
         };
         let desc = match mode {
             AgentMode::Off => t!("settings.agent.desc.off"),
@@ -723,7 +648,7 @@ impl Outline {
             .px_4()
             .pt_3()
             .pb_4()
-            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).pb_1().child(t!("settings.agent.title")))
+            .child(crate::ui::text::page_title(theme, t!("settings.agent.title"), None).pb_1())
             .child(div().text_size(px(12.)).text_color(theme.muted).pb_3().child(t!("settings.agent.intro")))
             .child(
                 div()
@@ -732,7 +657,7 @@ impl Outline {
                     .gap_2()
                     .pb_3()
                     .border_b_1()
-                    .border_color(theme.border)
+                    .border_color(theme.divider)
                     .child(segmented)
                     .child(div().text_size(px(12.)).text_color(theme.muted).child(desc)),
             )
@@ -794,8 +719,8 @@ impl Outline {
                             .items_center()
                             .gap(px(4.))
                             .pl(px(indent))
-                            .child(div().size(px(5.)).rounded_full().bg(gpui::white()))
-                            .child(div().w(px(w)).h(px(4.)).rounded_full().bg(gpui::white().opacity(0.9)))
+                            .child(div().size(px(5.)).rounded_full().bg(theme.on_accent))
+                            .child(div().w(px(w)).h(px(4.)).rounded_full().bg(theme.on_accent.opacity(0.9)))
                     })),
             )
             .child(div().flex_none().pt_3().text_size(px(22.)).font_weight(FontWeight::BOLD).child("Flowie"))
@@ -806,23 +731,12 @@ impl Outline {
                     .w(px(ABOUT_BOX_W))
                     .flex_none()
                     .p(px(ABOUT_PAD))
-                    .rounded_lg()
+                    .rounded(px(crate::theme::R_LG))
                     .bg(theme.input_bg)
                     .children(values.into_iter().map(|(k, v)| line(k, v))),
             )
             .child({
-                let button = |id: &'static str| {
-                    div()
-                        .id(id)
-                        .flex_none()
-                        .px_3()
-                        .py(px(5.))
-                        .rounded_md()
-                        .cursor_pointer()
-                        .border_1()
-                        .border_color(theme.border)
-                        .hover(|s| s.bg(theme.hover))
-                };
+                let button = |id: &'static str| crate::ui::button::button(theme, id, crate::ui::button::Variant::Secondary);
                 div()
                     .flex()
                     .flex_none()

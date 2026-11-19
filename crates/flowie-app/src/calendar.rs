@@ -98,7 +98,7 @@ impl Outline {
                     .flex_col()
                     .items_center()
                     .justify_center()
-                    .rounded_md()
+                    .rounded(px(crate::theme::R_MD))
                     .cursor_pointer()
                     .hover(|s| s.bg(theme.hover))
                     .when(is_today, |s| s.bg(theme.row_selected).font_weight(FontWeight::BOLD))
@@ -132,24 +132,13 @@ impl Outline {
         .into_iter()
         .map(|w| div().w(px(36.)).flex().justify_center().text_size(px(11.)).text_color(theme.muted).child(w));
         let nav = |icon: &'static str, delta: i32, cx: &mut Context<Self>| {
-            div()
-                .id(icon)
-                .flex_none()
-                .size(px(26.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_md()
-                .cursor_pointer()
-                .hover(|s| s.bg(theme.hover))
-                .child(crate::icons::icon(icon, crate::icons::MD, theme.muted))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.shift_month(delta, cx);
-                    }),
-                )
+            crate::ui::button::icon_button(theme, icon, icon, theme.muted).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.shift_month(delta, cx);
+                }),
+            )
         };
         Some(
             div()
@@ -164,18 +153,12 @@ impl Outline {
                     }),
                 )
                 .child(
-                    div()
+                    crate::ui::surface::popover(theme, "calendar")
                         .absolute()
                         .top(px(46.))
                         .right(px(36.))
                         .w(px(36. * 7. + 26.))
                         .p_3()
-                        .bg(theme.bg)
-                        .border_1()
-                        .border_color(theme.border)
-                        .rounded_lg()
-                        .shadow_lg()
-                        .text_size(px(13.))
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(
                             div()

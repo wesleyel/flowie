@@ -207,45 +207,9 @@ pub fn placeholders(template: &str) -> std::collections::BTreeSet<&str> {
     out
 }
 
-/// macOS preferred languages, most preferred first.
-#[cfg(target_os = "macos")]
+/// System preferred languages, most preferred first.
 fn preferred_languages() -> Vec<String> {
-    use std::ffi::{c_char, c_void, CStr};
-    #[link(name = "CoreFoundation", kind = "framework")]
-    extern "C" {
-        fn CFLocaleCopyPreferredLanguages() -> *const c_void;
-        fn CFArrayGetCount(array: *const c_void) -> isize;
-        fn CFArrayGetValueAtIndex(array: *const c_void, ix: isize) -> *const c_void;
-        fn CFStringGetCString(s: *const c_void, buf: *mut c_char, len: isize, encoding: u32) -> u8;
-        fn CFRelease(cf: *const c_void);
-    }
-    const UTF8: u32 = 0x0800_0100;
-    let mut out = Vec::new();
-    // SAFETY: plain CoreFoundation calls; the copied array is released once.
-    unsafe {
-        let langs = CFLocaleCopyPreferredLanguages();
-        if langs.is_null() {
-            return out;
-        }
-        for i in 0..CFArrayGetCount(langs) {
-            let mut buf = [0 as c_char; 64];
-            if CFStringGetCString(CFArrayGetValueAtIndex(langs, i), buf.as_mut_ptr(), buf.len() as isize, UTF8) != 0 {
-                out.push(CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned());
-            }
-        }
-        CFRelease(langs);
-    }
-    out
-}
-
-#[cfg(not(target_os = "macos"))]
-fn preferred_languages() -> Vec<String> {
-    ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .iter()
-        .filter_map(|k| std::env::var(k).ok())
-        .filter(|v| !v.is_empty())
-        .map(|v| v.split('.').next().unwrap_or("").to_string())
-        .collect()
+    sys_locale::get_locales().collect()
 }
 
 #[cfg(test)]
@@ -336,7 +300,7 @@ mod tests {
     /// `.child(…)`, toasts or key labels. Names and key symbols are allowed.
     #[test]
     fn no_raw_ui_text() {
-        const ALLOWED: &[&str] = &["Flowie", "Claude Code", "#tag", "fn", "esc", "home", "end"];
+        const ALLOWED: &[&str] = &["Flowie", "Claude Code", "#tag", "fn", "esc"];
         const CALLS: &[&str] = &[".child(\"", "toast(\"", "Text(\"", ".tooltip(\""];
         let mut found = Vec::new();
         let mut dirs = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
@@ -371,7 +335,14 @@ mod tests {
                     let t = line.trim().trim_end_matches(',');
                     let inner = t.get(1..t.len().saturating_sub(1)).unwrap_or("");
                     let plain = !inner.contains('"') && !inner.contains('{');
-                    if !agent && t.len() > 2 && t.starts_with('"') && t.ends_with('"') && plain && inner.contains(' ') {
+                    if !agent
+                        && t.len() > 2
+                        && t.starts_with('"')
+                        && t.ends_with('"')
+                        && plain
+                        && inner.contains(' ')
+                        && !ALLOWED.contains(&inner)
+                    {
                         found.push(format!("{}:{}: {t}", path.file_name().unwrap().to_string_lossy(), n + 1));
                     }
                 }

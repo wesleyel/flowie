@@ -3,6 +3,7 @@
 use gpui::{div, prelude::*, px, radians, AnyElement, Div, ElementId, Hsla, Stateful, Transformation};
 
 use crate::icons::{icon, KEY};
+use crate::platform::{self, Os};
 use crate::theme::{Theme, R_MD, R_SM};
 
 /// A 16px checkbox.
@@ -18,59 +19,70 @@ pub fn checkbox(theme: Theme, checked: bool) -> Div {
         .when(!checked, |d| d.bg(theme.control_selected).border_1().border_color(theme.faint).shadow(theme.control_shadow()))
 }
 
-/// One token of a shortcut: an icon name (macOS key glyph) or a text label.
+/// One token of a shortcut: an icon name (key glyph) or a text label.
 enum KeyToken {
     Icon(&'static str, f32),
     Text(String),
 }
 
+/// The pieces of one keystroke: macOS's key glyphs as icons there, the
+/// platform's key names elsewhere (see `platform::key_name`).
 fn tokens(stroke: &str) -> Vec<KeyToken> {
-    match stroke {
-        "mouse-back" => return vec![KeyToken::Text(crate::i18n::t!("settings.shortcuts.mouse_back").into())],
-        "mouse-forward" => return vec![KeyToken::Text(crate::i18n::t!("settings.shortcuts.mouse_forward").into())],
-        _ => {}
+    use KeyToken::{Icon, Text};
+    if stroke.starts_with("mouse-") {
+        return vec![Text(platform::key_name(stroke))];
     }
-    let parts: Vec<&str> = stroke.split('-').collect();
-    let (mods, key) = if stroke.ends_with("--") {
-        (&parts[..parts.len().saturating_sub(2)], "-")
-    } else {
-        (&parts[..parts.len() - 1], *parts.last().unwrap_or(&""))
-    };
-    let mut out = Vec::new();
-    // macOS order: ⌃ ⌥ ⇧ ⌘
-    for (m, icon) in [("ctrl", "chevron-up"), ("alt", "option"), ("shift", "arrow-big-up"), ("cmd", "command")] {
-        if mods.contains(&m) {
-            out.push(KeyToken::Icon(icon, 0.0));
-        }
-    }
-    if mods.contains(&"fn") {
-        out.push(KeyToken::Text("fn".into()));
-    }
-    out.push(match key {
-        "enter" => KeyToken::Icon("corner-down-left", 0.0),
-        "backspace" => KeyToken::Icon("delete", 0.0),
-        "delete" => KeyToken::Icon("delete", 180.0),
-        "tab" => KeyToken::Icon("arrow-right-to-line", 0.0),
-        "space" => KeyToken::Icon("space", 0.0),
-        "up" => KeyToken::Icon("arrow-up", 0.0),
-        "down" => KeyToken::Icon("arrow-down", 0.0),
-        "left" => KeyToken::Icon("arrow-left", 0.0),
-        "right" => KeyToken::Icon("arrow-right", 0.0),
-        "escape" => KeyToken::Text("esc".into()),
-        "home" => KeyToken::Text("home".into()),
-        "end" => KeyToken::Text("end".into()),
-        k if k.len() > 1 => KeyToken::Text(k.to_string()),
-        k => KeyToken::Text(k.to_uppercase()),
+    let mac = platform::OS == Os::Mac;
+    let (mods, key) = platform::split_stroke(stroke);
+    let mut out: Vec<KeyToken> = mods
+        .iter()
+        .map(|m| match (mac, *m) {
+            (true, "ctrl") => Icon("chevron-up", 0.0),
+            (true, "alt") => Icon("option", 0.0),
+            (true, "shift") => Icon("arrow-big-up", 0.0),
+            (true, "cmd") => Icon("command", 0.0),
+            (_, m) => Text(platform::modifier_name(m).into()),
+        })
+        .collect();
+    out.push(match (mac, key) {
+        (_, "up") => Icon("arrow-up", 0.0),
+        (_, "down") => Icon("arrow-down", 0.0),
+        (_, "left") => Icon("arrow-left", 0.0),
+        (_, "right") => Icon("arrow-right", 0.0),
+        (true, "enter") => Icon("corner-down-left", 0.0),
+        (true, "backspace") => Icon("delete", 0.0),
+        (true, "delete") => Icon("delete", 180.0),
+        (true, "tab") => Icon("arrow-right-to-line", 0.0),
+        (true, "space") => Icon("space", 0.0),
+        (true, "escape") => Text("esc".into()),
+        (true, k) if k.len() > 1 => Text(k.to_string()),
+        (_, k) => Text(platform::key_name(k)),
     });
     out
 }
 
-/// A shortcut ("cmd-shift-up") as bare macOS key glyphs, as menus show it.
+/// A shortcut ("cmd-shift-up") as the platform writes it: bare glyphs on
+/// macOS, as menus show it; "Ctrl + Shift + ↑" elsewhere.
 /// With `hover`, the glyphs take that color while the named group is hovered.
 pub fn shortcut(keys: &str, color: Hsla, hover: Option<(&'static str, Hsla)>) -> Div {
     let strokes = keys.split_whitespace().map(|stroke| {
-        div().flex().items_center().gap(px(1.)).children(tokens(stroke).into_iter().map(|t| {
-            match t {
+        let items = tokens(stroke);
+        let sep = platform::OS != Os::Mac;
+        let mut children: Vec<AnyElement> = Vec::with_capacity(items.len() * 2);
+        for (ix, t) in items.into_iter().enumerate() {
+            if sep && ix > 0 {
+                children.push(
+                    div()
+                        .flex_none()
+                        .text_size(px(11.))
+                        .line_height(px(KEY + 2.0))
+                        .text_color(color.opacity(0.6))
+                        .when_some(hover, |d, (group, c)| d.group_hover(group, |s| s.text_color(c)))
+                        .child("+")
+                        .into_any_element(),
+                );
+            }
+            children.push(match t {
                 KeyToken::Icon(name, angle) => {
                     let mut glyph = icon(name, KEY, color).with_transformation(Transformation::rotate(radians(angle.to_radians())));
                     if let Some((group, c)) = hover {
@@ -83,14 +95,15 @@ pub fn shortcut(keys: &str, color: Hsla, hover: Option<(&'static str, Hsla)>) ->
                     .min_w(px(KEY + 2.0))
                     .flex()
                     .justify_center()
-                    .text_size(px(12.))
+                    .text_size(px(if sep { 11. } else { 12. }))
                     .line_height(px(KEY + 2.0))
                     .text_color(color)
                     .when_some(hover, |d, (group, c)| d.group_hover(group, |s| s.text_color(c)))
                     .child(t)
                     .into_any_element(),
-            }
-        }))
+            });
+        }
+        div().flex().items_center().gap(px(if sep { 2. } else { 1. })).children(children)
     });
     div().flex_none().flex().items_center().gap(px(4.)).children(strokes)
 }

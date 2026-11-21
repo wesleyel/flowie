@@ -261,6 +261,9 @@ pub struct Outline {
     pub kill_buffer: String,
     /// The open right-click menu (text or bullet).
     pub menu: Option<crate::menu::ContextMenu>,
+    /// The open menu of the in-window menu bar (see `app_menu`).
+    pub app_menu: Option<usize>,
+    pub app_menu_scroll: gpui::ScrollHandle,
 }
 
 pub const INDENT: f32 = 24.0;
@@ -336,6 +339,8 @@ impl Outline {
             display_pos: Default::default(),
             popover: Default::default(),
             menu: None,
+            app_menu: None,
+            app_menu_scroll: gpui::ScrollHandle::new(),
             kill_buffer: String::new(),
             mouse_block: false,
             ghosts: Default::default(),
@@ -1733,6 +1738,10 @@ impl Outline {
     }
 
     pub fn escape(&mut self, _: &Escape, _: &mut Window, cx: &mut Context<Self>) {
+        if self.close_app_menu() {
+            cx.notify();
+            return;
+        }
         if self.close_menu() {
             cx.notify();
             return;

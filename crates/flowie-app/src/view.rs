@@ -1018,6 +1018,7 @@ impl Render for Outline {
                                         this.wheel.push(-dy);
                                         this.popover.close();
                                         this.close_menu();
+                                        this.close_app_menu();
                                         cx.notify();
                                         true
                                     });
@@ -1037,7 +1038,7 @@ impl Render for Outline {
                         .id("outline-scroll")
                         .size_full()
                         .on_scroll(cx.listener(|this, _, _, cx| {
-                            if this.popover.close() | this.close_menu() {
+                            if this.popover.close() | this.close_menu() | this.close_app_menu() {
                                 cx.notify();
                             }
                         }))
@@ -1049,6 +1050,7 @@ impl Render for Outline {
                 .child(crate::ui::scrollbar::scrollbar("outline-bar", &self.list, self.theme))
                 .into_any_element()
         };
+        let app_menu_bar = self.render_app_menu_bar(window, cx);
         let palette = self.render_palette(window, cx);
         let settings = self.render_settings(window, cx);
         let inline = self.render_inline(cx);
@@ -1210,6 +1212,7 @@ impl Render for Outline {
                 }),
             )
             .relative()
+            .children(app_menu_bar)
             .child(header)
             .child(
                 div()

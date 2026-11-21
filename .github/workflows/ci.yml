@@ -86,4 +86,69 @@ jobs:
           pid=$!
           sleep 10
           kill -0 "$pid"   # still running: it started without crashing
+          # A second launch hands over to the first one and exits.
+          FLOWIE_DB="$RUNNER_TEMP/smoke.sqlite" perl -e 'alarm 30; exec @ARGV' build/Flowie.app/Contents/MacOS/Flowie --background
+          kill -0 "$pid"
           kill "$pid"
+
+  check-windows:
+    name: clippy, test and build (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build
+        run: cargo build --locked -p flowie-app
+      - name: Smoke test (MCP stdio)
+        shell: pwsh
+        run: |
+          $input = @(
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}',
+            '{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}'
+          ) -join "`n"
+          $out = $input | .\target\debug\flowie.exe mcp
+          $out | ForEach-Object { Write-Host $_ }
+          if (-not ($out -join "`n" -match '"name":"flowie"')) { throw "MCP initialize failed" }
+          if (-not ($out -join "`n" -match '"id":2')) { throw "MCP ping failed" }
+
+  check-linux:
+    name: clippy, test and build (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: System libraries (GPUI's X11/Wayland backends, fonts)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libfontconfig-dev libfreetype-dev \
+            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build
+        run: cargo build --locked -p flowie-app
+      - name: Smoke test (MCP stdio)
+        run: |
+          out=$(printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}' | target/debug/flowie mcp)
+          echo "$out"
+          grep -q '"name":"flowie"' <<< "$out"
+          grep -q '"id":2' <<< "$out"

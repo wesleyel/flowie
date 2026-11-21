@@ -25,7 +25,8 @@ fn main() {
     names.sort();
     let mut src = String::from("pub static ICONS: &[(&str, &[u8])] = &[\n");
     for n in &names {
-        writeln!(src, "    (\"icons/{n}\", include_bytes!(\"{}\")),", dir.join(n).display()).unwrap();
+        let path = dir.join(n);
+        writeln!(src, "    (\"icons/{n}\", include_bytes!({:?})),", path.to_string_lossy()).unwrap();
     }
     src.push_str("];\n");
     let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("icons.rs");
@@ -42,9 +43,22 @@ fn main() {
     assert_eq!(codes.first().map(String::as_str), Some("en"), "locales/en.json is required");
     let mut src = String::from("pub static LOCALES: &[(&str, &str)] = &[\n");
     for c in &codes {
-        writeln!(src, "    (\"{c}\", include_str!(\"{}\")),", dir.join(format!("{c}.json")).display()).unwrap();
+        let path = dir.join(format!("{c}.json"));
+        writeln!(src, "    (\"{c}\", include_str!({:?})),", path.to_string_lossy()).unwrap();
     }
     src.push_str("];\n");
     let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("locales.rs");
     std::fs::write(out, src).unwrap();
+
+    #[cfg(target_os = "windows")]
+    {
+        let ico = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/AppIcon.ico");
+        println!("cargo:rerun-if-changed={}", ico.display());
+        let mut res = winresource::WindowsResource::new();
+        // GPUI's Windows backend loads resource ID 1 via LoadImageW(..., PCWSTR(1 as _), IMAGE_ICON, ...).
+        res.set_icon_with_id(&ico.to_string_lossy(), "1");
+        res.set("ProductName", "Flowie");
+        res.set("FileDescription", "Flowie — a fast outliner for thinking in lists");
+        res.compile().expect("embed Windows resources");
+    }
 }

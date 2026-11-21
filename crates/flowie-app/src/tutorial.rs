@@ -5,7 +5,13 @@
 //! - `{{#name}}` names the bullet; `[label](flowie:@name)` links to it
 //! - `{{mirror name}}` (alone on a bullet) becomes a mirror of that bullet
 //! - `{{collapsed}}`, `{{text}}`, `{{code}}`, `{{star}}`
-//! - `{{today}}` is replaced with today's date
+//!
+//! and a few placeholders anywhere, filled in before parsing:
+//!
+//! - `{{key:<shortcut id>}}`: that shortcut's current keys, as this platform writes them
+//! - `{{mod:<modifier>}}`: a modifier's name ("⌥" on macOS, "Alt" elsewhere)
+//! - `{{mcp-command}}`: the `claude mcp add` command for this install
+//! - `{{today}}`: today's date
 
 use std::collections::HashMap;
 
@@ -24,11 +30,40 @@ fn source() -> &'static str {
     TUTORIALS.iter().find(|(c, _)| *c == code).unwrap_or(&TUTORIALS[0]).1
 }
 
+/// Fill the placeholders of a tutorial source. Unknown ones are left for
+/// the directive pass (and caught by the tests).
+fn render(src: &str, keys: &HashMap<String, Vec<String>>, mcp_command: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut rest = src;
+    while let Some(start) = rest.find("{{") {
+        let Some(len) = rest[start..].find("}}") else { break };
+        let inner = &rest[start + 2..start + len];
+        let value = match inner.split_once(':') {
+            Some(("key", id)) => Some(crate::keymap::hint(id, keys)),
+            Some(("mod", m)) => Some(crate::platform::modifier_name(m).to_string()),
+            _ => match inner {
+                "mcp-command" => Some(mcp_command.to_string()),
+                "today" => Some(flowie_core::search::today()),
+                _ => None,
+            },
+        };
+        out.push_str(&rest[..start]);
+        match value {
+            Some(v) => out.push_str(&v),
+            None => out.push_str(&rest[start..start + len + 2]),
+        }
+        rest = &rest[start + len + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
 impl Outline {
     /// Insert the tutorial at `index` under Home; returns its top bullet.
     /// Not committed: the caller decides whether it is an undo step.
     pub fn insert_tutorial(&mut self, index: usize) -> NodeId {
-        let text = source().replace("{{today}}", &flowie_core::search::today());
+        let mcp_command = crate::agent::mcp::Setup::new(self.db_path.as_deref()).claude_command();
+        let text = render(source(), &self.config.keys, &mcp_command);
         let items = parse_text(&text);
         let top = self.tree.insert_items(ROOT, index, &items);
         let mut all: Vec<NodeId> = Vec::new();
@@ -126,5 +161,31 @@ mod tests {
             }
         }
         assert_eq!(TUTORIALS[0].1.lines().count(), TUTORIALS[1].1.lines().count(), "translations have the same lines");
+    }
+
+    #[test]
+    fn placeholders_name_real_shortcuts_and_all_get_filled() {
+        let ids: std::collections::HashSet<&str> = crate::keymap::BINDINGS.iter().map(|b| b.id).collect();
+        for (code, md) in TUTORIALS {
+            let mut rest = *md;
+            while let Some(at) = rest.find("{{key:") {
+                let id = &rest[at + 6..at + rest[at..].find("}}").unwrap()];
+                assert!(ids.contains(id), "{code}: unknown shortcut id {id:?}");
+                rest = &rest[at + 6..];
+            }
+            let text = super::render(md, &std::collections::HashMap::new(), "claude mcp add flowie -- flowie mcp");
+            for leftover in ["{{key:", "{{mod:", "{{mcp-command}}", "{{today}}"] {
+                assert!(!text.contains(leftover), "{code}: {leftover} left unfilled");
+            }
+            assert!(!text.contains("Mac") && !text.contains("/Applications"), "{code}: macOS-only wording");
+        }
+    }
+
+    #[test]
+    fn render_fills_keys_from_overrides() {
+        let mut keys = std::collections::HashMap::new();
+        keys.insert("jump".to_string(), vec!["f9".to_string()]);
+        assert_eq!(super::render("Press {{key:jump}}.", &keys, ""), "Press F9.");
+        assert_eq!(super::render("{{collapsed}} stays", &keys, ""), "{{collapsed}} stays");
     }
 }

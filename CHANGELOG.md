@@ -20,9 +20,22 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 - Flowie reopens its window at the size and place you left it, on the same display, and in full
   screen if it was. If that display is no longer attached it opens centered as before, and a window
   that would now be partly off the display is moved and shrunk to fit.
+- Windows 10 and 11 (64-bit): each GitHub release includes `Flowie-<version>-windows-x64.zip`. The
+  window has its own menu bar and shortcuts use Ctrl where macOS uses ⌘. Because Ctrl+Alt is AltGr
+  on many keyboards, no default uses it: block types are Ctrl+Shift+0 to Ctrl+Shift+8, back and
+  forward are Alt+← and Alt+→, mirror is Alt+M, and text colors are Alt+0 to Alt+7 and Alt+C. The
+  outline lives in `%LOCALAPPDATA%\Flowie`. Linux builds from source with the same shortcuts, and CI
+  checks it.
+- Opening Flowie while it is already open brings the open window forward instead of opening the
+  same outline a second time. When `flowie mcp` starts Flowie for an agent, its window no longer
+  takes focus.
 
 ### Changed
 
+- Shortcut hints, toasts and the tutorial name the shortcuts as you have set them in Settings,
+  written the way your system writes them (⇧⌘P on macOS, Ctrl+Shift+P elsewhere).
+- The `claude mcp add` command and MCP client config in Settings → Agent pass `FLOWIE_DB` when
+  Flowie runs on a database other than the default one.
 - Scrolling the outline with a mouse wheel is now smooth: each step of the wheel glides instead of
   jumping, as a trackpad already did.
 - In the light theme, orange and yellow text are easier to tell apart from red and from each

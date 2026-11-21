@@ -1,20 +1,24 @@
-//! Agent interface. The running app listens on a Unix socket (owner-only)
-//! for newline-delimited JSON requests `{"id", "method", "params"}` and
-//! answers `{"id", "result"}` or `{"id", "error"}`. Requests run on the UI
-//! thread through the same code paths as keyboard edits, so changes show up
-//! live, persist normally, and each request is a single undo step.
-//! `flowie mcp` (see `mcp.rs`) bridges this socket to MCP over stdio.
+//! Agent interface. The running app listens on a local IPC socket (Unix
+//! domain socket on Unix, named pipe on Windows) for newline-delimited JSON
+//! requests `{"id", "method", "params"}` and answers `{"id", "result"}` or
+//! `{"id", "error"}`. Requests run on the UI thread through the same code
+//! paths as keyboard edits, so changes show up live, persist normally, and
+//! each request is a single undo step.
+//! `ipc.rs` owns the socket, which also keeps Flowie to one instance per
+//! database; `flowie mcp` (see `mcp.rs`) bridges it to MCP over stdio.
 
+mod ipc;
 pub mod mcp;
 
+pub use ipc::{claim, Claim, Listener};
+
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use flowie_core::{io, markup, search::today, BlockKind, NodeId, Query, ROOT};
 use futures::StreamExt;
-use gpui::{App, Context, Entity};
+use gpui::{App, Context, WindowHandle};
+use interprocess::local_socket::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -31,25 +35,6 @@ pub enum AgentMode {
     ReadWrite,
 }
 
-/// Socket for the database at `db` (short path: Unix sockets allow ~100 bytes).
-pub fn socket_path(db: &std::path::Path) -> PathBuf {
-    // Screenshot builds: the script picks the socket.
-    #[cfg(feature = "screenshots")]
-    if let Ok(p) = std::env::var("FLOWIE_SHOT_SOCKET") {
-        return PathBuf::from(p);
-    }
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    db.hash(&mut h);
-    let uid = unsafe { libc::getuid() };
-    let name = format!("flowie-{uid}-{:08x}.sock", h.finish() as u32);
-    // The sandbox can't use /tmp; its container has its own tmp.
-    match crate::sandbox_container() {
-        Some(data) => data.join("tmp").join(name),
-        None => PathBuf::from("/tmp").join(name),
-    }
-}
-
 #[derive(Debug, Deserialize)]
 pub struct Request {
     #[serde(default)]
@@ -61,58 +46,68 @@ pub struct Request {
 
 type Job = (Request, std::sync::mpsc::Sender<Result<String, String>>);
 
-/// Start listening for agent requests on behalf of `view`.
-pub fn start(db: &std::path::Path, view: Entity<Outline>, cx: &mut App) {
-    let path = socket_path(db);
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+/// The app's own requests, which work whatever the agent mode: a second
+/// launch sends `app.activate` to bring this window forward.
+const APP_ACTIVATE: &str = "app.activate";
+
+/// Hand over to the instance that already has the database open: bring its
+/// window forward unless this launch was a background one.
+pub fn hand_off(running: LocalSocketStream, background: bool) {
+    if background {
+        return;
     }
-    // A stale socket from a crashed run: remove it if nobody answers.
-    if path.exists() && UnixStream::connect(&path).is_err() {
-        let _ = std::fs::remove_file(&path);
+    if let Err(e) = ipc::call(&running, APP_ACTIVATE, json!({})) {
+        eprintln!("flowie: the running Flowie did not come forward: {e}");
     }
-    let listener = match UnixListener::bind(&path) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("flowie: agent socket {} unavailable: {e}", path.display());
-            return;
-        }
-    };
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
+}
+
+/// Answer requests on `listener` for the outline in `window`.
+pub fn start(listener: Listener, window: WindowHandle<Outline>, cx: &mut App) {
+    #[cfg(unix)]
+    let path = listener.path.clone();
     let (tx, mut rx) = futures::channel::mpsc::unbounded::<Job>();
     std::thread::Builder::new()
         .name("flowie-agent".into())
         .spawn(move || {
-            for stream in listener.incoming().flatten() {
+            // The listener (and on Unix its lock) lives as long as this thread.
+            let listener = listener;
+            for stream in listener.inner.incoming().flatten() {
                 let tx = tx.clone();
                 std::thread::spawn(move || serve(stream, tx));
             }
         })
         .ok();
-    let weak = view.downgrade();
     cx.spawn(async move |cx| {
         while let Some((req, reply)) = rx.next().await {
-            let result = weak
-                .update(cx, |o, cx| o.handle_agent(&req.method, &req.params, cx))
+            let result = window
+                .update(cx, |o, window, cx| {
+                    if req.method == APP_ACTIVATE {
+                        cx.activate(true);
+                        window.activate_window();
+                        Ok("ok".to_string())
+                    } else {
+                        o.handle_agent(&req.method, &req.params, cx)
+                    }
+                })
                 .unwrap_or_else(|_| Err("Flowie is shutting down".into()));
             let _ = reply.send(result);
         }
     })
     .detach();
-    let cleanup = path.clone();
+    // The process exits without unwinding the listener thread, so remove the
+    // socket file here. The lock file stays: removing it would race a new launch.
+    #[cfg(unix)]
     cx.on_app_quit(move |_| {
-        let _ = std::fs::remove_file(&cleanup);
+        let _ = std::fs::remove_file(&path);
         async {}
     })
     .detach();
 }
 
-fn serve(stream: UnixStream, tx: futures::channel::mpsc::UnboundedSender<Job>) {
-    let Ok(mut out) = stream.try_clone() else { return };
-    for line in BufReader::new(stream).lines() {
+fn serve(stream: LocalSocketStream, tx: futures::channel::mpsc::UnboundedSender<Job>) {
+    let reader = BufReader::new(&stream);
+    let mut out = &stream;
+    for line in reader.lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
             continue;
@@ -133,7 +128,7 @@ fn serve(stream: UnixStream, tx: futures::channel::mpsc::UnboundedSender<Job>) {
             }
             Err(e) => json!({"id": null, "error": format!("bad request: {e}")}),
         };
-        if writeln!(out, "{resp}").is_err() {
+        if writeln!(out, "{resp}").is_err() || out.flush().is_err() {
             break;
         }
     }
@@ -486,5 +481,40 @@ impl Outline {
         params["parent"] = json!(day);
         params.as_object_mut().map(|o| o.remove("after"));
         self.agent_create(&params, cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn second_claim_finds_the_owner_and_talks_to_it() {
+        let db = std::env::temp_dir().join(format!("flowie-ipc-test-{}.sqlite", std::process::id()));
+        let Claim::Owner(listener) = claim(&db) else { panic!("first claim should own the socket") };
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<Job>();
+        let server = std::thread::spawn(move || {
+            let stream = listener.inner.incoming().next().expect("incoming").expect("accept");
+            serve(stream, tx);
+            listener
+        });
+        let handler = std::thread::spawn(move || {
+            let (req, reply) = futures::executor::block_on(rx.next()).expect("job");
+            assert_eq!(req.method, APP_ACTIVATE);
+            let _ = reply.send(Ok("ok".into()));
+        });
+
+        let Claim::Running(stream) = claim(&db) else { panic!("second claim should find the owner") };
+        assert_eq!(ipc::call(&stream, APP_ACTIVATE, json!({})), Ok("ok".into()));
+        drop(stream);
+
+        handler.join().unwrap();
+        let listener = server.join().unwrap();
+        #[cfg(unix)]
+        {
+            let _ = std::fs::remove_file(&listener.path);
+            let _ = std::fs::remove_file(listener.path.with_extension("lock"));
+        }
+        drop(listener);
     }
 }

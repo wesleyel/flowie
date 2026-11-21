@@ -3,10 +3,10 @@
 //! starting Flowie in the background if needed.
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use interprocess::local_socket::prelude::*;
 use serde_json::{json, Value};
 
 const PROTOCOL: &str = "2025-06-18";
@@ -71,22 +71,67 @@ fn tools() -> Value {
     ])
 }
 
+/// How an agent starts Flowie's MCP server: this executable with `mcp`,
+/// plus `FLOWIE_DB` when the app runs on a database other than the default.
+pub struct Setup {
+    exe: String,
+    db: Option<String>,
+}
+
+impl Setup {
+    pub fn new(db: Option<&Path>) -> Self {
+        // Screenshots show where the app is installed, not the build directory.
+        let exe = if cfg!(feature = "screenshots") {
+            "/Applications/Flowie.app/Contents/MacOS/Flowie".to_string()
+        } else {
+            std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "flowie".into())
+        };
+        let db = db.filter(|p| *p != crate::data_path()).map(|p| p.display().to_string());
+        Setup { exe, db }
+    }
+
+    /// `claude mcp add …`, quoted for the shell the user pastes it into.
+    pub fn claude_command(&self) -> String {
+        let quote = crate::platform::shell_quote;
+        let env = self.db.as_ref().map(|db| format!("-e {} ", quote(&format!("FLOWIE_DB={db}")))).unwrap_or_default();
+        format!("claude mcp add flowie {env}-- {} mcp", quote(&self.exe))
+    }
+
+    /// The `mcpServers` entry other MCP clients read.
+    pub fn client_config(&self) -> String {
+        let mut server = json!({"command": self.exe, "args": ["mcp"]});
+        if let Some(db) = &self.db {
+            server["env"] = json!({"FLOWIE_DB": db});
+        }
+        serde_json::to_string_pretty(&json!({"mcpServers": {"flowie": server}})).unwrap_or_default()
+    }
+}
+
 /// Connect to the app, starting it in the background if it isn't running.
-fn connect(socket: &Path) -> Result<UnixStream, String> {
-    if let Ok(s) = UnixStream::connect(socket) {
+fn connect(db: &Path) -> Result<LocalSocketStream, String> {
+    let name = super::ipc::socket_name(db)?;
+    if let Ok(s) = LocalSocketStream::connect(name.clone()) {
         return Ok(s);
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut cmd = std::process::Command::new(&exe);
     cmd.arg("--background").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
     cmd.spawn().map_err(|e| format!("could not start Flowie: {e}"))?;
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
-        if let Ok(s) = UnixStream::connect(socket) {
+        if let Ok(s) = LocalSocketStream::connect(name.clone()) {
             return Ok(s);
         }
         std::thread::sleep(Duration::from_millis(150));
@@ -95,8 +140,8 @@ fn connect(socket: &Path) -> Result<UnixStream, String> {
 }
 
 struct Link {
-    socket: std::path::PathBuf,
-    conn: Option<(UnixStream, BufReader<UnixStream>)>,
+    db: PathBuf,
+    conn: Option<BufReader<LocalSocketStream>>,
     next: u64,
 }
 
@@ -104,15 +149,15 @@ impl Link {
     fn call(&mut self, method: &str, params: Value) -> Result<String, String> {
         for attempt in 0..2 {
             if self.conn.is_none() {
-                let s = connect(&self.socket)?;
-                let r = BufReader::new(s.try_clone().map_err(|e| e.to_string())?);
-                self.conn = Some((s, r));
+                let s = connect(&self.db)?;
+                self.conn = Some(BufReader::new(s));
             }
             self.next += 1;
             let req = json!({"id": self.next, "method": method, "params": params});
-            let (w, r) = self.conn.as_mut().unwrap();
+            let r = self.conn.as_mut().unwrap();
+            let mut w = r.get_ref();
             let mut line = String::new();
-            let ok = writeln!(w, "{req}").is_ok() && r.read_line(&mut line).map(|n| n > 0).unwrap_or(false);
+            let ok = writeln!(w, "{req}").is_ok() && w.flush().is_ok() && r.read_line(&mut line).map(|n| n > 0).unwrap_or(false);
             if !ok {
                 // The app may have restarted; reconnect once.
                 self.conn = None;
@@ -133,7 +178,7 @@ impl Link {
 }
 
 pub fn run(db: &Path) {
-    let mut link = Link { socket: super::socket_path(db), conn: None, next: 0 };
+    let mut link = Link { db: db.to_path_buf(), conn: None, next: 0 };
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {

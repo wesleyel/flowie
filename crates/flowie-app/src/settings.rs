@@ -488,10 +488,11 @@ impl Outline {
                     .child(crate::ui::text::page_title(
                         theme,
                         t!("settings.shortcuts.title"),
-                        Some(
-                            if recording.is_some() { t!("settings.shortcuts.recording_hint") } else { t!("settings.shortcuts.hint") }
-                                .into(),
-                        ),
+                        Some(if recording.is_some() {
+                            t!("settings.shortcuts.recording_hint", backspace = crate::platform::key_name("backspace")).into()
+                        } else {
+                            t!("settings.shortcuts.hint").into()
+                        }),
                     ))
                     .when(any_custom, |d| {
                         d.child(
@@ -588,7 +589,7 @@ impl Outline {
                 }),
             )
         }));
-        let field = |label: &'static str, hint: &'static str, control: AnyElement| {
+        let field = |label: &'static str, hint: SharedString, control: AnyElement| {
             div()
                 .flex()
                 .flex_col()
@@ -635,6 +636,7 @@ impl Outline {
                     .child(div().px_1().bg(theme.selection).child(t!("settings.appearance.preview.selected")))
                     .child(div().w(px(2.)).h(px(16.)).bg(theme.caret)),
             );
+        let os = crate::platform::name();
         div()
             .id("appearance")
             .size_full()
@@ -643,9 +645,17 @@ impl Outline {
             .px_4()
             .pt_3()
             .child(crate::ui::text::page_title(theme, t!("settings.appearance.title"), None).pb_1())
-            .child(field(t!("settings.appearance.theme.label"), t!("settings.appearance.theme.hint"), segmented.into_any_element()))
-            .child(field(t!("settings.appearance.accent.label"), t!("settings.appearance.accent.hint"), swatches.into_any_element()))
-            .child(field(t!("settings.appearance.language.label"), t!("settings.appearance.language.hint"), languages.into_any_element()))
+            .child(field(
+                t!("settings.appearance.theme.label"),
+                t!("settings.appearance.theme.hint", os = os).into(),
+                segmented.into_any_element(),
+            ))
+            .child(field(t!("settings.appearance.accent.label"), t!("settings.appearance.accent.hint").into(), swatches.into_any_element()))
+            .child(field(
+                t!("settings.appearance.language.label"),
+                t!("settings.appearance.language.hint", os = os).into(),
+                languages.into_any_element(),
+            ))
             .child(preview)
             .into_any_element()
     }
@@ -667,30 +677,17 @@ impl Outline {
                 cx.notify();
             }))
         }));
-        let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "Flowie".into());
-        // Screenshots show where the app is installed, not the build directory.
-        #[cfg(feature = "screenshots")]
-        let exe = {
-            drop(exe);
-            "/Applications/Flowie.app/Contents/MacOS/Flowie".to_string()
-        };
-        let db_env = self
-            .db_path
-            .as_ref()
-            .filter(|p| **p != crate::data_path())
-            .map(|p| format!("FLOWIE_DB=\"{}\" ", p.display()))
-            .unwrap_or_default();
-        let claude = format!("claude mcp add flowie -- {db_env}\"{exe}\" mcp");
-        let json_cfg = format!("{{\n  \"mcpServers\": {{\n    \"flowie\": {{ \"command\": \"{exe}\", \"args\": [\"mcp\"] }}\n  }}\n}}");
+        let setup = crate::agent::mcp::Setup::new(self.db_path.as_deref());
+        let (claude, json_cfg) = (setup.claude_command(), setup.client_config());
         let claude_label = self.label("mcp-claude", claude, cx);
         let json_label = self.label("mcp-json", json_cfg, cx);
         let block = |label: gpui::Entity<crate::selectable::SelectableText>| {
-            div().p_2().rounded_md().bg(theme.code_bg).font_family(crate::theme::MONO_FONT).text_size(px(12.)).child(label)
+            div().p_2().rounded_md().bg(theme.code_bg).font_family(crate::platform::MONO_FONT).text_size(px(12.)).child(label)
         };
         let desc = match mode {
-            AgentMode::Off => t!("settings.agent.desc.off"),
-            AgentMode::ReadOnly => t!("settings.agent.desc.read_only"),
-            AgentMode::ReadWrite => t!("settings.agent.desc.read_write"),
+            AgentMode::Off => t!("settings.agent.desc.off").to_string(),
+            AgentMode::ReadOnly => t!("settings.agent.desc.read_only").to_string(),
+            AgentMode::ReadWrite => t!("settings.agent.desc.read_write", undo = keymap::hint("undo", &self.config.keys)),
         };
         div()
             .id("agent")
@@ -799,7 +796,7 @@ impl Outline {
                     .when_some(db, |d, path| {
                         d.child(
                             button("reveal")
-                                .child(t!("settings.about.reveal"))
+                                .child(t!("settings.about.reveal", manager = crate::platform::file_manager()))
                                 .on_click(cx.listener(move |_, _, _, cx| cx.reveal_path(&path))),
                         )
                     })
@@ -818,19 +815,13 @@ pub const FEEDBACK_EMAIL: &str = "wesleyel@icloud.com";
 /// The GitHub Pages site (source in website/): home, privacy.html and terms.html.
 pub const SITE_URL: &str = "https://wesleyel.github.io/flowie";
 
-/// A `mailto:` link with the app version and macOS version filled in.
+/// A `mailto:` link with the app version and OS version filled in.
 fn feedback_url() -> String {
     let version = env!("CARGO_PKG_VERSION");
     let commit = option_env!("FLOWIE_COMMIT").unwrap_or("dev");
-    let os = std::process::Command::new("sw_vers")
-        .arg("-productVersion")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|v| v.trim().to_string())
-        .unwrap_or_default();
+    let os = crate::platform::os_version();
     let subject = format!("Flowie {version} feedback");
-    let body = format!("\n\n\n--\nFlowie {version} ({commit}), macOS {os}\n");
+    let body = format!("\n\n\n--\nFlowie {version} ({commit}), {os}\n");
     format!("mailto:{FEEDBACK_EMAIL}?subject={}&body={}", percent(&subject), percent(&body))
 }
 

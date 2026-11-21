@@ -1,5 +1,8 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod agent;
 mod anim;
+mod app_menu;
 mod calendar;
 mod commands;
 mod editor;
@@ -11,6 +14,7 @@ mod keymap;
 mod menu;
 mod outline;
 mod palette;
+mod platform;
 mod popover;
 mod rich;
 mod selectable;
@@ -44,38 +48,11 @@ impl AssetSource for Assets {
     }
 }
 
-/// Inside the App Sandbox (Mac App Store build): the container's `Data`
-/// directory. Built from the real home directory and the container id, so
-/// `flowie mcp` started by an agent from a terminal (whose `HOME` is the
-/// user's real home) finds the same database and socket as the app.
-#[cfg(target_os = "macos")]
-pub fn sandbox_container() -> Option<PathBuf> {
-    let id = std::env::var("APP_SANDBOX_CONTAINER_ID").ok().filter(|s| !s.is_empty())?;
-    // SAFETY: getpwuid returns a pointer to static storage or null; pw_dir is a C string.
-    let real_home = unsafe {
-        let pw = libc::getpwuid(libc::getuid());
-        if pw.is_null() || (*pw).pw_dir.is_null() {
-            return None;
-        }
-        std::ffi::CStr::from_ptr((*pw).pw_dir).to_string_lossy().into_owned()
-    };
-    Some(PathBuf::from(real_home).join("Library/Containers").join(id).join("Data"))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn sandbox_container() -> Option<PathBuf> {
-    None
-}
-
+/// The outline database: `FLOWIE_DB`, or `flowie.sqlite` in the platform's data folder.
 pub fn data_path() -> PathBuf {
-    if let Ok(p) = std::env::var("FLOWIE_DB") {
-        return PathBuf::from(p);
-    }
-    let home = sandbox_container().or_else(|| std::env::var("HOME").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("."));
-    if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/Flowie/flowie.sqlite")
-    } else {
-        std::env::var("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|_| home.join(".local/share")).join("flowie/flowie.sqlite")
+    match std::env::var_os("FLOWIE_DB") {
+        Some(p) => PathBuf::from(p),
+        None => platform::data_dir().join("flowie.sqlite"),
     }
 }
 
@@ -108,6 +85,26 @@ fn main() {
     let background = args.iter().any(|a| a == "--background");
     let stress = args.iter().position(|a| a == "--stress").and_then(|i| args.get(i + 1)).and_then(|n| n.parse::<usize>().ok());
 
+    // One instance per database: a second launch brings the first one forward.
+    let listener = match stress {
+        Some(_) => None,
+        None => match agent::claim(&data_path()) {
+            agent::Claim::Owner(listener) => Some(listener),
+            agent::Claim::Running(running) => {
+                agent::hand_off(running, background);
+                return;
+            }
+            agent::Claim::Unresponsive => {
+                eprintln!("flowie: another Flowie has {} open but isn't responding", data_path().display());
+                std::process::exit(1);
+            }
+            agent::Claim::Unavailable(e) => {
+                eprintln!("flowie: agent socket unavailable, running without it: {e}");
+                None
+            }
+        },
+    };
+
     let (tree, writer, db_path, meta) = match stress {
         Some(n) => (stress_tree(n), None, None, Vec::new()),
         None => {
@@ -125,7 +122,8 @@ fn main() {
     let n = tree.len();
     let config = settings::Config::load(&settings::Config::path(db_path.as_ref()));
     i18n::set(&config.language);
-    let agent_db = db_path.clone();
+    // Without a loaded database there is nothing to serve.
+    let listener = listener.filter(|_| db_path.is_some());
     let keys = config.keys.clone();
     if stress.is_some() {
         // Rough timings for the hot paths on a big outline.
@@ -178,6 +176,8 @@ fn main() {
                     titlebar: Some(TitlebarOptions { title: Some("Flowie".into()), ..Default::default() }),
                     window_min_size: Some(min_size),
                     app_id: Some("flowie.spokey.cn".into()),
+                    // Started for an agent: appear without taking focus.
+                    focus: !background,
                     ..Default::default()
                 },
                 |window, cx| cx.new(|cx| Outline::new(tree, writer, db_path, meta, config, window, cx)),
@@ -192,8 +192,8 @@ fn main() {
         if !background {
             cx.activate(true);
         }
-        if let Some(db) = &agent_db {
-            agent::start(db, view.clone(), cx);
+        if let Some(listener) = listener {
+            agent::start(listener, window, cx);
         }
 
         // Flush pending writes before quitting.

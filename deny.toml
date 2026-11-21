@@ -1,7 +1,7 @@
 # cargo-deny: every dependency's license must be compatible with Flowie's GPL-3.0-or-later
 # (the same list appstore/macos/about.toml bundles notices for). CI runs `cargo deny check`.
 [graph]
-targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc"]
 all-features = false
 
 [licenses]

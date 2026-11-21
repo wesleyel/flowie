@@ -125,7 +125,7 @@ impl Outline {
             self.toast(t!("toast.unstarred", name = node_label(self, id)));
         } else {
             self.starred.push(id);
-            self.toast(t!("toast.starred", name = node_label(self, id)));
+            self.toast(t!("toast.starred", name = node_label(self, id), shortcut = crate::keymap::primary_hint("P")));
         }
         let v = self.starred.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
         self.set_meta("starred", &v);
@@ -371,7 +371,7 @@ impl Outline {
         let (title, items) = self.export_items();
         let content = render(&title, &items);
         let safe: String = title.chars().map(|c| if "/\\:*?\"<>|".contains(c) { '-' } else { c }).take(60).collect();
-        let dir = std::env::var("HOME").map(|h| PathBuf::from(h).join("Desktop")).unwrap_or_else(|_| PathBuf::from("."));
+        let dir = dirs::desktop_dir().unwrap_or_else(|| PathBuf::from("."));
         let rx = cx.prompt_for_new_path(&dir, Some(&format!("{safe}.{ext}")));
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(path))) = rx.await else { return };
@@ -466,7 +466,7 @@ impl Outline {
             self.toast(t!("toast.search_removed", query = q));
         } else {
             self.saved_searches.push(q.clone());
-            self.toast(t!("toast.search_saved", query = q));
+            self.toast(t!("toast.search_saved", query = q, shortcut = crate::keymap::primary_hint("P")));
         }
         self.set_meta("saved_searches", &self.saved_searches.join("\n"));
         cx.notify();

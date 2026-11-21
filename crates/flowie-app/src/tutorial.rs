@@ -24,11 +24,39 @@ fn source() -> &'static str {
     TUTORIALS.iter().find(|(c, _)| *c == code).unwrap_or(&TUTORIALS[0]).1
 }
 
+fn adapt_for_platform(text: String) -> String {
+    if cfg!(target_os = "macos") {
+        return text;
+    }
+    adapt_non_macos(text)
+}
+
+fn adapt_non_macos(text: String) -> String {
+    let exe = std::env::current_exe()
+        .ok()
+        .map(|p| {
+            let s = p.display().to_string();
+            if s.contains(' ') {
+                format!("\"{s}\"")
+            } else {
+                s
+            }
+        })
+        .unwrap_or_else(|| if cfg!(target_os = "windows") { "Flowie.exe".into() } else { "flowie".into() });
+    text.replace("⌘⌥", "Ctrl+Alt+")
+        .replace("⌘⇧", "Ctrl+Shift+")
+        .replace(['⌘', '⌃'], "Ctrl+")
+        .replace('⌥', "Alt")
+        .replace("on your Mac only", "on this computer only")
+        .replace("你的 Mac 上", "这台电脑上")
+        .replace("/Applications/Flowie.app/Contents/MacOS/Flowie", &exe)
+}
+
 impl Outline {
     /// Insert the tutorial at `index` under Home; returns its top bullet.
     /// Not committed: the caller decides whether it is an undo step.
     pub fn insert_tutorial(&mut self, index: usize) -> NodeId {
-        let text = source().replace("{{today}}", &flowie_core::search::today());
+        let text = adapt_for_platform(source().replace("{{today}}", &flowie_core::search::today()));
         let items = parse_text(&text);
         let top = self.tree.insert_items(ROOT, index, &items);
         let mut all: Vec<NodeId> = Vec::new();
@@ -126,5 +154,18 @@ mod tests {
             }
         }
         assert_eq!(TUTORIALS[0].1.lines().count(), TUTORIALS[1].1.lines().count(), "translations have the same lines");
+    }
+
+    #[test]
+    fn non_macos_tutorial_has_no_macos_glyphs() {
+        for (code, md) in TUTORIALS {
+            let adapted = super::adapt_non_macos((*md).to_string());
+            for ch in ['⌘', '⌃', '⌥', '⇧'] {
+                assert!(!adapted.contains(ch), "{code}: adapted tutorial still contains {ch}");
+            }
+            assert!(!adapted.contains("on your Mac"), "{code}: adapted tutorial still mentions Mac");
+            assert!(!adapted.contains("你的 Mac"), "{code}: adapted tutorial still mentions Mac");
+            assert!(!adapted.contains("/Applications/Flowie.app"), "{code}: adapted tutorial still has macOS app path");
+        }
     }
 }

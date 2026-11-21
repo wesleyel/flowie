@@ -24,7 +24,7 @@
       "one": "Moved {count} bullet to “{target}”",
       "other": "Moved {count} bullets to “{target}”"
     },
-    "starred": "Starred “{name}” — ⌘P to jump to it",
+    "starred": "Starred “{name}” — {shortcut} to jump to it",
     "unstarred": "Unstarred “{name}”",
     "imported": {
       "one": "Imported {count} bullet",
@@ -33,7 +33,7 @@
     "exported": "Exported to {path}",
     "export_failed": "Export failed: {error}",
     "restored": "Restored “{name}”",
-    "search_saved": "Saved search “{query}” — ⌘P to run it",
+    "search_saved": "Saved search “{query}” — {shortcut} to run it",
     "search_removed": "Removed saved search “{query}”",
     "match": "Match {index} of {total}",
     "copied": {
@@ -74,7 +74,7 @@
   },
   "calendar": {
     "title": "{month} {year}",
-    "hint": "Click: open that day's page · ⌥-click: bullets dated that day",
+    "hint": "Click: open that day's page · {alt}-click: bullets dated that day",
     "weekday": {
       "mon": "Mo",
       "tue": "Tu",
@@ -133,7 +133,7 @@
       "press_keys": "Press keys…",
       "conflict": "conflict",
       "hint": "Click a shortcut to edit · + adds another",
-      "recording_hint": "Press keys or a mouse side button · Esc cancels · ⌫ removes",
+      "recording_hint": "Press keys or a mouse side button · Esc cancels · {backspace} removes",
       "mouse_back": "Mouse Back",
       "mouse_forward": "Mouse Forward"
     },
@@ -141,7 +141,7 @@
       "title": "Appearance",
       "theme": {
         "label": "Theme",
-        "hint": "Follow macOS, or always use light or dark.",
+        "hint": "Follow {os}, or always use light or dark.",
         "system": "System",
         "light": "Light",
         "dark": "Dark"
@@ -158,7 +158,7 @@
       },
       "language": {
         "label": "Language",
-        "hint": "Follow macOS, or always use one language.",
+        "hint": "Follow {os}, or always use one language.",
         "system": "System"
       },
       "preview": {
@@ -179,7 +179,7 @@
       "desc": {
         "off": "Agents can't connect.",
         "read_only": "Agents can read and search your outline but not change it.",
-        "read_write": "Agents can also add, edit, move, complete and delete bullets. Each change is one ⌘Z undo step, changed bullets briefly light up, and deletions go to the Trash."
+        "read_write": "Agents can also add, edit, move, complete and delete bullets. Each change is one {undo} undo step, changed bullets briefly light up, and deletions go to the Trash."
       },
       "other_clients": "Other MCP clients",
       "tools": "Tools: search, read, starred, create, update, complete, move, delete, journal, open."
@@ -191,7 +191,10 @@
       "data": "Data",
       "settings": "Settings",
       "in_memory": "In memory (not saved)",
-      "reveal": "Show data in Finder",
+      "reveal": "Show data in {manager}",
+      "file_manager_macos": "Finder",
+      "file_manager_windows": "Explorer",
+      "file_manager_other": "File Manager",
       "feedback": "Send feedback"
     }
   },

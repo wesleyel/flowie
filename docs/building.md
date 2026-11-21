@@ -7,6 +7,7 @@ Flowie is written in Rust on [GPUI](https://gpui.rs), Zed's GPU UI framework, ta
 
 ## Requirements
 
+### macOS
 - macOS 13 or later
 - Xcode Command Line Tools (`xcode-select --install`); full Xcode isn't needed
 - Rust via [rustup](https://rustup.rs); `rust-toolchain.toml` picks the version (1.98.1)
@@ -15,7 +16,14 @@ GPUI compiles its Metal shaders when the app starts, so no Metal compiler is nee
 build time. `third_party/gpui-pre-macos` is GPUI's macOS backend with its private AppKit
 calls removed, for the App Store; see `FLOWIE-PATCH.md` there.
 
+### Windows
+- Windows 10 or 11 (64-bit)
+- Visual Studio Build Tools with the **Desktop development with C++** workload (MSVC + Windows SDK)
+- Rust via [rustup](https://rustup.rs) (`x86_64-pc-windows-msvc`)
+
 ## Build and run
+
+### macOS
 
 ```bash
 cargo build --release -p flowie-app
@@ -28,12 +36,23 @@ comes from the workspace `Cargo.toml`. Copy it to `/Applications` if you like.
 
 During development, `cargo run -p flowie-app` starts it without building a bundle.
 
+### Windows
+
+```powershell
+cargo build --release -p flowie-app
+.\target\release\flowie.exe
+```
+
+Release builds embed `assets/AppIcon.ico` and use the Windows GUI subsystem (no console window), while still supporting `flowie.exe mcp` over piped stdio.
+
 ## Where data lives
 
 | Build | Outline and settings |
 |---|---|
-| From source, the release zip or Homebrew | `~/Library/Application Support/Flowie/` (`flowie.sqlite`, `settings.json`) |
+| macOS (source, release zip or Homebrew) | `~/Library/Application Support/Flowie/` (`flowie.sqlite`, `settings.json`) |
 | Mac App Store / TestFlight | `~/Library/Containers/flowie.spokey.cn/Data/Library/Application Support/Flowie/` |
+| Windows | `%APPDATA%\Flowie\` (`flowie.sqlite`, `settings.json`) |
+| Linux | `$XDG_DATA_HOME/flowie/` or `~/.local/share/flowie/` |
 
 `FLOWIE_DB=/path/file.sqlite` uses another database. `--stress 50000` opens an in-memory
 outline of 50,000 bullets (not saved) and logs timings.

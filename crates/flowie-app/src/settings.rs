@@ -488,10 +488,11 @@ impl Outline {
                     .child(crate::ui::text::page_title(
                         theme,
                         t!("settings.shortcuts.title"),
-                        Some(
-                            if recording.is_some() { t!("settings.shortcuts.recording_hint") } else { t!("settings.shortcuts.hint") }
-                                .into(),
-                        ),
+                        Some(if recording.is_some() {
+                            t!("settings.shortcuts.recording_hint", backspace = keymap::backspace_hint()).into()
+                        } else {
+                            t!("settings.shortcuts.hint").into()
+                        }),
                     ))
                     .when(any_custom, |d| {
                         d.child(
@@ -588,7 +589,7 @@ impl Outline {
                 }),
             )
         }));
-        let field = |label: &'static str, hint: &'static str, control: AnyElement| {
+        let field = |label: &'static str, hint: SharedString, control: AnyElement| {
             div()
                 .flex()
                 .flex_col()
@@ -635,6 +636,7 @@ impl Outline {
                     .child(div().px_1().bg(theme.selection).child(t!("settings.appearance.preview.selected")))
                     .child(div().w(px(2.)).h(px(16.)).bg(theme.caret)),
             );
+        let os = os_name();
         div()
             .id("appearance")
             .size_full()
@@ -643,9 +645,17 @@ impl Outline {
             .px_4()
             .pt_3()
             .child(crate::ui::text::page_title(theme, t!("settings.appearance.title"), None).pb_1())
-            .child(field(t!("settings.appearance.theme.label"), t!("settings.appearance.theme.hint"), segmented.into_any_element()))
-            .child(field(t!("settings.appearance.accent.label"), t!("settings.appearance.accent.hint"), swatches.into_any_element()))
-            .child(field(t!("settings.appearance.language.label"), t!("settings.appearance.language.hint"), languages.into_any_element()))
+            .child(field(
+                t!("settings.appearance.theme.label"),
+                t!("settings.appearance.theme.hint", os = os).into(),
+                segmented.into_any_element(),
+            ))
+            .child(field(t!("settings.appearance.accent.label"), t!("settings.appearance.accent.hint").into(), swatches.into_any_element()))
+            .child(field(
+                t!("settings.appearance.language.label"),
+                t!("settings.appearance.language.hint", os = os).into(),
+                languages.into_any_element(),
+            ))
             .child(preview)
             .into_any_element()
     }
@@ -681,16 +691,17 @@ impl Outline {
             .map(|p| format!("FLOWIE_DB=\"{}\" ", p.display()))
             .unwrap_or_default();
         let claude = format!("claude mcp add flowie -- {db_env}\"{exe}\" mcp");
-        let json_cfg = format!("{{\n  \"mcpServers\": {{\n    \"flowie\": {{ \"command\": \"{exe}\", \"args\": [\"mcp\"] }}\n  }}\n}}");
+        let exe_json = serde_json::to_string(&exe).unwrap_or_else(|_| format!("{exe:?}"));
+        let json_cfg = format!("{{\n  \"mcpServers\": {{\n    \"flowie\": {{ \"command\": {exe_json}, \"args\": [\"mcp\"] }}\n  }}\n}}");
         let claude_label = self.label("mcp-claude", claude, cx);
         let json_label = self.label("mcp-json", json_cfg, cx);
         let block = |label: gpui::Entity<crate::selectable::SelectableText>| {
             div().p_2().rounded_md().bg(theme.code_bg).font_family(crate::theme::MONO_FONT).text_size(px(12.)).child(label)
         };
         let desc = match mode {
-            AgentMode::Off => t!("settings.agent.desc.off"),
-            AgentMode::ReadOnly => t!("settings.agent.desc.read_only"),
-            AgentMode::ReadWrite => t!("settings.agent.desc.read_write"),
+            AgentMode::Off => t!("settings.agent.desc.off").to_string(),
+            AgentMode::ReadOnly => t!("settings.agent.desc.read_only").to_string(),
+            AgentMode::ReadWrite => t!("settings.agent.desc.read_write", undo = keymap::primary_hint("Z")),
         };
         div()
             .id("agent")
@@ -799,7 +810,7 @@ impl Outline {
                     .when_some(db, |d, path| {
                         d.child(
                             button("reveal")
-                                .child(t!("settings.about.reveal"))
+                                .child(t!("settings.about.reveal", manager = file_manager_name()))
                                 .on_click(cx.listener(move |_, _, _, cx| cx.reveal_path(&path))),
                         )
                     })
@@ -818,19 +829,67 @@ pub const FEEDBACK_EMAIL: &str = "wesleyel@icloud.com";
 /// The GitHub Pages site (source in website/): home, privacy.html and terms.html.
 pub const SITE_URL: &str = "https://wesleyel.github.io/flowie";
 
-/// A `mailto:` link with the app version and macOS version filled in.
+fn os_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macOS"
+    } else if cfg!(target_os = "windows") {
+        "Windows"
+    } else {
+        t!("settings.appearance.theme.system")
+    }
+}
+
+fn file_manager_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        t!("settings.about.file_manager_macos")
+    } else if cfg!(target_os = "windows") {
+        t!("settings.about.file_manager_windows")
+    } else {
+        t!("settings.about.file_manager_other")
+    }
+}
+
+fn os_version() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        let ver = std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|v| v.trim().to_string())
+            .unwrap_or_default();
+        format!("macOS {ver}").trim().to_string()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let v = windows_version::OsVersion::current();
+        let release = if v.major == 10 && v.build >= 22000 {
+            "11"
+        } else if v.major == 10 {
+            "10"
+        } else {
+            ""
+        };
+        if release.is_empty() {
+            format!("Windows ({}.{}.{})", v.major, v.minor, v.build)
+        } else {
+            format!("Windows {release} ({}.{}.{})", v.major, v.minor, v.build)
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        std::env::consts::OS.to_string()
+    }
+}
+
+/// A `mailto:` link with the app version and OS version filled in.
 fn feedback_url() -> String {
     let version = env!("CARGO_PKG_VERSION");
     let commit = option_env!("FLOWIE_COMMIT").unwrap_or("dev");
-    let os = std::process::Command::new("sw_vers")
-        .arg("-productVersion")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|v| v.trim().to_string())
-        .unwrap_or_default();
+    let os = os_version();
     let subject = format!("Flowie {version} feedback");
-    let body = format!("\n\n\n--\nFlowie {version} ({commit}), macOS {os}\n");
+    let body = format!("\n\n\n--\nFlowie {version} ({commit}), {os}\n");
     format!("mailto:{FEEDBACK_EMAIL}?subject={}&body={}", percent(&subject), percent(&body))
 }
 

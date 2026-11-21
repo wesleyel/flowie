@@ -190,16 +190,20 @@ jobs:
           Get-Content "$zip.sha256"
           "ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Smoke test (MCP stdio)
-        shell: pwsh
+        # Started over pipes the way MCP clients start it (CreateProcess). PowerShell neither
+        # waits for nor captures a GUI-subsystem exe, which the release build is.
+        shell: python
         run: |
-          $input = @(
-            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}',
-            '{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}'
-          ) -join "`n"
-          $out = $input | .\build\Flowie\Flowie.exe mcp
-          $out | ForEach-Object { Write-Host $_ }
-          if (-not ($out -join "`n" -match '"name":"flowie"')) { throw "MCP initialize failed" }
-          if (-not ($out -join "`n" -match '"id":2')) { throw "MCP ping failed" }
+          import json, subprocess
+          reqs = [
+              {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+              {"jsonrpc": "2.0", "id": 2, "method": "ping", "params": {}},
+          ]
+          stdin = "".join(json.dumps(r) + "\n" for r in reqs)
+          out = subprocess.run([r"build\Flowie\Flowie.exe", "mcp"], input=stdin, capture_output=True, text=True, timeout=60).stdout
+          print(out)
+          assert '"name":"flowie"' in out, "MCP initialize failed"
+          assert '"id":2' in out, "MCP ping failed"
       - name: Upload to the release
         env:
           GH_TOKEN: ${{ github.token }}

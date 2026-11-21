@@ -21,13 +21,13 @@
     "bullet_deleted": "该条目已删除（见废纸篓）",
     "cut_kept_in_trash": "已剪切，废纸篓中也保留了一份",
     "moved": "已将 {count} 个条目移动到“{target}”",
-    "starred": "已收藏“{name}”，按 ⌘P 跳转",
+    "starred": "已收藏“{name}”，按 {shortcut} 跳转",
     "unstarred": "已取消收藏“{name}”",
     "imported": "已导入 {count} 个条目",
     "exported": "已导出到 {path}",
     "export_failed": "导出失败：{error}",
     "restored": "已恢复“{name}”",
-    "search_saved": "已保存搜索“{query}”，按 ⌘P 运行",
+    "search_saved": "已保存搜索“{query}”，按 {shortcut} 运行",
     "search_removed": "已移除保存的搜索“{query}”",
     "match": "第 {index} 个，共 {total} 个匹配",
     "copied": "已拷贝 {count} 个条目",
@@ -56,7 +56,7 @@
   },
   "calendar": {
     "title": "{year} 年 {month}",
-    "hint": "点击：打开当天页面 · ⌥ 点击：当天日期的条目",
+    "hint": "点击：打开当天页面 · {alt} 点击：当天日期的条目",
     "weekday": {
       "mon": "一",
       "tue": "二",
@@ -109,7 +109,7 @@
       "press_keys": "请按键…",
       "conflict": "冲突",
       "hint": "点击快捷键可修改 · + 添加新的绑定",
-      "recording_hint": "按下按键或鼠标侧键 · Esc 取消 · ⌫ 删除",
+      "recording_hint": "按下按键或鼠标侧键 · Esc 取消 · {backspace} 删除",
       "mouse_back": "鼠标后退",
       "mouse_forward": "鼠标前进"
     },
@@ -117,7 +117,7 @@
       "title": "外观",
       "theme": {
         "label": "主题",
-        "hint": "跟随 macOS，或始终使用浅色或深色。",
+        "hint": "跟随 {os}，或始终使用浅色或深色。",
         "system": "跟随系统",
         "light": "浅色",
         "dark": "深色"
@@ -134,7 +134,7 @@
       },
       "language": {
         "label": "语言",
-        "hint": "跟随 macOS，或始终使用某种语言。",
+        "hint": "跟随 {os}，或始终使用某种语言。",
         "system": "跟随系统"
       },
       "preview": {
@@ -155,7 +155,7 @@
       "desc": {
         "off": "Agent 无法连接。",
         "read_only": "Agent 可以读取和搜索大纲，但不能修改。",
-        "read_write": "Agent 还可以新增、编辑、移动、完成和删除条目。每次修改是一个 ⌘Z 撤销步骤，被修改的条目会短暂高亮，删除的条目进入废纸篓。"
+        "read_write": "Agent 还可以新增、编辑、移动、完成和删除条目。每次修改是一个 {undo} 撤销步骤，被修改的条目会短暂高亮，删除的条目进入废纸篓。"
       },
       "other_clients": "其他 MCP 客户端",
       "tools": "工具：search、read、starred、create、update、complete、move、delete、journal、open。"
@@ -167,7 +167,10 @@
       "data": "数据",
       "settings": "设置",
       "in_memory": "仅内存（不保存）",
-      "reveal": "在访达中显示数据",
+      "reveal": "在{manager}中显示数据",
+      "file_manager_macos": "访达",
+      "file_manager_windows": "文件资源管理器",
+      "file_manager_other": "文件管理器",
       "feedback": "发送反馈"
     }
   },

@@ -1,5 +1,9 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod agent;
 mod anim;
+#[cfg(not(target_os = "macos"))]
+mod app_menu;
 mod calendar;
 mod commands;
 mod editor;
@@ -70,11 +74,14 @@ pub fn data_path() -> PathBuf {
     if let Ok(p) = std::env::var("FLOWIE_DB") {
         return PathBuf::from(p);
     }
-    let home = sandbox_container().or_else(|| std::env::var("HOME").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("."));
-    if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/Flowie/flowie.sqlite")
+    if let Some(container) = sandbox_container() {
+        return container.join("Library/Application Support/Flowie/flowie.sqlite");
+    }
+    let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+    if cfg!(any(target_os = "macos", target_os = "windows")) {
+        base.join("Flowie").join("flowie.sqlite")
     } else {
-        std::env::var("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|_| home.join(".local/share")).join("flowie/flowie.sqlite")
+        base.join("flowie").join("flowie.sqlite")
     }
 }
 

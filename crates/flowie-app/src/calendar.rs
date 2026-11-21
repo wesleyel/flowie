@@ -144,6 +144,10 @@ impl Outline {
                 }),
             )
         };
+        #[cfg(target_os = "macos")]
+        let top = 46.0;
+        #[cfg(not(target_os = "macos"))]
+        let top = 46.0 + crate::app_menu::MENU_BAR_H;
         Some(
             div()
                 .absolute()
@@ -159,7 +163,7 @@ impl Outline {
                 .child(
                     crate::ui::surface::popover(theme, "calendar")
                         .absolute()
-                        .top(px(46.))
+                        .top(px(top))
                         .right(px(36.))
                         .w(px(36. * 7. + 26.))
                         .p_3()
@@ -176,7 +180,13 @@ impl Outline {
                         )
                         .child(div().flex().children(head))
                         .child(div().flex().flex_wrap().children(cells))
-                        .child(div().pt_2().text_size(px(11.)).text_color(theme.muted).child(t!("calendar.hint"))),
+                        .child(
+                            div()
+                                .pt_2()
+                                .text_size(px(11.))
+                                .text_color(theme.muted)
+                                .child(t!("calendar.hint", alt = crate::keymap::alt_hint())),
+                        ),
                 )
                 .into_any_element(),
         )

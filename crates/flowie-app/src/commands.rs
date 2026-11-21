@@ -214,6 +214,103 @@ impl Outline {
         self.run_action(crate::palette::Action::Wrap("==", "=="), window, cx);
     }
 
+    // ---------------------------------------------------- text colors
+
+    /// Color text: the selection while editing, else the whole edited bullet
+    /// or note, else every selected bullet. `pick` gets the colors of the text
+    /// it covers and returns the new color.
+    fn recolor_targets(&mut self, pick: impl Fn(&[Option<u8>]) -> Option<u8>, cx: &mut Context<Self>) {
+        if let Some(e) = self.edit.as_ref().filter(|e| matches!(e.target, Target::Text(_) | Target::Note(_))) {
+            let text = self.edit_text().to_string();
+            let sel = e.sel.clone();
+            let range = if sel.is_empty() { 0..text.len() } else { sel.clone() };
+            let colors = markup::colors_in(&text, range.clone());
+            if colors.is_empty() {
+                return;
+            }
+            let r = markup::recolor(&text, range, pick(&colors));
+            if r.text == text {
+                return;
+            }
+            let target = e.target;
+            self.replace_edit_text(0..text.len(), &r.text, false, cx);
+            self.inline = None;
+            // The editor shows `{color}` markers; for a whole bullet, select
+            // the row instead so the color shows (and the next press cycles it).
+            if let Target::Text(id) = target {
+                if sel.is_empty() && id != self.zoom {
+                    self.history.seal();
+                    self.edit = None;
+                    self.block = Some(BlockSel { anchor: id, head: id });
+                    cx.notify();
+                    return;
+                }
+            }
+            if let Some(e) = self.edit.as_mut() {
+                e.sel = if sel.is_empty() {
+                    let c = r.map(sel.start);
+                    c..c
+                } else {
+                    r.range.clone()
+                };
+            }
+            cx.notify();
+            return;
+        }
+        let ids: Vec<NodeId> = self.targets().into_iter().map(|id| self.tree.source(id)).collect();
+        let colors: Vec<Option<u8>> = ids
+            .iter()
+            .flat_map(|id| {
+                let t = &self.tree.node(*id).text;
+                markup::colors_in(t, 0..t.len())
+            })
+            .collect();
+        if colors.is_empty() {
+            return;
+        }
+        let color = pick(&colors);
+        for id in ids {
+            let text = self.tree.node(id).text.clone();
+            let r = markup::recolor(&text, 0..text.len(), color);
+            self.tree.set_text(id, &r.text);
+        }
+        self.commit_structure(None, cx);
+    }
+
+    /// Set one color; again on text that already has it removes it.
+    fn set_color(&mut self, ix: u8, cx: &mut Context<Self>) {
+        self.recolor_targets(|cs| if cs.iter().all(|c| *c == Some(ix)) { None } else { Some(ix) }, cx);
+    }
+
+    pub fn color_red(&mut self, _: &ColorRed, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_color(0, cx);
+    }
+    pub fn color_orange(&mut self, _: &ColorOrange, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_color(1, cx);
+    }
+    pub fn color_yellow(&mut self, _: &ColorYellow, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_color(2, cx);
+    }
+    pub fn color_green(&mut self, _: &ColorGreen, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_color(3, cx);
+    }
+    pub fn color_blue(&mut self, _: &ColorBlue, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_color(4, cx);
+    }
+    pub fn color_purple(&mut self, _: &ColorPurple, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_color(5, cx);
+    }
+    pub fn color_gray(&mut self, _: &ColorGray, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_color(6, cx);
+    }
+    pub fn color_none(&mut self, _: &ColorNone, _: &mut Window, cx: &mut Context<Self>) {
+        self.recolor_targets(|_| None, cx);
+    }
+    /// Next color in order, starting from the first piece of text's color.
+    pub fn cycle_color(&mut self, _: &CycleColor, _: &mut Window, cx: &mut Context<Self>) {
+        self.recolor_targets(|cs| markup::next_color(cs[0]), cx);
+    }
+
     /// Click on a to-do checkbox.
     pub fn toggle_checkbox(&mut self, id: NodeId, cx: &mut Context<Self>) {
         let src = self.tree.source(id);

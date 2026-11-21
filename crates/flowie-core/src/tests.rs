@@ -434,3 +434,31 @@ fn link_and_mirror_index_follow_every_mutation() {
     let loaded = Tree::from_nodes(t.nodes().cloned().collect::<Vec<_>>());
     assert_eq!(loaded.backlinks(b), vec![a]);
 }
+
+#[test]
+fn recolor_text() {
+    use markup::{colors_in, next_color, recolor};
+    // Whole text.
+    let r = recolor("hello", 0..5, Some(0));
+    assert_eq!((r.text.as_str(), r.range.clone()), ("{red}hello{/}", 5..10));
+    // Changing the color replaces the span instead of nesting it.
+    let r = recolor(&r.text, 0..r.text.len(), Some(4));
+    assert_eq!(r.text, "{blue}hello{/}");
+    assert_eq!(colors_in(&r.text, 0..r.text.len()), [Some(4)]);
+    // Part of a span splits it, and the selection follows the text.
+    let r = recolor("{red}abcdef{/}", 7..9, Some(4));
+    assert_eq!(r.text, "{red}ab{/}{blue}cd{/}{red}ef{/}");
+    assert_eq!(&r.text[r.range.clone()], "cd");
+    // None removes the color; neighbors merge back.
+    let r = recolor("{red}ab{/}{blue}cd{/}{red}ef{/}", 0..31, None);
+    assert_eq!(r.text, "abcdef");
+    // Other markup stays intact, and offsets map across the new markers.
+    let r = recolor("a **b** $x$", 0..11, Some(1));
+    assert_eq!(r.text, "{orange}a **b** $x${/}");
+    assert_eq!(r.map(0), 8);
+    assert_eq!(r.map(11), 19);
+    // Cycling goes through every color, then back to none.
+    assert_eq!(next_color(None), Some(0));
+    assert_eq!(next_color(Some(5)), Some(6));
+    assert_eq!(next_color(Some(6)), None);
+}

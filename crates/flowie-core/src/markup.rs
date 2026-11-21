@@ -44,6 +44,114 @@ pub struct Run {
     pub color: Option<u8>,
 }
 
+/// The color after `current` when cycling: red, orange, …, gray, then none.
+pub fn next_color(current: Option<u8>) -> Option<u8> {
+    match current {
+        None => Some(0),
+        Some(i) if (i as usize) + 1 < COLORS.len() => Some(i + 1),
+        Some(_) => None,
+    }
+}
+
+/// Whether a run is a `{name}` or `{/}` color marker.
+fn is_color_marker(s: &str, run: &Run) -> bool {
+    run.kind == Kind::Marker && s[run.range.clone()].starts_with('{')
+}
+
+/// The pieces of `s` between color markers, each with its color. Plain text
+/// is split at `cuts` so a range can recolor part of it; other runs (math,
+/// links, code, …) stay whole.
+fn color_atoms(s: &str, cuts: [usize; 2]) -> Vec<(Range<usize>, Option<u8>, bool)> {
+    let mut out = Vec::new();
+    for run in parse(s) {
+        if is_color_marker(s, &run) {
+            continue;
+        }
+        let content = run.kind != Kind::Marker;
+        let mut start = run.range.start;
+        if run.kind == Kind::Text {
+            for cut in cuts {
+                if cut > start && cut < run.range.end {
+                    out.push((start..cut, run.color, content));
+                    start = cut;
+                }
+            }
+        }
+        out.push((start..run.range.end, run.color, content));
+    }
+    out
+}
+
+fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
+    a.start < b.end && b.start < a.end
+}
+
+/// Colors of the text (not the markup) that `range` covers, in order.
+pub fn colors_in(s: &str, range: Range<usize>) -> Vec<Option<u8>> {
+    color_atoms(s, [range.start, range.end])
+        .into_iter()
+        .filter(|(r, _, content)| *content && overlaps(r, &range))
+        .map(|(_, c, _)| c)
+        .collect()
+}
+
+/// `s` with the text in `range` set to `color` (`None` removes it). Color
+/// spans are rewritten around the range, so recoloring part of a colored
+/// span splits it.
+pub struct Recolored {
+    pub text: String,
+    /// Where the recolored text now is.
+    pub range: Range<usize>,
+    /// (old range, new start) of every piece that was kept.
+    pieces: Vec<(Range<usize>, usize)>,
+}
+
+impl Recolored {
+    /// Where an offset in the old text is in the new one.
+    pub fn map(&self, old: usize) -> usize {
+        for (r, new) in &self.pieces {
+            if old <= r.end {
+                return new + old.saturating_sub(r.start);
+            }
+        }
+        self.text.len()
+    }
+}
+
+pub fn recolor(s: &str, range: Range<usize>, color: Option<u8>) -> Recolored {
+    let mut text = String::with_capacity(s.len() + 16);
+    let mut pieces = Vec::new();
+    let mut open: Option<u8> = None;
+    let mut new_range: Option<Range<usize>> = None;
+    for (r, old, _) in color_atoms(s, [range.start, range.end]) {
+        let inside = overlaps(&r, &range);
+        let c = if inside { color } else { old };
+        if c != open {
+            if open.is_some() {
+                text.push_str("{/}");
+            }
+            if let Some(c) = c {
+                text.push('{');
+                text.push_str(COLORS[c as usize]);
+                text.push('}');
+            }
+            open = c;
+        }
+        let start = text.len();
+        text.push_str(&s[r.clone()]);
+        if inside {
+            let nr = new_range.get_or_insert(start..start);
+            nr.end = text.len();
+        }
+        pieces.push((r, start));
+    }
+    if open.is_some() {
+        text.push_str("{/}");
+    }
+    let range = new_range.unwrap_or(text.len()..text.len());
+    Recolored { text, range, pieces }
+}
+
 pub fn is_tag_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '-' || c == '/'
 }

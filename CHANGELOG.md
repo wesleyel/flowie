@@ -10,7 +10,18 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+### Added
+
+- Text color shortcuts: ⌘⌃1 to ⌘⌃7 for red, orange, yellow, green, blue, purple and gray, ⌘⌃0 to
+  remove the color, and ⌘⌃C to step to the next color in that order. They color the selected text,
+  or with nothing selected the whole bullet (which is then selected, so the color shows and ⌘⌃C
+  keeps stepping), or every selected bullet. Pressing a color again on text that has it removes
+  it. They are also in the Format menu and can be changed in Settings.
+
 ### Changed
+
+- In the light theme, orange and yellow text are easier to tell apart from red and from each
+  other.
 
 - Enter on a to-do or numbered item starts the next row as the same kind (a new to-do starts
   unchecked), and a new first child takes the kind of the child below it. Enter on an empty to-do

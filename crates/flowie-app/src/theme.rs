@@ -138,9 +138,10 @@ impl Theme {
             divider: black(25. / 255.),
             input_bg: rgb(0xf7f7f7),
             marker: black(0.26),
-            // Red, orange, yellow, green, blue, purple, gray; the yellow,
-            // orange and green are the higher-contrast variants, readable as text.
-            colors: [rgb(0xff3b30), rgb(0xc93400), rgb(0xb25000), rgb(0x248a3d), rgb(0x007aff), rgb(0xaf52de), rgb(0x8e8e93)],
+            // Red, orange, yellow, green, blue, purple, gray. Orange and yellow are
+            // darkened to read as text on white, but kept apart in hue (about 30°
+            // and 45°) so neither turns brown next to red.
+            colors: [rgb(0xff3b30), rgb(0xdc6f00), rgb(0xc28f00), rgb(0x248a3d), rgb(0x007aff), rgb(0xaf52de), rgb(0x8e8e93)],
             danger: rgb(0xff3b30),
             star: rgb(0xf4b400),
             mark: hsla(50. / 360., 1.0, 0.6, 0.45),

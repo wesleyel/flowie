@@ -17,6 +17,9 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
   or with nothing selected the whole bullet (which is then selected, so the color shows and ⌘⌃C
   keeps stepping), or every selected bullet. Pressing a color again on text that has it removes
   it. They are also in the Format menu and can be changed in Settings.
+- Flowie reopens its window at the size and place you left it, on the same display, and in full
+  screen if it was. If that display is no longer attached it opens centered as before, and a window
+  that would now be partly off the display is moved and shrunk to fit.
 
 ### Changed
 

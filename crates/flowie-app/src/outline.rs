@@ -206,6 +206,8 @@ pub struct Outline {
     forward_pages: Vec<PageLocation>,
     /// Scroll position of each page opened this session, so reopening a node returns to it.
     page_scrolls: std::collections::HashMap<NodeId, PageScroll>,
+    /// The window's size and place, saved on quit (see `window_place`).
+    window_place: Option<crate::window_place::Place>,
     pub hide_completed: bool,
     pub query: String,
     pub rows: Vec<Row>,
@@ -304,6 +306,7 @@ impl Outline {
             back_pages: Vec::new(),
             forward_pages: Vec::new(),
             page_scrolls,
+            window_place: None,
             hide_completed,
             query: String::new(),
             rows: Vec::new(),
@@ -354,6 +357,12 @@ impl Outline {
         if let Some(first) = top.or_else(|| this.rows.first().map(|r| r.id)) {
             this.edit = Some(Edit::new(Target::Text(first), this.tree.node(first).text.len()));
         }
+        let saved_place = meta.iter().find(|(k, _)| k == "window").and_then(|(_, v)| crate::window_place::Place::parse(v));
+        this.window_place = crate::window_place::Place::observe(saved_place.as_ref(), window, cx);
+        cx.observe_window_bounds(window, |this, window, cx| {
+            this.window_place = crate::window_place::Place::observe(this.window_place.as_ref(), window, cx).or(this.window_place.take());
+        })
+        .detach();
         cx.observe_window_appearance(window, |this, window, cx| {
             this.apply_theme(window);
             cx.notify();
@@ -588,6 +597,9 @@ impl Outline {
         self.remember_scroll();
         if let Some(s) = self.page_scrolls.get(&self.zoom) {
             self.set_meta("scroll", &s.encode(self.zoom));
+        }
+        if let Some(place) = &self.window_place {
+            self.set_meta("window", &place.encode());
         }
         if let Some(w) = &self.writer {
             w.flush();

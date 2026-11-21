@@ -21,6 +21,7 @@ mod theme;
 mod tutorial;
 mod ui;
 mod view;
+mod window_place;
 
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -160,13 +161,22 @@ fn main() {
             .unwrap_or(size(px(1440.), px(900.)));
         #[cfg(not(feature = "screenshots"))]
         let window_size = size(px(920.), px(760.));
-        let bounds = Bounds::centered(None, window_size, cx);
+        let min_size = size(px(420.), px(300.));
+        // Reopen where the window was left; screenshot builds always use their fixed size.
+        let saved = if cfg!(feature = "screenshots") {
+            None
+        } else {
+            meta.iter().find(|(k, _)| k == "window").and_then(|(_, v)| window_place::Place::parse(v)?.open_at(min_size, cx))
+        };
+        let (display_id, window_bounds) =
+            saved.map_or_else(|| (None, WindowBounds::Windowed(Bounds::centered(None, window_size, cx))), |(d, b)| (Some(d), b));
         let window = cx
             .open_window(
                 WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_bounds: Some(window_bounds),
+                    display_id,
                     titlebar: Some(TitlebarOptions { title: Some("Flowie".into()), ..Default::default() }),
-                    window_min_size: Some(size(px(420.), px(300.))),
+                    window_min_size: Some(min_size),
                     app_id: Some("flowie.spokey.cn".into()),
                     ..Default::default()
                 },

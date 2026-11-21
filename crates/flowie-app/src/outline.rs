@@ -717,7 +717,11 @@ impl Outline {
                 if id == self.zoom {
                     // Enter in the title adds a first child.
                     let before = self.caret();
+                    let first = self.tree.children(id).first().map(|&c| self.tree.node(c).kind);
                     let child = self.tree.create_at(id, 0, "");
+                    if let Some(kind) = first {
+                        self.tree.set_kind(child, kind.list_kind());
+                    }
                     self.edit = Some(Edit::new(Target::Text(child), 0));
                     self.commit_structure(before, cx);
                     return;

@@ -39,6 +39,20 @@ pub enum BlockKind {
 }
 
 impl BlockKind {
+    /// List kinds carry over to the row Enter creates next to them.
+    pub fn is_list(self) -> bool {
+        matches!(self, BlockKind::Todo | BlockKind::Numbered)
+    }
+
+    /// The kind a new row next to a row of this kind starts with.
+    pub fn list_kind(self) -> BlockKind {
+        if self.is_list() {
+            self
+        } else {
+            BlockKind::Bullet
+        }
+    }
+
     pub const ALL: [BlockKind; 9] = [
         BlockKind::Bullet,
         BlockKind::Paragraph,

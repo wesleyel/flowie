@@ -10,6 +10,12 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+### Changed
+
+- Enter on a to-do or numbered item starts the next row as the same kind (a new to-do starts
+  unchecked), and a new first child takes the kind of the child below it. Enter on an empty to-do
+  or numbered item turns it back into a plain bullet, ending the list.
+
 ## [1.0.0-rc.2] - 2026-11-19
 
 ### Added

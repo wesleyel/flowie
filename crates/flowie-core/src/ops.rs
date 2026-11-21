@@ -1,7 +1,7 @@
 //! Outline editing operations. Each mutates the tree through `put`/`remove`,
 //! so every operation is journaled for undo and persistence automatically.
 
-use crate::tree::{Node, NodeId, Tree, ROOT};
+use crate::tree::{BlockKind, Node, NodeId, Tree, ROOT};
 
 impl Tree {
     /// Create an empty node at `index` among `parent`'s children.
@@ -66,21 +66,34 @@ impl Tree {
     /// - caret at start of non-empty text → empty sibling above, caret stays.
     /// - expanded node with children, caret at end → new first child.
     /// - otherwise → the text after the caret moves to a new sibling below.
+    /// - empty to-do or numbered item → it turns back into a plain bullet.
+    ///
+    /// A new row takes the list kind (to-do, numbered) of the row it sits
+    /// next to: the split row for a sibling, the old first child for a child.
     pub fn split(&mut self, id: NodeId, at: usize) -> (NodeId, usize) {
         let text = self.node(id).text.clone();
+        let kind = self.node(id).kind;
         let at = at.min(text.len());
+        if text.is_empty() && kind.is_list() {
+            self.set_kind(id, BlockKind::Bullet);
+            return (id, 0);
+        }
         if at == 0 && !text.is_empty() {
-            self.create_before(id, "");
+            let new = self.create_before(id, "");
+            self.set_kind(new, kind.list_kind());
             return (id, 0);
         }
         if at == text.len() && self.has_children(id) && !self.node(id).collapsed {
+            let first = self.node(self.children(id)[0]).kind;
             let child = self.create_at(id, 0, "");
+            self.set_kind(child, first.list_kind());
             return (child, 0);
         }
         let (head, tail) = text.split_at(at);
         let tail = tail.to_string();
         self.set_text(id, head);
         let new = self.create_after(id, &tail);
+        self.set_kind(new, kind.list_kind());
         (new, 0)
     }
 
@@ -228,7 +241,7 @@ impl Tree {
         }
     }
 
-    pub fn set_kind(&mut self, id: NodeId, kind: crate::tree::BlockKind) {
+    pub fn set_kind(&mut self, id: NodeId, kind: BlockKind) {
         if self.node(id).kind != kind {
             let mut node = self.node(id).clone();
             node.kind = kind;

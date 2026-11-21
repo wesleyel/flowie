@@ -67,6 +67,28 @@ fn split_at_end_of_parent_makes_first_child() {
 }
 
 #[test]
+fn split_keeps_list_kind() {
+    let (mut t, [a, b, _, d]) = sample();
+    t.set_kind(a, BlockKind::Todo);
+    t.set_completed(a, true);
+    let (new, _) = t.split(a, 1);
+    assert_eq!(t.node(new).kind, BlockKind::Todo);
+    assert!(!t.node(new).completed);
+    // Enter on the empty to-do turns it back into a bullet.
+    let (same, _) = t.split(new, 0);
+    assert_eq!((same, t.node(new).kind), (new, BlockKind::Bullet));
+    // A new first child follows the existing first child.
+    t.set_kind(d, BlockKind::Numbered);
+    let (child, _) = t.split(b, 1);
+    assert_eq!(t.node(child).kind, BlockKind::Numbered);
+    // Headings do not carry over.
+    t.set_kind(b, BlockKind::H1);
+    t.set_collapsed(b, true);
+    let (next, _) = t.split(b, 1);
+    assert_eq!(t.node(next).kind, BlockKind::Bullet);
+}
+
+#[test]
 fn merge_moves_children() {
     let (mut t, [a, b, _, d]) = sample();
     t.merge_into(b, a).unwrap();

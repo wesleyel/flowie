@@ -71,9 +71,45 @@ fn tools() -> Value {
     ])
 }
 
+/// How an agent starts Flowie's MCP server: this executable with `mcp`,
+/// plus `FLOWIE_DB` when the app runs on a database other than the default.
+pub struct Setup {
+    exe: String,
+    db: Option<String>,
+}
+
+impl Setup {
+    pub fn new(db: Option<&Path>) -> Self {
+        // Screenshots show where the app is installed, not the build directory.
+        let exe = if cfg!(feature = "screenshots") {
+            "/Applications/Flowie.app/Contents/MacOS/Flowie".to_string()
+        } else {
+            std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "flowie".into())
+        };
+        let db = db.filter(|p| *p != crate::data_path()).map(|p| p.display().to_string());
+        Setup { exe, db }
+    }
+
+    /// `claude mcp add …`, quoted for the shell the user pastes it into.
+    pub fn claude_command(&self) -> String {
+        let quote = crate::platform::shell_quote;
+        let env = self.db.as_ref().map(|db| format!("-e {} ", quote(&format!("FLOWIE_DB={db}")))).unwrap_or_default();
+        format!("claude mcp add flowie {env}-- {} mcp", quote(&self.exe))
+    }
+
+    /// The `mcpServers` entry other MCP clients read.
+    pub fn client_config(&self) -> String {
+        let mut server = json!({"command": self.exe, "args": ["mcp"]});
+        if let Some(db) = &self.db {
+            server["env"] = json!({"FLOWIE_DB": db});
+        }
+        serde_json::to_string_pretty(&json!({"mcpServers": {"flowie": server}})).unwrap_or_default()
+    }
+}
+
 /// Connect to the app, starting it in the background if it isn't running.
 fn connect(db: &Path) -> Result<LocalSocketStream, String> {
-    let name = super::socket_name(db)?;
+    let name = super::ipc::socket_name(db)?;
     if let Ok(s) = LocalSocketStream::connect(name.clone()) {
         return Ok(s);
     }

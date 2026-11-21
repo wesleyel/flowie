@@ -1,6 +1,6 @@
-//! In-window application menu bar for platforms without a system-wide menu bar
-//! (Windows and Linux). Built from the same `keymap::app_menus()` table that
-//! feeds macOS's native menu bar.
+//! The in-window menu bar, for platforms without a global one (Windows and
+//! Linux; see `platform::MENU_BAR_IN_WINDOW`). Built from the same
+//! `keymap::app_menus()` table that feeds macOS's native menu bar.
 
 use gpui::{anchored, deferred, div, prelude::*, px, AnyElement, Context, MouseButton, MouseDownEvent, SharedString, Window};
 
@@ -8,7 +8,16 @@ use crate::keymap::{self, AppMenuItem};
 use crate::outline::Outline;
 use crate::theme::R_SM;
 
-pub const MENU_BAR_H: f32 = 28.0;
+const MENU_BAR_H: f32 = 28.0;
+
+/// Height the menu bar takes at the top of the window (0 with a global menu bar).
+pub const fn bar_height() -> f32 {
+    if crate::platform::MENU_BAR_IN_WINDOW {
+        MENU_BAR_H
+    } else {
+        0.0
+    }
+}
 const ROW: &str = "app-menu-row";
 
 impl Outline {
@@ -16,7 +25,11 @@ impl Outline {
         self.app_menu.take().is_some()
     }
 
-    pub fn render_app_menu_bar(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    /// The menu bar, when this platform draws one in the window.
+    pub fn render_app_menu_bar(&mut self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !crate::platform::MENU_BAR_IN_WINDOW {
+            return None;
+        }
         let theme = self.theme;
         let open = self.app_menu;
         let menus = keymap::app_menus();
@@ -129,20 +142,22 @@ impl Outline {
             );
         }
 
-        div()
-            .id("app-menu-bar")
-            .flex_none()
-            .h(px(MENU_BAR_H))
-            .px(px(10.))
-            .flex()
-            .items_center()
-            .gap(px(2.))
-            .bg(theme.bg)
-            .border_b_1()
-            .border_color(theme.divider)
-            .text_size(px(12.5))
-            .text_color(theme.text)
-            .children(buttons)
-            .into_any_element()
+        Some(
+            div()
+                .id("app-menu-bar")
+                .flex_none()
+                .h(px(MENU_BAR_H))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .gap(px(2.))
+                .bg(theme.bg)
+                .border_b_1()
+                .border_color(theme.divider)
+                .text_size(px(12.5))
+                .text_color(theme.text)
+                .children(buttons)
+                .into_any_element(),
+        )
     }
 }

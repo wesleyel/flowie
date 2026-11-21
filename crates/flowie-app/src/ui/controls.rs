@@ -3,6 +3,7 @@
 use gpui::{div, prelude::*, px, radians, AnyElement, Div, ElementId, Hsla, Stateful, Transformation};
 
 use crate::icons::{icon, KEY};
+use crate::platform::{self, Os};
 use crate::theme::{Theme, R_MD, R_SM};
 
 /// A 16px checkbox.
@@ -24,92 +25,49 @@ enum KeyToken {
     Text(String),
 }
 
-#[cfg(target_os = "macos")]
+/// The pieces of one keystroke: macOS's key glyphs as icons there, the
+/// platform's key names elsewhere (see `platform::key_name`).
 fn tokens(stroke: &str) -> Vec<KeyToken> {
-    match stroke {
-        "mouse-back" => return vec![KeyToken::Text(crate::i18n::t!("settings.shortcuts.mouse_back").into())],
-        "mouse-forward" => return vec![KeyToken::Text(crate::i18n::t!("settings.shortcuts.mouse_forward").into())],
-        _ => {}
+    use KeyToken::{Icon, Text};
+    if stroke.starts_with("mouse-") {
+        return vec![Text(platform::key_name(stroke))];
     }
-    let parts: Vec<&str> = stroke.split('-').collect();
-    let (mods, key) = if stroke.ends_with("--") {
-        (&parts[..parts.len().saturating_sub(2)], "-")
-    } else {
-        (&parts[..parts.len() - 1], *parts.last().unwrap_or(&""))
-    };
-    let mut out = Vec::new();
-    // macOS order: ⌃ ⌥ ⇧ ⌘
-    for (m, icon) in [("ctrl", "chevron-up"), ("alt", "option"), ("shift", "arrow-big-up"), ("cmd", "command")] {
-        if mods.contains(&m) {
-            out.push(KeyToken::Icon(icon, 0.0));
-        }
-    }
-    if mods.contains(&"fn") {
-        out.push(KeyToken::Text("fn".into()));
-    }
-    out.push(match key {
-        "enter" => KeyToken::Icon("corner-down-left", 0.0),
-        "backspace" => KeyToken::Icon("delete", 0.0),
-        "delete" => KeyToken::Icon("delete", 180.0),
-        "tab" => KeyToken::Icon("arrow-right-to-line", 0.0),
-        "space" => KeyToken::Icon("space", 0.0),
-        "up" => KeyToken::Icon("arrow-up", 0.0),
-        "down" => KeyToken::Icon("arrow-down", 0.0),
-        "left" => KeyToken::Icon("arrow-left", 0.0),
-        "right" => KeyToken::Icon("arrow-right", 0.0),
-        "escape" => KeyToken::Text("esc".into()),
-        "home" => KeyToken::Text("home".into()),
-        "end" => KeyToken::Text("end".into()),
-        k if k.len() > 1 => KeyToken::Text(k.to_string()),
-        k => KeyToken::Text(k.to_uppercase()),
+    let mac = platform::OS == Os::Mac;
+    let (mods, key) = platform::split_stroke(stroke);
+    let mut out: Vec<KeyToken> = mods
+        .iter()
+        .map(|m| match (mac, *m) {
+            (true, "ctrl") => Icon("chevron-up", 0.0),
+            (true, "alt") => Icon("option", 0.0),
+            (true, "shift") => Icon("arrow-big-up", 0.0),
+            (true, "cmd") => Icon("command", 0.0),
+            (_, m) => Text(platform::modifier_name(m).into()),
+        })
+        .collect();
+    out.push(match (mac, key) {
+        (_, "up") => Icon("arrow-up", 0.0),
+        (_, "down") => Icon("arrow-down", 0.0),
+        (_, "left") => Icon("arrow-left", 0.0),
+        (_, "right") => Icon("arrow-right", 0.0),
+        (true, "enter") => Icon("corner-down-left", 0.0),
+        (true, "backspace") => Icon("delete", 0.0),
+        (true, "delete") => Icon("delete", 180.0),
+        (true, "tab") => Icon("arrow-right-to-line", 0.0),
+        (true, "space") => Icon("space", 0.0),
+        (true, "escape") => Text("esc".into()),
+        (true, k) if k.len() > 1 => Text(k.to_string()),
+        (_, k) => Text(platform::key_name(k)),
     });
     out
 }
 
-#[cfg(not(target_os = "macos"))]
-fn tokens(stroke: &str) -> Vec<KeyToken> {
-    match stroke {
-        "mouse-back" => return vec![KeyToken::Text(crate::i18n::t!("settings.shortcuts.mouse_back").into())],
-        "mouse-forward" => return vec![KeyToken::Text(crate::i18n::t!("settings.shortcuts.mouse_forward").into())],
-        _ => {}
-    }
-    let parts: Vec<&str> = stroke.split('-').collect();
-    let (mods, key) = if stroke.ends_with("--") {
-        (&parts[..parts.len().saturating_sub(2)], "-")
-    } else {
-        (&parts[..parts.len() - 1], *parts.last().unwrap_or(&""))
-    };
-    let mut out = Vec::new();
-    // Windows / Linux order: Ctrl, Alt, Shift, Win
-    for (m, label) in [("ctrl", "Ctrl"), ("alt", "Alt"), ("shift", "Shift"), ("cmd", "Win"), ("win", "Win"), ("fn", "Fn")] {
-        if mods.contains(&m) {
-            out.push(KeyToken::Text(label.into()));
-        }
-    }
-    out.push(match key {
-        "enter" => KeyToken::Text("Enter".into()),
-        "backspace" => KeyToken::Text("Bksp".into()),
-        "delete" => KeyToken::Text("Del".into()),
-        "tab" => KeyToken::Text("Tab".into()),
-        "space" => KeyToken::Text("Space".into()),
-        "up" => KeyToken::Icon("arrow-up", 0.0),
-        "down" => KeyToken::Icon("arrow-down", 0.0),
-        "left" => KeyToken::Icon("arrow-left", 0.0),
-        "right" => KeyToken::Icon("arrow-right", 0.0),
-        "escape" => KeyToken::Text("Esc".into()),
-        "home" => KeyToken::Text("Home".into()),
-        "end" => KeyToken::Text("End".into()),
-        k => KeyToken::Text(k.to_uppercase()),
-    });
-    out
-}
-
-/// A shortcut ("cmd-shift-up" / "ctrl-shift-up") as platform key tokens.
+/// A shortcut ("cmd-shift-up") as the platform writes it: bare glyphs on
+/// macOS, as menus show it; "Ctrl + Shift + ↑" elsewhere.
 /// With `hover`, the glyphs take that color while the named group is hovered.
 pub fn shortcut(keys: &str, color: Hsla, hover: Option<(&'static str, Hsla)>) -> Div {
     let strokes = keys.split_whitespace().map(|stroke| {
         let items = tokens(stroke);
-        let sep = !cfg!(target_os = "macos");
+        let sep = platform::OS != Os::Mac;
         let mut children: Vec<AnyElement> = Vec::with_capacity(items.len() * 2);
         for (ix, t) in items.into_iter().enumerate() {
             if sep && ix > 0 {

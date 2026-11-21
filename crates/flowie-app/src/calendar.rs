@@ -144,10 +144,7 @@ impl Outline {
                 }),
             )
         };
-        #[cfg(target_os = "macos")]
-        let top = 46.0;
-        #[cfg(not(target_os = "macos"))]
-        let top = 46.0 + crate::app_menu::MENU_BAR_H;
+        let top = 46.0 + crate::app_menu::bar_height();
         Some(
             div()
                 .absolute()
@@ -185,7 +182,7 @@ impl Outline {
                                 .pt_2()
                                 .text_size(px(11.))
                                 .text_color(theme.muted)
-                                .child(t!("calendar.hint", alt = crate::keymap::alt_hint())),
+                                .child(t!("calendar.hint", alt = crate::platform::modifier_name("alt"))),
                         ),
                 )
                 .into_any_element(),

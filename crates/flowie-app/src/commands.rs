@@ -125,7 +125,7 @@ impl Outline {
             self.toast(t!("toast.unstarred", name = node_label(self, id)));
         } else {
             self.starred.push(id);
-            self.toast(t!("toast.starred", name = node_label(self, id), shortcut = crate::keymap::primary_hint("P")));
+            self.toast(t!("toast.starred", name = node_label(self, id), shortcut = crate::keymap::hint("jump", &self.config.keys)));
         }
         let v = self.starred.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
         self.set_meta("starred", &v);
@@ -466,7 +466,7 @@ impl Outline {
             self.toast(t!("toast.search_removed", query = q));
         } else {
             self.saved_searches.push(q.clone());
-            self.toast(t!("toast.search_saved", query = q, shortcut = crate::keymap::primary_hint("P")));
+            self.toast(t!("toast.search_saved", query = q, shortcut = crate::keymap::hint("jump", &self.config.keys)));
         }
         self.set_meta("saved_searches", &self.saved_searches.join("\n"));
         cx.notify();

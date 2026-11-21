@@ -1,5 +1,11 @@
 //! Every keyboard shortcut in one table, so the settings panel can list
 //! and rebind them. User overrides (id -> keystrokes) come from settings.
+//!
+//! Each entry carries its macOS keys and its Windows / Linux keys. Most use
+//! the primary modifier (⌘ on macOS, Ctrl elsewhere); the rest follow each
+//! platform's conventions. Defaults off macOS never combine Ctrl with Alt:
+//! on Windows that chord is AltGr, which types `{ [ ] } @ €` on many layouts,
+//! and Linux desktops reserve Ctrl+Alt for the window manager.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -8,21 +14,35 @@ use gpui::{Action, App, KeyBinding, KeyBindingContextPredicate, Menu, MenuItem};
 
 use crate::i18n::{self, t};
 use crate::outline::*;
+use crate::platform::{self, Os};
 
 pub struct Binding {
     /// Stable id used for overrides. Entries sharing an id are rebound together.
     pub id: &'static str,
     /// Group id; the heading is `group.<id>` and the label `shortcut.<id>` in the locale files.
     pub group: &'static str,
-    /// Default keystroke (`""` means unbound by default on this platform).
-    pub keys: &'static str,
+    /// Default keys on macOS and on Windows / Linux (`""`: unbound there).
+    mac: &'static str,
+    other: &'static str,
     context: Option<&'static str>,
     action: fn() -> Box<dyn Action>,
 }
 
 macro_rules! b {
+    // ⌘ on macOS, Ctrl on Windows / Linux.
+    ($id:literal, $group:literal, primary $keys:literal, $ctx:expr, $action:expr) => {
+        b!(@ $id, $group, concat!("cmd-", $keys), concat!("ctrl-", $keys), $ctx, $action)
+    };
+    // Different keys per platform.
+    ($id:literal, $group:literal, mac $mac:literal, other $other:literal, $ctx:expr, $action:expr) => {
+        b!(@ $id, $group, $mac, $other, $ctx, $action)
+    };
+    // The same keys everywhere.
     ($id:literal, $group:literal, $keys:literal, $ctx:expr, $action:expr) => {
-        Binding { id: $id, group: $group, keys: $keys, context: $ctx, action: || Box::new($action) }
+        b!(@ $id, $group, $keys, $keys, $ctx, $action)
+    };
+    (@ $id:literal, $group:literal, $mac:expr, $other:expr, $ctx:expr, $action:expr) => {
+        Binding { id: $id, group: $group, mac: $mac, other: $other, context: $ctx, action: || Box::new($action) }
     };
 }
 
@@ -32,7 +52,6 @@ const O: Option<&str> = Some("Outline");
 
 pub const GROUPS: [&str; 6] = ["editing", "formatting", "outline", "navigation", "search", "app"];
 
-#[cfg(target_os = "macos")]
 pub static BINDINGS: &[Binding] = &[
     // Editing
     b!("newline", "editing", "enter", E, Newline),
@@ -42,254 +61,153 @@ pub static BINDINGS: &[Binding] = &[
     b!("outdent", "editing", "shift-tab", O, Outdent),
     b!("backspace", "editing", "backspace", O, Backspace),
     b!("delete", "editing", "delete", O, Delete),
-    b!("delete-word", "editing", "alt-backspace", E, DeleteWordLeft),
+    b!("delete-word", "editing", mac "alt-backspace", other "ctrl-backspace", E, DeleteWordLeft),
     // macOS text keys (Emacs style). GPUI drops the command macOS picks for
     // them (`doCommandBySelector:`), so they need bindings of their own.
-    b!("backspace", "editing", "ctrl-h", E, Backspace),
-    b!("delete", "editing", "ctrl-d", E, Delete),
-    b!("kill-line", "editing", "ctrl-k", E, KillLine),
-    b!("yank", "editing", "ctrl-y", E, Yank),
+    // Elsewhere Ctrl+K is Link and Ctrl+Y is Redo; kill and yank stay
+    // listed, unbound, so they can be given keys in Settings.
+    b!("backspace", "editing", mac "ctrl-h", other "", E, Backspace),
+    b!("delete", "editing", mac "ctrl-d", other "", E, Delete),
+    b!("kill-line", "editing", mac "ctrl-k", other "", E, KillLine),
+    b!("yank", "editing", mac "ctrl-y", other "", E, Yank),
     b!("left", "editing", "left", E, Left),
     b!("right", "editing", "right", E, Right),
-    b!("left", "editing", "ctrl-b", E, Left),
-    b!("right", "editing", "ctrl-f", E, Right),
+    b!("left", "editing", mac "ctrl-b", other "", E, Left),
+    b!("right", "editing", mac "ctrl-f", other "", E, Right),
     b!("up", "editing", "up", O, Up),
     b!("down", "editing", "down", O, Down),
-    b!("up", "editing", "ctrl-p", E, Up),
-    b!("down", "editing", "ctrl-n", E, Down),
-    b!("word-left", "editing", "alt-left", E, WordLeft),
-    b!("word-right", "editing", "alt-right", E, WordRight),
+    b!("up", "editing", mac "ctrl-p", other "", E, Up),
+    b!("down", "editing", mac "ctrl-n", other "", E, Down),
+    b!("word-left", "editing", mac "alt-left", other "ctrl-left", E, WordLeft),
+    b!("word-right", "editing", mac "alt-right", other "ctrl-right", E, WordRight),
     b!("select-left", "editing", "shift-left", E, SelectLeft),
     b!("select-right", "editing", "shift-right", E, SelectRight),
-    b!("select-word-left", "editing", "alt-shift-left", E, SelectWordLeft),
-    b!("select-word-right", "editing", "alt-shift-right", E, SelectWordRight),
+    b!("select-word-left", "editing", mac "alt-shift-left", other "ctrl-shift-left", E, SelectWordLeft),
+    b!("select-word-right", "editing", mac "alt-shift-right", other "ctrl-shift-right", E, SelectWordRight),
     b!("select-up", "editing", "shift-up", O, SelectUp),
     b!("select-down", "editing", "shift-down", O, SelectDown),
-    b!("home", "editing", "cmd-left", E, Home),
+    b!("home", "editing", mac "cmd-left", other "", E, Home),
     b!("home", "editing", "home", E, Home),
-    b!("end", "editing", "cmd-right", E, End),
+    b!("end", "editing", mac "cmd-right", other "", E, End),
     b!("end", "editing", "end", E, End),
-    b!("home", "editing", "ctrl-a", E, Home),
-    b!("end", "editing", "ctrl-e", E, End),
-    b!("select-home", "editing", "cmd-shift-left", E, SelectHome),
-    b!("select-end", "editing", "cmd-shift-right", E, SelectEnd),
-    b!("select-all", "editing", "cmd-a", O, SelectAll),
-    b!("copy", "editing", "cmd-c", O, Copy),
-    b!("cut", "editing", "cmd-x", O, Cut),
-    b!("paste", "editing", "cmd-v", O, Paste),
-    b!("undo", "editing", "cmd-z", O, Undo),
-    b!("redo", "editing", "cmd-shift-z", O, Redo),
+    b!("home", "editing", mac "ctrl-a", other "", E, Home),
+    b!("end", "editing", mac "ctrl-e", other "", E, End),
+    b!("select-home", "editing", mac "cmd-shift-left", other "shift-home", E, SelectHome),
+    b!("select-end", "editing", mac "cmd-shift-right", other "shift-end", E, SelectEnd),
+    b!("select-all", "editing", primary "a", O, SelectAll),
+    b!("copy", "editing", primary "c", O, Copy),
+    b!("cut", "editing", primary "x", O, Cut),
+    b!("paste", "editing", primary "v", O, Paste),
+    b!("undo", "editing", primary "z", O, Undo),
+    b!("redo", "editing", primary "shift-z", O, Redo),
+    b!("redo", "editing", mac "", other "ctrl-y", O, Redo),
     // Formatting
-    b!("bold", "formatting", "cmd-b", E, Bold),
-    b!("italic", "formatting", "cmd-i", E, Italic),
-    b!("code", "formatting", "cmd-e", E, InlineCode),
-    b!("math", "formatting", "cmd-m", E, WrapMath),
-    b!("link", "formatting", "cmd-k", E, InsertLink),
-    b!("highlight", "formatting", "cmd-shift-y", E, Highlight),
-    b!("color-cycle", "formatting", "cmd-ctrl-c", O, CycleColor),
-    b!("color-red", "formatting", "cmd-ctrl-1", O, ColorRed),
-    b!("color-orange", "formatting", "cmd-ctrl-2", O, ColorOrange),
-    b!("color-yellow", "formatting", "cmd-ctrl-3", O, ColorYellow),
-    b!("color-green", "formatting", "cmd-ctrl-4", O, ColorGreen),
-    b!("color-blue", "formatting", "cmd-ctrl-5", O, ColorBlue),
-    b!("color-purple", "formatting", "cmd-ctrl-6", O, ColorPurple),
-    b!("color-gray", "formatting", "cmd-ctrl-7", O, ColorGray),
-    b!("color-none", "formatting", "cmd-ctrl-0", O, ColorNone),
-    b!("kind-bullet", "formatting", "cmd-alt-0", O, KindBullet),
-    b!("kind-h1", "formatting", "cmd-alt-1", O, KindH1),
-    b!("kind-h2", "formatting", "cmd-alt-2", O, KindH2),
-    b!("kind-h3", "formatting", "cmd-alt-3", O, KindH3),
-    b!("kind-text", "formatting", "cmd-alt-4", O, KindParagraph),
-    b!("kind-todo", "formatting", "cmd-alt-5", O, KindTodo),
-    b!("kind-numbered", "formatting", "cmd-alt-6", O, KindNumbered),
-    b!("kind-quote", "formatting", "cmd-alt-7", O, KindQuote),
-    b!("kind-code", "formatting", "cmd-alt-8", O, KindCode),
+    b!("bold", "formatting", primary "b", E, Bold),
+    b!("italic", "formatting", primary "i", E, Italic),
+    b!("code", "formatting", primary "e", E, InlineCode),
+    b!("math", "formatting", primary "m", E, WrapMath),
+    b!("link", "formatting", primary "k", E, InsertLink),
+    b!("highlight", "formatting", primary "shift-y", E, Highlight),
+    b!("color-cycle", "formatting", mac "cmd-ctrl-c", other "alt-c", O, CycleColor),
+    b!("color-red", "formatting", mac "cmd-ctrl-1", other "alt-1", O, ColorRed),
+    b!("color-orange", "formatting", mac "cmd-ctrl-2", other "alt-2", O, ColorOrange),
+    b!("color-yellow", "formatting", mac "cmd-ctrl-3", other "alt-3", O, ColorYellow),
+    b!("color-green", "formatting", mac "cmd-ctrl-4", other "alt-4", O, ColorGreen),
+    b!("color-blue", "formatting", mac "cmd-ctrl-5", other "alt-5", O, ColorBlue),
+    b!("color-purple", "formatting", mac "cmd-ctrl-6", other "alt-6", O, ColorPurple),
+    b!("color-gray", "formatting", mac "cmd-ctrl-7", other "alt-7", O, ColorGray),
+    b!("color-none", "formatting", mac "cmd-ctrl-0", other "alt-0", O, ColorNone),
+    b!("kind-bullet", "formatting", mac "cmd-alt-0", other "ctrl-shift-0", O, KindBullet),
+    b!("kind-h1", "formatting", mac "cmd-alt-1", other "ctrl-shift-1", O, KindH1),
+    b!("kind-h2", "formatting", mac "cmd-alt-2", other "ctrl-shift-2", O, KindH2),
+    b!("kind-h3", "formatting", mac "cmd-alt-3", other "ctrl-shift-3", O, KindH3),
+    b!("kind-text", "formatting", mac "cmd-alt-4", other "ctrl-shift-4", O, KindParagraph),
+    b!("kind-todo", "formatting", mac "cmd-alt-5", other "ctrl-shift-5", O, KindTodo),
+    b!("kind-numbered", "formatting", mac "cmd-alt-6", other "ctrl-shift-6", O, KindNumbered),
+    b!("kind-quote", "formatting", mac "cmd-alt-7", other "ctrl-shift-7", O, KindQuote),
+    b!("kind-code", "formatting", mac "cmd-alt-8", other "ctrl-shift-8", O, KindCode),
     // Outline
-    b!("complete", "outline", "cmd-enter", O, ToggleComplete),
-    b!("collapse", "outline", "cmd-up", O, Collapse),
-    b!("expand", "outline", "cmd-down", O, Expand),
+    b!("complete", "outline", primary "enter", O, ToggleComplete),
+    b!("collapse", "outline", primary "up", O, Collapse),
+    b!("expand", "outline", primary "down", O, Expand),
     b!("expand-all", "outline", "ctrl-0", O, ExpandAll),
     b!("level-1", "outline", "ctrl-1", O, Level1),
     b!("level-2", "outline", "ctrl-2", O, Level2),
     b!("level-3", "outline", "ctrl-3", O, Level3),
     b!("level-4", "outline", "ctrl-4", O, Level4),
-    b!("move-up", "outline", "cmd-shift-up", O, MoveUp),
-    b!("move-down", "outline", "cmd-shift-down", O, MoveDown),
-    b!("move-to", "outline", "cmd-shift-m", O, MoveTo),
-    b!("mirror", "outline", "cmd-alt-m", O, MirrorBullet),
-    b!("link-to", "outline", "cmd-shift-k", E, LinkToBullet),
-    b!("delete-bullet", "outline", "cmd-shift-backspace", O, DeleteNode),
-    b!("toggle-completed", "outline", "cmd-o", O, ToggleCompletedVisible),
-    // Navigation
+    b!("move-up", "outline", primary "shift-up", O, MoveUp),
+    b!("move-down", "outline", primary "shift-down", O, MoveDown),
+    b!("move-to", "outline", primary "shift-m", O, MoveTo),
+    b!("mirror", "outline", mac "cmd-alt-m", other "alt-m", O, MirrorBullet),
+    b!("link-to", "outline", primary "shift-k", E, LinkToBullet),
+    b!("delete-bullet", "outline", primary "shift-backspace", O, DeleteNode),
+    b!("toggle-completed", "outline", primary "o", O, ToggleCompletedVisible),
+    // Navigation. Off macOS, Alt+←/→ is Back/Forward as in every browser, so
+    // it doesn't also zoom while bullets are selected.
     b!("page-back", "navigation", "mouse-back", O, PageBack),
-    b!("page-back", "navigation", "cmd-alt-left", O, PageBack),
+    b!("page-back", "navigation", mac "cmd-alt-left", other "alt-left", O, PageBack),
     b!("page-forward", "navigation", "mouse-forward", O, PageForward),
-    b!("page-forward", "navigation", "cmd-alt-right", O, PageForward),
-    b!("zoom-in", "navigation", "cmd-]", O, ZoomIn),
-    b!("zoom-in", "navigation", "alt-right", S, ZoomIn),
-    b!("zoom-out", "navigation", "cmd-[", O, ZoomOut),
-    b!("zoom-out", "navigation", "alt-left", S, ZoomOut),
-    b!("home-page", "navigation", "cmd-shift-h", O, ZoomHome),
-    b!("jump", "navigation", "cmd-p", O, Jump),
-    b!("star", "navigation", "cmd-shift-s", O, ToggleStar),
-    b!("today", "navigation", "cmd-shift-d", O, Today),
-    b!("calendar", "navigation", "cmd-shift-c", O, ShowCalendar),
+    b!("page-forward", "navigation", mac "cmd-alt-right", other "alt-right", O, PageForward),
+    b!("zoom-in", "navigation", primary "]", O, ZoomIn),
+    b!("zoom-in", "navigation", mac "alt-right", other "", S, ZoomIn),
+    b!("zoom-out", "navigation", primary "[", O, ZoomOut),
+    b!("zoom-out", "navigation", mac "alt-left", other "", S, ZoomOut),
+    b!("home-page", "navigation", primary "shift-h", O, ZoomHome),
+    b!("jump", "navigation", primary "p", O, Jump),
+    b!("star", "navigation", primary "shift-s", O, ToggleStar),
+    b!("today", "navigation", primary "shift-d", O, Today),
+    b!("calendar", "navigation", primary "shift-c", O, ShowCalendar),
     // Search
-    b!("find", "search", "cmd-f", O, Find),
-    b!("next-match", "search", "cmd-g", O, NextMatch),
-    b!("prev-match", "search", "cmd-shift-g", O, PrevMatch),
+    b!("find", "search", primary "f", O, Find),
+    b!("next-match", "search", primary "g", O, NextMatch),
+    b!("next-match", "search", mac "", other "f3", O, NextMatch),
+    b!("prev-match", "search", primary "shift-g", O, PrevMatch),
+    b!("prev-match", "search", mac "", other "shift-f3", O, PrevMatch),
     b!("escape", "search", "escape", O, Escape),
     // App
-    b!("import", "app", "cmd-shift-i", O, Import),
-    b!("export-md", "app", "cmd-shift-e", O, ExportMarkdown),
-    b!("trash", "app", "cmd-shift-delete", O, ShowTrash),
-    b!("settings", "app", "cmd-,", None, OpenSettings),
-    b!("quit", "app", "cmd-q", None, Quit),
+    b!("import", "app", primary "shift-i", O, Import),
+    b!("export-md", "app", primary "shift-e", O, ExportMarkdown),
+    b!("trash", "app", primary "shift-delete", O, ShowTrash),
+    b!("settings", "app", primary ",", None, OpenSettings),
+    b!("quit", "app", primary "q", None, Quit),
 ];
 
-#[cfg(not(target_os = "macos"))]
-pub static BINDINGS: &[Binding] = &[
-    // Editing
-    b!("newline", "editing", "enter", E, Newline),
-    b!("newline", "editing", "enter", S, Newline),
-    b!("note", "editing", "shift-enter", E, ToggleNote),
-    b!("indent", "editing", "tab", O, Indent),
-    b!("outdent", "editing", "shift-tab", O, Outdent),
-    b!("backspace", "editing", "backspace", O, Backspace),
-    b!("delete", "editing", "delete", O, Delete),
-    b!("delete-word", "editing", "ctrl-backspace", E, DeleteWordLeft),
-    // Unbound by default on Windows/Linux (Ctrl+K is Link, Ctrl+Y is Redo);
-    // still listed so users can bind them in Settings.
-    b!("kill-line", "editing", "", E, KillLine),
-    b!("yank", "editing", "", E, Yank),
-    b!("left", "editing", "left", E, Left),
-    b!("right", "editing", "right", E, Right),
-    b!("up", "editing", "up", O, Up),
-    b!("down", "editing", "down", O, Down),
-    b!("word-left", "editing", "ctrl-left", E, WordLeft),
-    b!("word-right", "editing", "ctrl-right", E, WordRight),
-    b!("select-left", "editing", "shift-left", E, SelectLeft),
-    b!("select-right", "editing", "shift-right", E, SelectRight),
-    b!("select-word-left", "editing", "ctrl-shift-left", E, SelectWordLeft),
-    b!("select-word-right", "editing", "ctrl-shift-right", E, SelectWordRight),
-    b!("select-up", "editing", "shift-up", O, SelectUp),
-    b!("select-down", "editing", "shift-down", O, SelectDown),
-    b!("home", "editing", "home", E, Home),
-    b!("end", "editing", "end", E, End),
-    b!("select-home", "editing", "shift-home", E, SelectHome),
-    b!("select-end", "editing", "shift-end", E, SelectEnd),
-    b!("select-all", "editing", "ctrl-a", O, SelectAll),
-    b!("copy", "editing", "ctrl-c", O, Copy),
-    b!("cut", "editing", "ctrl-x", O, Cut),
-    b!("paste", "editing", "ctrl-v", O, Paste),
-    b!("undo", "editing", "ctrl-z", O, Undo),
-    b!("redo", "editing", "ctrl-shift-z", O, Redo),
-    b!("redo", "editing", "ctrl-y", O, Redo),
-    // Formatting
-    b!("bold", "formatting", "ctrl-b", E, Bold),
-    b!("italic", "formatting", "ctrl-i", E, Italic),
-    b!("code", "formatting", "ctrl-e", E, InlineCode),
-    b!("math", "formatting", "ctrl-m", E, WrapMath),
-    b!("link", "formatting", "ctrl-k", E, InsertLink),
-    b!("highlight", "formatting", "ctrl-shift-y", E, Highlight),
-    b!("color-cycle", "formatting", "alt-c", O, CycleColor),
-    b!("color-red", "formatting", "alt-1", O, ColorRed),
-    b!("color-orange", "formatting", "alt-2", O, ColorOrange),
-    b!("color-yellow", "formatting", "alt-3", O, ColorYellow),
-    b!("color-green", "formatting", "alt-4", O, ColorGreen),
-    b!("color-blue", "formatting", "alt-5", O, ColorBlue),
-    b!("color-purple", "formatting", "alt-6", O, ColorPurple),
-    b!("color-gray", "formatting", "alt-7", O, ColorGray),
-    b!("color-none", "formatting", "alt-0", O, ColorNone),
-    b!("kind-bullet", "formatting", "ctrl-alt-0", O, KindBullet),
-    b!("kind-h1", "formatting", "ctrl-alt-1", O, KindH1),
-    b!("kind-h2", "formatting", "ctrl-alt-2", O, KindH2),
-    b!("kind-h3", "formatting", "ctrl-alt-3", O, KindH3),
-    b!("kind-text", "formatting", "ctrl-alt-4", O, KindParagraph),
-    b!("kind-todo", "formatting", "ctrl-alt-5", O, KindTodo),
-    b!("kind-numbered", "formatting", "ctrl-alt-6", O, KindNumbered),
-    b!("kind-quote", "formatting", "ctrl-alt-7", O, KindQuote),
-    b!("kind-code", "formatting", "ctrl-alt-8", O, KindCode),
-    // Outline
-    b!("complete", "outline", "ctrl-enter", O, ToggleComplete),
-    b!("collapse", "outline", "ctrl-up", O, Collapse),
-    b!("expand", "outline", "ctrl-down", O, Expand),
-    b!("expand-all", "outline", "ctrl-0", O, ExpandAll),
-    b!("level-1", "outline", "ctrl-1", O, Level1),
-    b!("level-2", "outline", "ctrl-2", O, Level2),
-    b!("level-3", "outline", "ctrl-3", O, Level3),
-    b!("level-4", "outline", "ctrl-4", O, Level4),
-    b!("move-up", "outline", "ctrl-shift-up", O, MoveUp),
-    b!("move-down", "outline", "ctrl-shift-down", O, MoveDown),
-    b!("move-to", "outline", "ctrl-shift-m", O, MoveTo),
-    b!("mirror", "outline", "ctrl-alt-m", O, MirrorBullet),
-    b!("link-to", "outline", "ctrl-shift-k", E, LinkToBullet),
-    b!("delete-bullet", "outline", "ctrl-shift-backspace", O, DeleteNode),
-    b!("toggle-completed", "outline", "ctrl-o", O, ToggleCompletedVisible),
-    // Navigation
-    b!("page-back", "navigation", "mouse-back", O, PageBack),
-    b!("page-back", "navigation", "ctrl-alt-left", O, PageBack),
-    b!("page-forward", "navigation", "mouse-forward", O, PageForward),
-    b!("page-forward", "navigation", "ctrl-alt-right", O, PageForward),
-    b!("zoom-in", "navigation", "ctrl-]", O, ZoomIn),
-    b!("zoom-in", "navigation", "alt-right", S, ZoomIn),
-    b!("zoom-out", "navigation", "ctrl-[", O, ZoomOut),
-    b!("zoom-out", "navigation", "alt-left", S, ZoomOut),
-    b!("home-page", "navigation", "ctrl-shift-h", O, ZoomHome),
-    b!("jump", "navigation", "ctrl-p", O, Jump),
-    b!("star", "navigation", "ctrl-shift-s", O, ToggleStar),
-    b!("today", "navigation", "ctrl-shift-d", O, Today),
-    b!("calendar", "navigation", "ctrl-shift-c", O, ShowCalendar),
-    // Search
-    b!("find", "search", "ctrl-f", O, Find),
-    b!("next-match", "search", "ctrl-g", O, NextMatch),
-    b!("next-match", "search", "f3", O, NextMatch),
-    b!("prev-match", "search", "ctrl-shift-g", O, PrevMatch),
-    b!("prev-match", "search", "shift-f3", O, PrevMatch),
-    b!("escape", "search", "escape", O, Escape),
-    // App
-    b!("import", "app", "ctrl-shift-i", O, Import),
-    b!("export-md", "app", "ctrl-shift-e", O, ExportMarkdown),
-    b!("trash", "app", "ctrl-shift-delete", O, ShowTrash),
-    b!("settings", "app", "ctrl-,", None, OpenSettings),
-    b!("quit", "app", "ctrl-q", None, Quit),
-];
-
-/// Primary modifier + key formatted for prose hints (e.g. `⌘P` on macOS, `Ctrl+P` elsewhere).
-pub fn primary_hint(key: &str) -> String {
-    if cfg!(target_os = "macos") {
-        format!("⌘{key}")
-    } else {
-        format!("Ctrl+{key}")
+impl Binding {
+    /// Default keys on `os` (`""`: unbound there).
+    fn keys_on(&self, os: Os) -> &'static str {
+        match os {
+            Os::Mac => self.mac,
+            Os::Windows | Os::Linux => self.other,
+        }
     }
-}
 
-/// Alt/Option modifier name for prose hints.
-pub fn alt_hint() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "⌥"
-    } else {
-        "Alt"
-    }
-}
-
-/// Backspace key name for prose hints.
-pub fn backspace_hint() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "⌫"
-    } else {
-        "Backspace"
+    pub fn label(&self) -> &'static str {
+        i18n::text(&format!("shortcut.{}", self.id))
     }
 }
 
 /// The keys a binding id currently uses (empty = unbound).
 pub fn keys_for(id: &str, overrides: &HashMap<String, Vec<String>>) -> Vec<String> {
+    keys_on(platform::OS, id, overrides)
+}
+
+fn keys_on(os: Os, id: &str, overrides: &HashMap<String, Vec<String>>) -> Vec<String> {
     if let Some(k) = overrides.get(id) {
         return k.clone();
     }
-    let mut out: Vec<String> = BINDINGS.iter().filter(|b| b.id == id && !b.keys.is_empty()).map(|b| b.keys.to_string()).collect();
+    let mut out: Vec<String> =
+        BINDINGS.iter().filter(|b| b.id == id).map(|b| b.keys_on(os)).filter(|k| !k.is_empty()).map(str::to_string).collect();
     out.dedup();
     out
+}
+
+/// A binding's first key as prose ("⌘P", "Ctrl+P") for hints and toasts;
+/// its label when it has no key.
+pub fn hint(id: &str, overrides: &HashMap<String, Vec<String>>) -> String {
+    match keys_for(id, overrides).first() {
+        Some(k) => platform::key_text(k),
+        None => BINDINGS.iter().find(|b| b.id == id).map(|b| b.label().to_string()).unwrap_or_default(),
+    }
 }
 
 /// (Re)install every binding, applying overrides. An override replaces all
@@ -306,8 +224,11 @@ pub fn install(cx: &mut App, overrides: &HashMap<String, Vec<String>>) {
                     out.extend(bind(key, b, cx));
                 }
             }
-        } else if !b.keys.is_empty() && !b.keys.starts_with("mouse-") {
-            out.extend(bind(b.keys, b, cx));
+        } else {
+            let key = b.keys_on(platform::OS);
+            if !key.is_empty() && !key.starts_with("mouse-") {
+                out.extend(bind(key, b, cx));
+            }
         }
     }
     // Read-only selectable labels (About and Agent panels).
@@ -326,14 +247,14 @@ fn bind(keys: &str, b: &Binding, cx: &App) -> Option<KeyBinding> {
         .ok()
 }
 
-/// Effective (keys, context) pairs of a binding id after overrides.
-fn effective(id: &str, overrides: &HashMap<String, Vec<String>>) -> Vec<(String, Option<&'static str>)> {
+/// Effective (keys, context) pairs of a binding id on `os` after overrides.
+fn effective(os: Os, id: &str, overrides: &HashMap<String, Vec<String>>) -> Vec<(String, Option<&'static str>)> {
     BINDINGS
         .iter()
         .filter(|b| b.id == id)
         .flat_map(|b| match overrides.get(id) {
             Some(keys) => keys.iter().filter(|k| !k.is_empty()).map(|k| (k.clone(), b.context)).collect::<Vec<_>>(),
-            None if !b.keys.is_empty() => vec![(b.keys.to_string(), b.context)],
+            None if !b.keys_on(os).is_empty() => vec![(b.keys_on(os).to_string(), b.context)],
             None => Vec::new(),
         })
         .collect()
@@ -362,8 +283,12 @@ fn overlap(a: Option<&str>, b: Option<&str>) -> bool {
 
 /// Ids whose shortcut collides with another action's in an overlapping context.
 pub fn conflicts(overrides: &HashMap<String, Vec<String>>) -> std::collections::HashSet<&'static str> {
+    conflicts_on(platform::OS, overrides)
+}
+
+fn conflicts_on(os: Os, overrides: &HashMap<String, Vec<String>>) -> std::collections::HashSet<&'static str> {
     let all: Vec<(&'static str, String, Option<&'static str>)> =
-        rows().into_iter().flat_map(|r| effective(r.id, overrides).into_iter().map(move |(k, c)| (r.id, k, c))).collect();
+        rows().into_iter().flat_map(|r| effective(os, r.id, overrides).into_iter().map(move |(k, c)| (r.id, k, c))).collect();
     let mut out = std::collections::HashSet::new();
     for (i, a) in all.iter().enumerate() {
         for b in &all[i + 1..] {
@@ -374,12 +299,6 @@ pub fn conflicts(overrides: &HashMap<String, Vec<String>>) -> std::collections::
         }
     }
     out
-}
-
-impl Binding {
-    pub fn label(&self) -> &'static str {
-        i18n::text(&format!("shortcut.{}", self.id))
-    }
 }
 
 /// A shortcut group's heading.
@@ -398,12 +317,7 @@ pub fn rows() -> Vec<&'static Binding> {
 /// One entry in an application menu, shared between macOS's native menu bar
 /// (`cx.set_menus`) and the in-window menu bar on Windows / Linux.
 pub enum AppMenuItem {
-    Action {
-        label: &'static str,
-        #[cfg_attr(target_os = "macos", allow(dead_code))]
-        shortcut_id: Option<&'static str>,
-        action: fn() -> Box<dyn Action>,
-    },
+    Action { label: &'static str, shortcut_id: Option<&'static str>, action: fn() -> Box<dyn Action> },
     Separator,
 }
 
@@ -416,8 +330,15 @@ fn item<A: Action + Default>(label: &'static str, shortcut_id: Option<&'static s
     AppMenuItem::Action { label, shortcut_id, action: || Box::new(A::default()) }
 }
 
-/// Build the application menus for the current platform and locale.
+/// The application menus for this platform, in the current locale.
 pub fn app_menus() -> Vec<AppMenu> {
+    menus_for(platform::OS)
+}
+
+/// macOS keeps About, Settings and Quit in the app-name menu; elsewhere
+/// they go to the File and Help menus.
+fn menus_for(os: Os) -> Vec<AppMenu> {
+    let app_menu = os == Os::Mac;
     let mut file_items = vec![
         item::<Import>(t!("menu.file.import"), Some("import")),
         AppMenuItem::Separator,
@@ -427,7 +348,7 @@ pub fn app_menus() -> Vec<AppMenu> {
         AppMenuItem::Separator,
         item::<ShowTrash>(t!("menu.file.trash"), Some("trash")),
     ];
-    if !cfg!(target_os = "macos") {
+    if !app_menu {
         file_items.push(AppMenuItem::Separator);
         file_items.push(item::<OpenSettings>(t!("menu.app.settings"), Some("settings")));
         file_items.push(AppMenuItem::Separator);
@@ -441,13 +362,13 @@ pub fn app_menus() -> Vec<AppMenu> {
         item::<OpenPrivacyPolicy>(t!("menu.help.privacy"), None),
         item::<OpenTerms>(t!("menu.help.terms"), None),
     ];
-    if !cfg!(target_os = "macos") {
+    if !app_menu {
         help_items.push(AppMenuItem::Separator);
         help_items.push(item::<OpenAbout>(t!("menu.app.about"), None));
     }
 
     let mut menus = Vec::new();
-    if cfg!(target_os = "macos") {
+    if app_menu {
         menus.push(AppMenu {
             name: "Flowie",
             items: vec![
@@ -585,26 +506,61 @@ mod tests {
         assert!(conflicts.contains("page-forward"));
     }
 
+    const ALL_OS: [Os; 3] = [Os::Mac, Os::Windows, Os::Linux];
+
     #[test]
-    fn default_bindings_have_no_conflicts_and_parse() {
-        assert!(conflicts(&HashMap::new()).is_empty(), "default bindings conflict: {:?}", conflicts(&HashMap::new()));
-        for b in BINDINGS {
-            if b.keys.is_empty() || b.keys.starts_with("mouse-") {
-                continue;
-            }
-            for stroke in b.keys.split_whitespace() {
-                gpui::Keystroke::parse(stroke).unwrap_or_else(|e| panic!("invalid keystroke {stroke:?} for {}: {e}", b.id));
+    fn default_bindings_have_no_conflicts_and_parse_on_every_platform() {
+        for os in ALL_OS {
+            let conflicts = conflicts_on(os, &HashMap::new());
+            assert!(conflicts.is_empty(), "{os:?}: default bindings conflict: {conflicts:?}");
+            for b in BINDINGS {
+                let keys = b.keys_on(os);
+                if keys.starts_with("mouse-") {
+                    continue;
+                }
+                for stroke in keys.split_whitespace() {
+                    gpui::Keystroke::parse(stroke).unwrap_or_else(|e| panic!("{os:?}: invalid keystroke {stroke:?} for {}: {e}", b.id));
+                }
             }
         }
     }
 
     #[test]
-    fn app_menu_shortcuts_exist() {
-        for m in app_menus() {
-            for it in m.items {
-                if let AppMenuItem::Action { shortcut_id: Some(id), .. } = it {
-                    assert!(BINDINGS.iter().any(|b| b.id == id), "menu references unknown shortcut id {id:?}");
-                }
+    fn every_shortcut_has_a_default_somewhere() {
+        for r in rows() {
+            assert!(ALL_OS.iter().any(|&os| !keys_on(os, r.id, &HashMap::new()).is_empty()), "{} is unbound everywhere", r.id);
+        }
+    }
+
+    #[test]
+    fn defaults_off_macos_avoid_cmd_and_altgr() {
+        for b in BINDINGS {
+            for stroke in b.other.split_whitespace() {
+                let (mods, _) = platform::split_stroke(stroke);
+                assert!(!mods.contains(&"cmd"), "{}: {stroke:?} uses cmd off macOS", b.id);
+                // Ctrl+Alt is AltGr on Windows and the window manager's on Linux.
+                assert!(!(mods.contains(&"ctrl") && mods.contains(&"alt")), "{}: {stroke:?} is a Ctrl+Alt chord", b.id);
+            }
+        }
+    }
+
+    #[test]
+    fn app_menus_reference_known_shortcuts_and_keep_settings_and_quit() {
+        for os in ALL_OS {
+            let menus = menus_for(os);
+            let ids: Vec<&str> = menus
+                .iter()
+                .flat_map(|m| &m.items)
+                .filter_map(|it| match it {
+                    AppMenuItem::Action { shortcut_id, .. } => *shortcut_id,
+                    AppMenuItem::Separator => None,
+                })
+                .collect();
+            for id in &ids {
+                assert!(BINDINGS.iter().any(|b| b.id == *id), "{os:?}: menu references unknown shortcut id {id:?}");
+            }
+            for id in ["settings", "quit"] {
+                assert_eq!(ids.iter().filter(|i| **i == id).count(), 1, "{os:?}: {id} should appear once");
             }
         }
     }

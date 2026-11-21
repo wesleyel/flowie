@@ -300,28 +300,7 @@ mod tests {
     /// `.child(…)`, toasts or key labels. Names and key symbols are allowed.
     #[test]
     fn no_raw_ui_text() {
-        const ALLOWED: &[&str] = &[
-            "Flowie",
-            "Claude Code",
-            "#tag",
-            "fn",
-            "esc",
-            "home",
-            "end",
-            "Ctrl",
-            "Alt",
-            "Shift",
-            "Win",
-            "Fn",
-            "Enter",
-            "Bksp",
-            "Del",
-            "Tab",
-            "Space",
-            "Esc",
-            "Home",
-            "End",
-        ];
+        const ALLOWED: &[&str] = &["Flowie", "Claude Code", "#tag", "fn", "esc"];
         const CALLS: &[&str] = &[".child(\"", "toast(\"", "Text(\"", ".tooltip(\""];
         let mut found = Vec::new();
         let mut dirs = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];

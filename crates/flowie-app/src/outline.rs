@@ -261,10 +261,8 @@ pub struct Outline {
     pub kill_buffer: String,
     /// The open right-click menu (text or bullet).
     pub menu: Option<crate::menu::ContextMenu>,
-    /// The open top-level menu in the in-window menu bar (Windows / Linux).
-    #[cfg(not(target_os = "macos"))]
+    /// The open menu of the in-window menu bar (see `app_menu`).
     pub app_menu: Option<usize>,
-    #[cfg(not(target_os = "macos"))]
     pub app_menu_scroll: gpui::ScrollHandle,
 }
 
@@ -341,9 +339,7 @@ impl Outline {
             display_pos: Default::default(),
             popover: Default::default(),
             menu: None,
-            #[cfg(not(target_os = "macos"))]
             app_menu: None,
-            #[cfg(not(target_os = "macos"))]
             app_menu_scroll: gpui::ScrollHandle::new(),
             kill_buffer: String::new(),
             mouse_block: false,
@@ -1742,7 +1738,6 @@ impl Outline {
     }
 
     pub fn escape(&mut self, _: &Escape, _: &mut Window, cx: &mut Context<Self>) {
-        #[cfg(not(target_os = "macos"))]
         if self.close_app_menu() {
             cx.notify();
             return;

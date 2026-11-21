@@ -489,7 +489,7 @@ impl Outline {
                         theme,
                         t!("settings.shortcuts.title"),
                         Some(if recording.is_some() {
-                            t!("settings.shortcuts.recording_hint", backspace = keymap::backspace_hint()).into()
+                            t!("settings.shortcuts.recording_hint", backspace = crate::platform::key_name("backspace")).into()
                         } else {
                             t!("settings.shortcuts.hint").into()
                         }),
@@ -636,7 +636,7 @@ impl Outline {
                     .child(div().px_1().bg(theme.selection).child(t!("settings.appearance.preview.selected")))
                     .child(div().w(px(2.)).h(px(16.)).bg(theme.caret)),
             );
-        let os = os_name();
+        let os = crate::platform::name();
         div()
             .id("appearance")
             .size_full()
@@ -677,31 +677,17 @@ impl Outline {
                 cx.notify();
             }))
         }));
-        let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "Flowie".into());
-        // Screenshots show where the app is installed, not the build directory.
-        #[cfg(feature = "screenshots")]
-        let exe = {
-            drop(exe);
-            "/Applications/Flowie.app/Contents/MacOS/Flowie".to_string()
-        };
-        let db_env = self
-            .db_path
-            .as_ref()
-            .filter(|p| **p != crate::data_path())
-            .map(|p| format!("FLOWIE_DB=\"{}\" ", p.display()))
-            .unwrap_or_default();
-        let claude = format!("claude mcp add flowie -- {db_env}\"{exe}\" mcp");
-        let exe_json = serde_json::to_string(&exe).unwrap_or_else(|_| format!("{exe:?}"));
-        let json_cfg = format!("{{\n  \"mcpServers\": {{\n    \"flowie\": {{ \"command\": {exe_json}, \"args\": [\"mcp\"] }}\n  }}\n}}");
+        let setup = crate::agent::mcp::Setup::new(self.db_path.as_deref());
+        let (claude, json_cfg) = (setup.claude_command(), setup.client_config());
         let claude_label = self.label("mcp-claude", claude, cx);
         let json_label = self.label("mcp-json", json_cfg, cx);
         let block = |label: gpui::Entity<crate::selectable::SelectableText>| {
-            div().p_2().rounded_md().bg(theme.code_bg).font_family(crate::theme::MONO_FONT).text_size(px(12.)).child(label)
+            div().p_2().rounded_md().bg(theme.code_bg).font_family(crate::platform::MONO_FONT).text_size(px(12.)).child(label)
         };
         let desc = match mode {
             AgentMode::Off => t!("settings.agent.desc.off").to_string(),
             AgentMode::ReadOnly => t!("settings.agent.desc.read_only").to_string(),
-            AgentMode::ReadWrite => t!("settings.agent.desc.read_write", undo = keymap::primary_hint("Z")),
+            AgentMode::ReadWrite => t!("settings.agent.desc.read_write", undo = keymap::hint("undo", &self.config.keys)),
         };
         div()
             .id("agent")
@@ -810,7 +796,7 @@ impl Outline {
                     .when_some(db, |d, path| {
                         d.child(
                             button("reveal")
-                                .child(t!("settings.about.reveal", manager = file_manager_name()))
+                                .child(t!("settings.about.reveal", manager = crate::platform::file_manager()))
                                 .on_click(cx.listener(move |_, _, _, cx| cx.reveal_path(&path))),
                         )
                     })
@@ -829,65 +815,11 @@ pub const FEEDBACK_EMAIL: &str = "wesleyel@icloud.com";
 /// The GitHub Pages site (source in website/): home, privacy.html and terms.html.
 pub const SITE_URL: &str = "https://wesleyel.github.io/flowie";
 
-fn os_name() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "macOS"
-    } else if cfg!(target_os = "windows") {
-        "Windows"
-    } else {
-        t!("settings.appearance.theme.system")
-    }
-}
-
-fn file_manager_name() -> &'static str {
-    if cfg!(target_os = "macos") {
-        t!("settings.about.file_manager_macos")
-    } else if cfg!(target_os = "windows") {
-        t!("settings.about.file_manager_windows")
-    } else {
-        t!("settings.about.file_manager_other")
-    }
-}
-
-fn os_version() -> String {
-    #[cfg(target_os = "macos")]
-    {
-        let ver = std::process::Command::new("sw_vers")
-            .arg("-productVersion")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|v| v.trim().to_string())
-            .unwrap_or_default();
-        format!("macOS {ver}").trim().to_string()
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let v = windows_version::OsVersion::current();
-        let release = if v.major == 10 && v.build >= 22000 {
-            "11"
-        } else if v.major == 10 {
-            "10"
-        } else {
-            ""
-        };
-        if release.is_empty() {
-            format!("Windows ({}.{}.{})", v.major, v.minor, v.build)
-        } else {
-            format!("Windows {release} ({}.{}.{})", v.major, v.minor, v.build)
-        }
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        std::env::consts::OS.to_string()
-    }
-}
-
 /// A `mailto:` link with the app version and OS version filled in.
 fn feedback_url() -> String {
     let version = env!("CARGO_PKG_VERSION");
     let commit = option_env!("FLOWIE_COMMIT").unwrap_or("dev");
-    let os = os_version();
+    let os = crate::platform::os_version();
     let subject = format!("Flowie {version} feedback");
     let body = format!("\n\n\n--\nFlowie {version} ({commit}), {os}\n");
     format!("mailto:{FEEDBACK_EMAIL}?subject={}&body={}", percent(&subject), percent(&body))

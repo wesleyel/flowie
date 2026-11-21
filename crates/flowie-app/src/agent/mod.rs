@@ -1,20 +1,21 @@
-//! Agent interface. The running app listens on a Unix socket (owner-only)
-//! for newline-delimited JSON requests `{"id", "method", "params"}` and
-//! answers `{"id", "result"}` or `{"id", "error"}`. Requests run on the UI
-//! thread through the same code paths as keyboard edits, so changes show up
-//! live, persist normally, and each request is a single undo step.
+//! Agent interface. The running app listens on a local IPC socket (Unix
+//! domain socket on Unix, named pipe on Windows) for newline-delimited JSON
+//! requests `{"id", "method", "params"}` and answers `{"id", "result"}` or
+//! `{"id", "error"}`. Requests run on the UI thread through the same code
+//! paths as keyboard edits, so changes show up live, persist normally, and
+//! each request is a single undo step.
 //! `flowie mcp` (see `mcp.rs`) bridges this socket to MCP over stdio.
 
 pub mod mcp;
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
 use flowie_core::{io, markup, search::today, BlockKind, NodeId, Query, ROOT};
 use futures::StreamExt;
 use gpui::{App, Context, Entity};
+use interprocess::local_socket::{prelude::*, ListenerOptions, Name};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -31,22 +32,47 @@ pub enum AgentMode {
     ReadWrite,
 }
 
-/// Socket for the database at `db` (short path: Unix sockets allow ~100 bytes).
-pub fn socket_path(db: &std::path::Path) -> PathBuf {
+fn hash_u32(v: impl std::hash::Hash) -> u32 {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    v.hash(&mut h);
+    h.finish() as u32
+}
+
+/// Socket file path for the database at `db` (short path: Unix sockets allow ~100 bytes).
+#[cfg(unix)]
+pub fn socket_path(db: &Path) -> std::path::PathBuf {
     // Screenshot builds: the script picks the socket.
     #[cfg(feature = "screenshots")]
     if let Ok(p) = std::env::var("FLOWIE_SHOT_SOCKET") {
-        return PathBuf::from(p);
+        return std::path::PathBuf::from(p);
     }
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    db.hash(&mut h);
     let uid = unsafe { libc::getuid() };
-    let name = format!("flowie-{uid}-{:08x}.sock", h.finish() as u32);
+    let name = format!("flowie-{uid}-{:08x}.sock", hash_u32(db));
     // The sandbox can't use /tmp; its container has its own tmp.
     match crate::sandbox_container() {
         Some(data) => data.join("tmp").join(name),
-        None => PathBuf::from("/tmp").join(name),
+        None => std::path::PathBuf::from("/tmp").join(name),
+    }
+}
+
+/// Cross-platform local socket name for the database at `db`.
+pub fn socket_name(db: &Path) -> Result<Name<'static>, String> {
+    #[cfg(unix)]
+    {
+        use interprocess::local_socket::GenericFilePath;
+        socket_path(db).to_fs_name::<GenericFilePath>().map(|n| n.into_owned()).map_err(|e| e.to_string())
+    }
+    #[cfg(windows)]
+    {
+        use interprocess::local_socket::GenericNamespaced;
+        #[cfg(feature = "screenshots")]
+        if let Ok(p) = std::env::var("FLOWIE_SHOT_SOCKET") {
+            return p.to_ns_name::<GenericNamespaced>().map(|n| n.into_owned()).map_err(|e| e.to_string());
+        }
+        let user = std::env::var("USERNAME").unwrap_or_else(|_| "user".into());
+        let name = format!("flowie-{:08x}-{:08x}.sock", hash_u32(&user), hash_u32(db));
+        name.to_ns_name::<GenericNamespaced>().map(|n| n.into_owned()).map_err(|e| e.to_string())
     }
 }
 
@@ -62,22 +88,34 @@ pub struct Request {
 type Job = (Request, std::sync::mpsc::Sender<Result<String, String>>);
 
 /// Start listening for agent requests on behalf of `view`.
-pub fn start(db: &std::path::Path, view: Entity<Outline>, cx: &mut App) {
-    let path = socket_path(db);
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    // A stale socket from a crashed run: remove it if nobody answers.
-    if path.exists() && UnixStream::connect(&path).is_err() {
-        let _ = std::fs::remove_file(&path);
-    }
-    let listener = match UnixListener::bind(&path) {
-        Ok(l) => l,
+pub fn start(db: &Path, view: Entity<Outline>, cx: &mut App) {
+    let name = match socket_name(db) {
+        Ok(n) => n,
         Err(e) => {
-            eprintln!("flowie: agent socket {} unavailable: {e}", path.display());
+            eprintln!("flowie: agent socket name unavailable: {e}");
             return;
         }
     };
+    #[cfg(unix)]
+    let path = {
+        let path = socket_path(db);
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        // A stale socket from a crashed run: remove it if nobody answers.
+        if path.exists() && LocalSocketStream::connect(name.clone()).is_err() {
+            let _ = std::fs::remove_file(&path);
+        }
+        path
+    };
+    let listener = match ListenerOptions::new().name(name).create_sync() {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("flowie: agent socket unavailable: {e}");
+            return;
+        }
+    };
+    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
@@ -102,17 +140,21 @@ pub fn start(db: &std::path::Path, view: Entity<Outline>, cx: &mut App) {
         }
     })
     .detach();
-    let cleanup = path.clone();
-    cx.on_app_quit(move |_| {
-        let _ = std::fs::remove_file(&cleanup);
-        async {}
-    })
-    .detach();
+    #[cfg(unix)]
+    {
+        let cleanup = path;
+        cx.on_app_quit(move |_| {
+            let _ = std::fs::remove_file(&cleanup);
+            async {}
+        })
+        .detach();
+    }
 }
 
-fn serve(stream: UnixStream, tx: futures::channel::mpsc::UnboundedSender<Job>) {
-    let Ok(mut out) = stream.try_clone() else { return };
-    for line in BufReader::new(stream).lines() {
+fn serve(stream: LocalSocketStream, tx: futures::channel::mpsc::UnboundedSender<Job>) {
+    let reader = BufReader::new(&stream);
+    let mut out = &stream;
+    for line in reader.lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
             continue;
@@ -133,7 +175,7 @@ fn serve(stream: UnixStream, tx: futures::channel::mpsc::UnboundedSender<Job>) {
             }
             Err(e) => json!({"id": null, "error": format!("bad request: {e}")}),
         };
-        if writeln!(out, "{resp}").is_err() {
+        if writeln!(out, "{resp}").is_err() || out.flush().is_err() {
             break;
         }
     }
@@ -486,5 +528,50 @@ impl Outline {
         params["parent"] = json!(day);
         params.as_object_mut().map(|o| o.remove("after"));
         self.agent_create(&params, cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_socket_round_trip() {
+        let db = std::env::temp_dir().join(format!("flowie-ipc-test-{}.sqlite", std::process::id()));
+        let name = socket_name(&db).expect("socket name");
+        #[cfg(unix)]
+        let path = socket_path(&db);
+        #[cfg(unix)]
+        let _ = std::fs::remove_file(&path);
+
+        let listener = ListenerOptions::new().name(name.clone()).create_sync().expect("bind local socket");
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<Job>();
+
+        let server = std::thread::spawn(move || {
+            let stream = listener.incoming().next().expect("incoming").expect("accept");
+            serve(stream, tx);
+        });
+        let handler = std::thread::spawn(move || {
+            let (req, reply) = futures::executor::block_on(rx.next()).expect("job");
+            assert_eq!(req.method, "ping");
+            let _ = reply.send(Ok("pong".into()));
+        });
+
+        let stream = LocalSocketStream::connect(name).expect("connect");
+        let mut reader = BufReader::new(stream);
+        let mut writer = reader.get_ref();
+        writeln!(writer, r#"{{"id":1,"method":"ping","params":{{}}}}"#).expect("write");
+        writer.flush().expect("flush");
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("read");
+        let resp: Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(resp["id"], 1);
+        assert_eq!(resp["result"], "pong");
+        drop(reader);
+
+        handler.join().unwrap();
+        server.join().unwrap();
+        #[cfg(unix)]
+        let _ = std::fs::remove_file(&path);
     }
 }

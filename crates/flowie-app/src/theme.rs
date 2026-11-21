@@ -4,9 +4,15 @@
 
 use gpui::{hsla, point, px, BoxShadow, Hsla, Pixels, WindowAppearance};
 
-/// The UI font (San Francisco) and the code font.
+/// The UI font (San Francisco on macOS, Segoe UI on Windows via GPUI's `.SystemUIFont`)
+/// and the code font.
 pub const UI_FONT: &str = ".SystemUIFont";
+#[cfg(target_os = "macos")]
 pub const MONO_FONT: &str = "Menlo";
+#[cfg(target_os = "windows")]
+pub const MONO_FONT: &str = "Consolas";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub const MONO_FONT: &str = "monospace";
 
 /// Corner radii: key caps and checkboxes; rows, buttons and fields; sheets'
 /// inner cards; menus, popovers and sheets.

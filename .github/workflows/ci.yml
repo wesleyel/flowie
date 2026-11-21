@@ -87,3 +87,33 @@ jobs:
           sleep 10
           kill -0 "$pid"   # still running: it started without crashing
           kill "$pid"
+
+  check-windows:
+    name: clippy, test and build (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build
+        run: cargo build --locked -p flowie-app
+      - name: Smoke test (MCP stdio)
+        shell: pwsh
+        run: |
+          $input = @(
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}',
+            '{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}'
+          ) -join "`n"
+          $out = $input | .\target\debug\flowie.exe mcp
+          $out | ForEach-Object { Write-Host $_ }
+          if (-not ($out -join "`n" -match '"name":"flowie"')) { throw "MCP initialize failed" }
+          if (-not ($out -join "`n" -match '"id":2')) { throw "MCP ping failed" }

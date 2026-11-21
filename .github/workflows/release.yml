@@ -63,9 +63,11 @@ jobs:
               echo "**This is a release candidate**, for trying out before $(t=${TAG#v}; echo "${t%%-*}") is final: \`brew install --cask wesleyel/tap/flowie\`, or the zip below."
               echo
             fi
-            echo "**Get Flowie** on the [Mac App Store](https://apps.apple.com/app/id6835913837) (signed, sandboxed, updated automatically), download the open-source version, **Flowie-${TAG#v}-macos.zip**, below, or [build it from source](https://github.com/wesleyel/flowie/blob/$TAG/docs/building.md)."
+            echo "**Get Flowie** on the [Mac App Store](https://apps.apple.com/app/id6835913837) (signed, sandboxed, updated automatically), download the open-source macOS (**Flowie-${TAG#v}-macos.zip**) or Windows (**Flowie-${TAG#v}-windows-x64.zip**) zip below, or [build it from source](https://github.com/wesleyel/flowie/blob/$TAG/docs/building.md)."
             echo
-            echo "The zip is a universal app for macOS 13 or later that isn't notarized, so macOS blocks the first launch: unzip it, move Flowie.app to Applications, then right-click it and choose **Open** (on macOS 15 or later: open it once, then **System Settings → Privacy & Security → Open Anyway**). Or run \`xattr -dr com.apple.quarantine /Applications/Flowie.app\`. It doesn't update itself."
+            echo "**macOS:** The zip is a universal app for macOS 13 or later that isn't notarized, so macOS blocks the first launch: unzip it, move Flowie.app to Applications, then right-click it and choose **Open** (on macOS 15 or later: open it once, then **System Settings → Privacy & Security → Open Anyway**). Or run \`xattr -dr com.apple.quarantine /Applications/Flowie.app\`. It doesn't update itself."
+            echo
+            echo "**Windows:** Unzip **Flowie-${TAG#v}-windows-x64.zip** and run \`Flowie.exe\` (Windows 10/11, 64-bit). Because it isn't code-signed yet, Windows SmartScreen may warn on first run — choose **More info → Run anyway**."
           } > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
       - name: Create or update the release
@@ -154,3 +156,51 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
         run: scripts/update-tap-cask.sh "${TAG#v}" "$ZIP.sha256"
+
+  windows-app:
+    name: Windows app zip
+    needs: release
+    if: github.event_name == 'push' || inputs.build
+    runs-on: windows-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Build Windows binary
+        run: cargo build --release --locked -p flowie-app --target x86_64-pc-windows-msvc
+      - name: Package zip and checksum
+        shell: pwsh
+        run: |
+          $ver = $env:TAG.TrimStart('v')
+          $stage = "build\Flowie"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "target\x86_64-pc-windows-msvc\release\flowie.exe" "$stage\Flowie.exe"
+          Copy-Item "LICENSE" "$stage\LICENSE"
+          $zip = "build\Flowie-$ver-windows-x64.zip"
+          Compress-Archive -Path $stage -DestinationPath $zip -Force
+          $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Flowie-$ver-windows-x64.zip" | Set-Content -NoNewline "$zip.sha256"
+          "`n" | Add-Content -NoNewline "$zip.sha256"
+          Get-Content "$zip.sha256"
+          "ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Smoke test (MCP stdio)
+        shell: pwsh
+        run: |
+          $input = @(
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}',
+            '{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}'
+          ) -join "`n"
+          $out = $input | .\build\Flowie\Flowie.exe mcp
+          $out | ForEach-Object { Write-Host $_ }
+          if (-not ($out -join "`n" -match '"name":"flowie"')) { throw "MCP initialize failed" }
+          if (-not ($out -join "`n" -match '"id":2')) { throw "MCP ping failed" }
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$env:TAG" "$env:ZIP" "$env:ZIP.sha256" --clobber

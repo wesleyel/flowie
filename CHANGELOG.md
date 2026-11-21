@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Each version's section becomes its [GitHub release](https://github.com/wesleyel/flowie/releases)
 notes (`scripts/changelog-section.sh`). A version first ships as release candidates
-(`X.Y.Z-rc.N`, GitHub pre-releases and the `flowie@beta` Homebrew cask), then as `X.Y.Z`.
+(`X.Y.Z-rc.N`, GitHub releases and the `flowie@beta` Homebrew cask), then as `X.Y.Z`.
 
 ## [Unreleased]
 
@@ -22,7 +22,8 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 - In the light theme, orange and yellow text are easier to tell apart from red and from each
   other.
-
+- Release candidates on GitHub are no longer marked as pre-releases, and the newest version, a
+  candidate included, is marked as the latest release.
 - Enter on a to-do or numbered item starts the next row as the same kind (a new to-do starts
   unchecked), and a new first child takes the kind of the child below it. Enter on an empty to-do
   or numbered item turns it back into a plain bullet, ending the list.

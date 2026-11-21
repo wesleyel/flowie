@@ -8,9 +8,9 @@ name: Release
 # App Store.
 #
 # Release candidates come first: a tag vX.Y.Z-rc.N (Cargo.toml still says X.Y.Z, which is what
-# the App Store gets) publishes a pre-release, Flowie-X.Y.Z-rc.N-macos.zip, and updates the
-# flowie@beta cask. Once it holds up, tag vX.Y.Z: a stable release, marked latest, and the
-# flowie cask.
+# the App Store gets) publishes a release, Flowie-X.Y.Z-rc.N-macos.zip, and updates the
+# flowie@beta cask. Once it holds up, tag vX.Y.Z: a release and the flowie cask. Neither kind is
+# a pre-release; whichever tag is the newest version is marked latest.
 on:
   push:
     tags: ["v*"]
@@ -71,8 +71,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Flowie ${TAG#v}"
-          # A release candidate is a pre-release; a final version becomes the latest release.
-          if [[ $TAG == *-rc.* ]]; then kind=(--prerelease); else kind=(--prerelease=false --latest); fi
+          # No release is a pre-release, candidates included. The newest version is the latest
+          # release (X.Y.Z-rc.N sorts before X.Y.Z), so re-running an older tag leaves it alone.
+          newest=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' \
+            | sed 's/-rc\./~rc./' | sort -V | tail -n 1 | sed 's/~rc\./-rc./')
+          if [ "$TAG" = "$newest" ]; then latest=--latest; else latest=--latest=false; fi
+          kind=(--prerelease=false "$latest")
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" "${kind[@]}"
           else

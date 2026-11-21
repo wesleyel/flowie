@@ -32,6 +32,11 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
   unchecked), and a new first child takes the kind of the child below it. Enter on an empty to-do
   or numbered item turns it back into a plain bullet, ending the list.
 
+### Fixed
+
+- Reopening a bullet returns to where you had scrolled in it, instead of its top, also after
+  quitting and relaunching Flowie.
+
 ## [1.0.0-rc.2] - 2026-11-19
 
 ### Added

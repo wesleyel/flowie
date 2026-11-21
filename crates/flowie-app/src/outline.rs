@@ -175,6 +175,27 @@ struct PageLocation {
     scroll: gpui::ListOffset,
 }
 
+/// Where a page was scrolled to: the row at the top and how far into it.
+#[derive(Clone, Copy)]
+struct PageScroll {
+    top_row: NodeId,
+    offset: Pixels,
+}
+
+impl PageScroll {
+    fn encode(self, zoom: NodeId) -> String {
+        format!("{zoom}:{}:{}", self.top_row, f32::from(self.offset))
+    }
+
+    fn decode(v: &str) -> Option<(NodeId, Self)> {
+        let mut it = v.split(':');
+        let zoom = it.next()?.parse().ok()?;
+        let top_row = it.next()?.parse().ok()?;
+        let offset = px(it.next()?.parse().ok()?);
+        Some((zoom, PageScroll { top_row, offset }))
+    }
+}
+
 pub struct Outline {
     pub focus: FocusHandle,
     pub tree: Tree,
@@ -183,6 +204,8 @@ pub struct Outline {
     pub zoom: NodeId,
     back_pages: Vec<PageLocation>,
     forward_pages: Vec<PageLocation>,
+    /// Scroll position of each page opened this session, so reopening a node returns to it.
+    page_scrolls: std::collections::HashMap<NodeId, PageScroll>,
     pub hide_completed: bool,
     pub query: String,
     pub rows: Vec<Row>,
@@ -256,10 +279,12 @@ impl Outline {
         let mut hide_completed = false;
         let mut starred = Vec::new();
         let mut saved_searches = Vec::new();
+        let mut page_scrolls = std::collections::HashMap::new();
         for (k, v) in &meta {
             match k.as_str() {
                 "zoom" => zoom = v.parse().unwrap_or(ROOT),
                 "hide_completed" => hide_completed = v == "1",
+                "scroll" => page_scrolls.extend(PageScroll::decode(v)),
                 "next_id" => tree.ensure_next_id(v.parse().unwrap_or(0)),
                 "starred" => starred = v.split(',').filter_map(|x| x.parse().ok()).collect(),
                 "saved_searches" => saved_searches = v.split('\n').filter(|x| !x.is_empty()).map(String::from).collect(),
@@ -278,6 +303,7 @@ impl Outline {
             zoom,
             back_pages: Vec::new(),
             forward_pages: Vec::new(),
+            page_scrolls,
             hide_completed,
             query: String::new(),
             rows: Vec::new(),
@@ -324,8 +350,9 @@ impl Outline {
             this.seed_welcome();
         }
         this.refresh(false);
-        if let Some(first) = this.rows.first() {
-            this.edit = Some(Edit::new(Target::Text(first.id), this.tree.node(first.id).text.len()));
+        let top = this.restore_scroll();
+        if let Some(first) = top.or_else(|| this.rows.first().map(|r| r.id)) {
+            this.edit = Some(Edit::new(Target::Text(first), this.tree.node(first).text.len()));
         }
         cx.observe_window_appearance(window, |this, window, cx| {
             this.apply_theme(window);
@@ -558,6 +585,10 @@ impl Outline {
 
     pub fn flush(&mut self) {
         self.persist();
+        self.remember_scroll();
+        if let Some(s) = self.page_scrolls.get(&self.zoom) {
+            self.set_meta("scroll", &s.encode(self.zoom));
+        }
         if let Some(w) = &self.writer {
             w.flush();
         }
@@ -1365,8 +1396,39 @@ impl Outline {
         self.show_page(id, cx);
     }
 
+    /// Note where the current page is scrolled to (not while searching: that list is a different one).
+    fn remember_scroll(&mut self) {
+        if !self.query.is_empty() {
+            return;
+        }
+        let scroll = self.list.logical_scroll_top();
+        match self.display.get(scroll.item_ix) {
+            Some(d) => {
+                self.page_scrolls.insert(self.zoom, PageScroll { top_row: d.row.id, offset: scroll.offset_in_item });
+            }
+            None => {
+                self.page_scrolls.remove(&self.zoom);
+            }
+        }
+    }
+
+    /// Scroll the current page back to where it was last left; returns the row now at the top.
+    fn restore_scroll(&mut self) -> Option<NodeId> {
+        if !self.query.is_empty() {
+            return None;
+        }
+        let s = *self.page_scrolls.get(&self.zoom)?;
+        let item_ix = self.display_index(s.top_row)?;
+        if item_ix == 0 && s.offset <= px(0.) {
+            return None;
+        }
+        self.list.scroll_to(gpui::ListOffset { item_ix, offset_in_item: s.offset });
+        Some(s.top_row)
+    }
+
     fn show_page(&mut self, id: NodeId, cx: &mut Context<Self>) {
         self.popover.close();
+        self.remember_scroll();
         let came_from = self.zoom;
         self.zoom = id;
         self.block = None;
@@ -1376,11 +1438,12 @@ impl Outline {
         self.list.reset(self.display.len() + 1);
         self.zoom_tween = Some(Tween::new(anim::ZOOM));
         self.set_meta("zoom", &id.to_string());
-        // Put the caret somewhere sensible: on the node we came out of, or the first row.
+        let top = self.restore_scroll();
+        // Put the caret somewhere sensible: on the node we came out of, or the top row.
         let target = if self.tree.is_ancestor(id, came_from) && self.row_index(came_from).is_some() {
             Some(came_from)
         } else {
-            self.rows.first().map(|r| r.id)
+            top.filter(|&t| self.row_index(t).is_some()).or_else(|| self.rows.first().map(|r| r.id))
         };
         match target {
             Some(t) => {

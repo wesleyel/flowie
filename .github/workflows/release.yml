@@ -8,9 +8,9 @@ name: Release
 # App Store.
 #
 # Release candidates come first: a tag vX.Y.Z-rc.N (Cargo.toml still says X.Y.Z, which is what
-# the App Store gets) publishes a release, Flowie-X.Y.Z-rc.N-macos.zip, and updates the
-# flowie@beta cask. Once it holds up, tag vX.Y.Z: a release and the flowie cask. Neither kind is
-# a pre-release; whichever tag is the newest version is marked latest.
+# the App Store gets) publishes a release, Flowie-X.Y.Z-rc.N-macos.zip. Once it holds up, tag
+# vX.Y.Z. Neither kind is a pre-release: whichever tag is the newest version is marked latest
+# and goes into the flowie cask, a candidate included.
 on:
   push:
     tags: ["v*"]
@@ -31,6 +31,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      newest: ${{ steps.publish.outputs.newest }}
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -58,7 +60,7 @@ jobs:
             echo "---"
             echo
             if [[ $TAG == *-rc.* ]]; then
-              echo "**This is a release candidate**, for trying out before $(t=${TAG#v}; echo "${t%%-*}") is final: \`brew install --cask wesleyel/tap/flowie@beta\`, or the zip below."
+              echo "**This is a release candidate**, for trying out before $(t=${TAG#v}; echo "${t%%-*}") is final: \`brew install --cask wesleyel/tap/flowie\`, or the zip below."
               echo
             fi
             echo "**Get Flowie** on the [Mac App Store](https://apps.apple.com/app/id6835913837) (signed, sandboxed, updated automatically), download the open-source version, **Flowie-${TAG#v}-macos.zip**, below, or [build it from source](https://github.com/wesleyel/flowie/blob/$TAG/docs/building.md)."
@@ -67,6 +69,7 @@ jobs:
           } > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
       - name: Create or update the release
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -76,6 +79,7 @@ jobs:
           newest=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' \
             | sed 's/-rc\./~rc./' | sort -V | tail -n 1 | sed 's/~rc\./-rc./')
           if [ "$TAG" = "$newest" ]; then latest=--latest; else latest=--latest=false; fi
+          echo "newest=$([ "$TAG" = "$newest" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           kind=(--prerelease=false "$latest")
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" "${kind[@]}"
@@ -142,14 +146,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber
       - name: Update the Homebrew cask
-        # In wesleyel/homebrew-tap: Casks/flowie.rb takes final versions
-        # (`brew install --cask wesleyel/tap/flowie`); Casks/flowie@beta.rb takes release
-        # candidates and final versions alike, so it is never behind.
+        # Casks/flowie.rb in wesleyel/homebrew-tap (`brew install --cask wesleyel/tap/flowie`)
+        # takes every release, candidates included, but only the newest version: rebuilding an
+        # older tag must not move the cask back.
         # A failure here leaves the release and its zip in place; fix the token and re-run.
+        if: needs.release.outputs.newest == 'true'
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-        run: |
-          scripts/update-tap-cask.sh "${TAG#v}" "$ZIP.sha256" flowie@beta
-          if [[ $TAG != *-rc.* ]]; then
-            scripts/update-tap-cask.sh "${TAG#v}" "$ZIP.sha256" flowie
-          fi
+        run: scripts/update-tap-cask.sh "${TAG#v}" "$ZIP.sha256"

@@ -2,7 +2,7 @@
 # Write a new version and sha256 into a cask in wesleyel/homebrew-tap and push it.
 # usage: scripts/update-tap-cask.sh VERSION SHA256_FILE [CASK]
 #   SHA256_FILE: the .sha256 next to the release zip
-#   CASK: flowie (final versions, the default) or flowie@beta (release candidates)
+#   CASK: defaults to flowie, which takes every release, release candidates included
 # Needs GH_TOKEN with contents:write on wesleyel/homebrew-tap (secret HOMEBREW_TAP_GITHUB_TOKEN).
 set -euo pipefail
 

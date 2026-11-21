@@ -77,7 +77,7 @@
 
 - **[Mac App Store](https://apps.apple.com/app/id6835913837)**：经过签名和沙盒保护，自动更新。购买是获取 Flowie 最省事的方式，也是对开发的支持。（暂未在中国大陆地区上架。）
 - **开源版**：在 [Releases](https://github.com/wesleyel/flowie/releases) 页面下载 `Flowie-<版本号>-macos.zip`，以 `-rc.N` 结尾的是候选版。该版本未经公证，首次打开时请右键点按 Flowie.app 并选择「打开」（macOS 15 及以上：先打开一次，再到「系统设置 → 隐私与安全性」点「仍要打开」）。不会自动更新。
-- **Homebrew**：同样是开源版，`brew install --cask wesleyel/tap/flowie` 安装，`brew upgrade` 更新。想跟进候选版可改装 `wesleyel/tap/flowie@beta`。
+- **Homebrew**：同样是开源版，`brew install --cask wesleyel/tap/flowie` 安装，`brew upgrade` 更新，候选版也会推送。
 - **自行编译**：Flowie 是自由软件，步骤见 [docs/building.md](docs/building.md)。
 
 需要 macOS 13 Ventura 或更高版本，支持 Apple 芯片和 Intel 处理器。

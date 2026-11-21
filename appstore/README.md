@@ -129,11 +129,12 @@ before running `fastlane mac metadata`.
    the commit `vX.Y.Z-rc.N` and push the tag. `.github/workflows/release.yml` checks the
    tag against `Cargo.toml` (still `X.Y.Z`, which is what the App Store gets), publishes a
    GitHub release (not a pre-release) with that section as its notes and `Flowie-X.Y.Z-rc.N-macos.zip`,
-   and updates the `flowie@beta` cask.
+   and updates the `flowie` cask.
 6. Once a candidate holds up (and App Review has passed), gather the candidates' notes
-   under `## [X.Y.Z]`, tag `vX.Y.Z` and push: the stable release and the `flowie` cask.
-   Whichever tag is the newest version is marked latest, a candidate included. To fix notes later, edit `CHANGELOG.md` on main and run the Release
-   workflow by hand with the tag.
+   under `## [X.Y.Z]`, tag `vX.Y.Z` and push: the stable release, and the `flowie` cask
+   again. Whichever tag is the newest version is marked latest and goes into the cask; re-running
+   an older tag changes neither. To fix notes later, edit `CHANGELOG.md` on main and run the
+   Release workflow by hand with the tag.
 
 The build number is the git commit count, so commit between uploads.
 

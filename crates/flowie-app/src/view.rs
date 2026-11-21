@@ -3,8 +3,8 @@
 use flowie_core::{markup, BlockKind, NodeId, ROOT};
 use flowie_math::math;
 use gpui::{
-    div, list, prelude::*, px, radians, relative, svg, AnyElement, Context, FontWeight, KeyContext, MouseButton, MouseDownEvent,
-    MouseMoveEvent, SharedString, StyledText, Transformation, Window,
+    canvas, div, list, prelude::*, px, radians, relative, svg, AnyElement, Context, DispatchPhase, FontWeight, HitboxBehavior, KeyContext,
+    MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, ScrollEvent, SharedString, StyledText, Transformation, Window,
 };
 
 use crate::anim::{self, ease_in_out, ease_out, Channel};
@@ -995,9 +995,43 @@ impl Render for Outline {
         } else {
             // A popover sits at fixed window coordinates: scrolling the page
             // under it closes it.
+            self.wheel.step(&self.list);
+            let wheel_target = cx.entity();
             div()
                 .relative()
                 .size_full()
+                .child(
+                    // Takes mouse-wheel steps before the list does, to animate them.
+                    canvas(
+                        |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+                        move |_, hitbox, window, _| {
+                            window.on_mouse_event(move |e: &ScrollEvent, phase, window, cx| {
+                                if phase != DispatchPhase::Capture || e.delta.precise() || !hitbox.should_handle_scroll(window) {
+                                    return;
+                                }
+                                let dy = e.delta.pixel_delta(px(20.)).y;
+                                let taken = dy != Pixels::ZERO
+                                    && wheel_target.update(cx, |this, cx| {
+                                        if !this.config.smooth_scroll {
+                                            return false;
+                                        }
+                                        this.wheel.push(-dy);
+                                        this.popover.close();
+                                        this.close_menu();
+                                        cx.notify();
+                                        true
+                                    });
+                                if taken {
+                                    cx.stop_propagation();
+                                }
+                            });
+                        },
+                    )
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full(),
+                )
                 .child(
                     div()
                         .id("outline-scroll")

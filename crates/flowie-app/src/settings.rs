@@ -26,7 +26,7 @@ pub enum ThemeMode {
     Dark,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub theme: ThemeMode,
@@ -42,6 +42,27 @@ pub struct Config {
     /// UI language: a locale code from `locales/`; empty = follow macOS.
     #[serde(default)]
     pub language: String,
+    /// Animate mouse-wheel scrolling of the outline (trackpads already scroll smoothly). Not in
+    /// the Settings window yet; set `"smooth_scroll": false` in settings.json to turn it off.
+    #[serde(default = "yes")]
+    pub smooth_scroll: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            theme: ThemeMode::default(),
+            accent: String::new(),
+            keys: HashMap::new(),
+            agent: Default::default(),
+            language: String::new(),
+            smooth_scroll: true,
+        }
+    }
 }
 
 #[cfg(test)]

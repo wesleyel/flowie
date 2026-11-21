@@ -220,6 +220,8 @@ pub struct Outline {
     pub settings: Option<crate::settings::SettingsUi>,
     pub settings_return: Option<(Target, usize)>,
     pub config: crate::settings::Config,
+    /// Mouse-wheel scrolling still to animate (`config.smooth_scroll`).
+    pub wheel: WheelScroll,
     pub config_path: std::path::PathBuf,
     /// Selectable read-only labels, keyed by name.
     pub labels: std::collections::HashMap<&'static str, gpui::Entity<crate::selectable::SelectableText>>,
@@ -281,6 +283,7 @@ impl Outline {
             rows: Vec::new(),
             display: Vec::new(),
             list: ListState::new(0, ListAlignment::Top, px(600.)),
+            wheel: WheelScroll::default(),
             edit: None,
             block: None,
             anims: Anims::default(),
@@ -469,7 +472,7 @@ impl Outline {
     }
 
     pub fn is_animating(&self) -> bool {
-        self.anims.any_running() || self.zoom_tween.is_some() || self.display.iter().any(|d| d.leaving)
+        self.anims.any_running() || self.zoom_tween.is_some() || self.display.iter().any(|d| d.leaving) || self.wheel.running()
     }
 
     pub fn row_index(&self, id: NodeId) -> Option<usize> {
@@ -1781,5 +1784,57 @@ impl Outline {
             self.commit_structure(before, cx);
         }
         cx.notify();
+    }
+}
+
+/// A mouse wheel scrolls in steps of whole lines; instead of jumping a step at once, the outline
+/// eases toward where the wheel has sent it, the way a trackpad scrolls.
+#[derive(Default)]
+pub struct WheelScroll {
+    /// Distance still to scroll, positive = down.
+    pending: Pixels,
+    last_frame: Option<std::time::Instant>,
+}
+
+impl WheelScroll {
+    /// How fast the remaining distance shrinks: about 63% of it every `TAU` seconds.
+    const TAU: f32 = 0.06;
+
+    pub fn running(&self) -> bool {
+        self.pending != Pixels::ZERO
+    }
+
+    /// Adds one wheel step; turning the wheel the other way drops what was left.
+    pub fn push(&mut self, distance: Pixels) {
+        if (distance > Pixels::ZERO) != (self.pending > Pixels::ZERO) {
+            self.pending = Pixels::ZERO;
+        }
+        if !self.running() {
+            self.last_frame = Some(std::time::Instant::now());
+        }
+        self.pending += distance;
+    }
+
+    /// Scrolls `list` by this frame's share, stopping at either end.
+    pub fn step(&mut self, list: &ListState) {
+        if !self.running() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        let dt = self.last_frame.map_or(1. / 60., |t| now.duration_since(t).as_secs_f32()).min(0.05);
+        self.last_frame = Some(now);
+        let mut step = self.pending * (1. - (-dt / Self::TAU).exp());
+        if (self.pending - step).abs() < px(0.5) {
+            step = self.pending;
+        }
+        let top = -list.scroll_px_offset_for_scrollbar().y;
+        list.set_offset_from_scrollbar(gpui::point(Pixels::ZERO, -(top + step)));
+        let moved = -list.scroll_px_offset_for_scrollbar().y - top;
+        // Short of the step means an end was reached: nothing more to scroll that way.
+        if (moved - step).abs() > px(0.5) {
+            self.pending = Pixels::ZERO;
+        } else {
+            self.pending -= step;
+        }
     }
 }

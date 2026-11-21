@@ -20,6 +20,8 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ### Changed
 
+- Scrolling the outline with a mouse wheel is now smooth: each step of the wheel glides instead of
+  jumping, as a trackpad already did.
 - In the light theme, orange and yellow text are easier to tell apart from red and from each
   other.
 - Release candidates on GitHub are no longer marked as pre-releases, and the newest version, a

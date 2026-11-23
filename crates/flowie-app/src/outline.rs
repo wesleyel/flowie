@@ -664,9 +664,7 @@ impl Outline {
                 self.commit_typing(src, before, cx);
             }
             Target::Search => {
-                self.query = text;
-                self.refresh(false);
-                self.list.scroll_to(gpui::ListOffset { item_ix: 0, offset_in_item: px(0.) });
+                self.set_query(text);
                 cx.notify();
             }
         }
@@ -1722,18 +1720,29 @@ impl Outline {
         }
     }
 
-    /// Clear the search and keep the caret in the (now empty) search box.
-    pub fn clear_search(&mut self, cx: &mut Context<Self>) {
-        self.query.clear();
+    /// Change the search. Starting one notes where the page was scrolled;
+    /// clearing it scrolls the page back there instead of to the top.
+    fn set_query(&mut self, q: String) {
+        if q == self.query {
+            return;
+        }
+        if self.query.is_empty() {
+            self.remember_scroll();
+        }
+        self.query = q;
         self.refresh(false);
         self.list.reset(self.display.len() + 1);
+        self.restore_scroll();
+    }
+
+    /// Clear the search and keep the caret in the (now empty) search box.
+    pub fn clear_search(&mut self, cx: &mut Context<Self>) {
+        self.set_query(String::new());
         self.start_edit(Target::Search, 0, cx);
     }
 
     pub fn search_for(&mut self, q: &str, cx: &mut Context<Self>) {
-        self.query = q.to_string();
-        self.refresh(false);
-        self.list.reset(self.display.len() + 1);
+        self.set_query(q.to_string());
         self.start_edit(Target::Search, self.query.len(), cx);
     }
 
@@ -1768,9 +1777,7 @@ impl Outline {
         }
         match self.edit_target() {
             Some(Target::Search) => {
-                self.query.clear();
-                self.refresh(false);
-                self.list.reset(self.display.len() + 1);
+                self.set_query(String::new());
                 self.edit = self.rows.first().map(|r| Edit::new(Target::Text(r.id), 0));
             }
             Some(Target::Note(id)) => {
@@ -1783,16 +1790,13 @@ impl Outline {
                     self.block = Some(BlockSel { anchor: id, head: id });
                     self.edit = None;
                 } else if !self.query.is_empty() {
-                    self.query.clear();
-                    self.refresh(false);
+                    self.set_query(String::new());
                 }
             }
             Some(Target::Palette) => {}
             None => {
                 if self.block.take().is_none() && !self.query.is_empty() {
-                    self.query.clear();
-                    self.refresh(false);
-                    self.list.reset(self.display.len() + 1);
+                    self.set_query(String::new());
                 }
             }
         }

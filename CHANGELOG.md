@@ -10,6 +10,11 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+### Fixed
+
+- Clearing a search returns the page to where it was scrolled before the search, instead of to the
+  top of the zoomed-in bullet.
+
 ## [1.0.0-rc.3] - 2026-11-22
 
 ### Added

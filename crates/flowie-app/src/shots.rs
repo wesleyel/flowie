@@ -139,6 +139,7 @@ impl Outline {
                     Some("appearance") => Tab::Appearance,
                     Some("agent") => Tab::Agent,
                     Some("about") => Tab::About,
+                    Some("general") => Tab::General,
                     _ => Tab::Shortcuts,
                 };
                 self.show_settings(tab, cx);

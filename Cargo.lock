@@ -1488,6 +1488,7 @@ dependencies = [
  "serde_json",
  "sys-locale",
  "unicode-segmentation",
+ "uuid",
  "windows-version",
  "winresource",
 ]

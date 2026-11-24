@@ -118,6 +118,8 @@ pub enum Target {
     Note(NodeId),
     Search,
     Palette,
+    /// The author name field in Settings → General.
+    AuthorName,
 }
 
 pub struct Edit {
@@ -231,6 +233,8 @@ pub struct Outline {
     pub db_path: Option<std::path::PathBuf>,
     pub calendar: Option<crate::calendar::Calendar>,
     pub journal_id: Option<NodeId>,
+    /// This device, for share packages and (later) the change history: a UUID kept in the database's meta.
+    pub device_id: String,
     /// A block selection is being extended by dragging the mouse.
     pub mouse_block: bool,
     /// Snapshots of deleted nodes, so their rows can animate out.
@@ -332,6 +336,7 @@ impl Outline {
             db_path,
             calendar: None,
             journal_id: meta.iter().find(|(k, _)| k == "journal").and_then(|(_, v)| v.parse().ok()),
+            device_id: meta.iter().find(|(k, _)| k == "device").map(|(_, v)| v.clone()).unwrap_or_default(),
             toast: None,
             row_pos: Default::default(),
             display_pos: Default::default(),
@@ -353,6 +358,11 @@ impl Outline {
             labels: Default::default(),
             config,
         };
+        if this.device_id.is_empty() {
+            this.device_id = crate::settings::Author::new_id();
+            this.set_meta("device", &this.device_id.clone());
+        }
+        this.ensure_author();
         if this.tree.children(ROOT).is_empty() {
             this.seed_welcome();
         }
@@ -535,7 +545,7 @@ impl Outline {
     fn caret(&self) -> Option<Caret> {
         match self.edit.as_ref()?.target {
             Target::Text(id) | Target::Note(id) => Some(Caret { node: id, offset: self.edit.as_ref()?.caret() }),
-            Target::Search | Target::Palette => None,
+            Target::Search | Target::Palette | Target::AuthorName => None,
         }
     }
 
@@ -614,6 +624,7 @@ impl Outline {
             Some(Target::Note(id)) => self.tree.get(self.tree.source(id)).map(|n| n.note.as_str()).unwrap_or(""),
             Some(Target::Search) => &self.query,
             Some(Target::Palette) => self.palette.as_ref().map(|p| p.query.as_str()).unwrap_or(""),
+            Some(Target::AuthorName) => &self.config.author.name,
             None => "",
         }
     }
@@ -672,6 +683,10 @@ impl Outline {
                 self.set_query(text);
                 cx.notify();
             }
+            Target::AuthorName => {
+                self.set_author_name(text);
+                cx.notify();
+            }
         }
     }
 
@@ -694,6 +709,7 @@ impl Outline {
             Target::Note(id) => self.tree.get(self.tree.source(id)).map_or(0, |n| n.note.len()),
             Target::Search => self.query.len(),
             Target::Palette => self.palette.as_ref().map_or(0, |p| p.query.len()),
+            Target::AuthorName => self.config.author.name.len(),
         };
         self.edit = Some(Edit::new(target, offset.min(len)));
         if reveal {
@@ -705,7 +721,7 @@ impl Outline {
     pub fn editing_node(&self) -> Option<NodeId> {
         match self.edit.as_ref()?.target {
             Target::Text(id) | Target::Note(id) => Some(id),
-            Target::Search | Target::Palette => None,
+            Target::Search | Target::Palette | Target::AuthorName => None,
         }
     }
 
@@ -827,7 +843,7 @@ impl Outline {
                     self.start_edit(Target::Text(first), len, cx);
                 }
             }
-            Some(Target::Palette) => {}
+            Some(Target::Palette | Target::AuthorName) => {}
             None => self.enter_from_idle(cx),
         }
     }
@@ -1132,6 +1148,7 @@ impl Outline {
                 Target::Note(id) => self.tree.node(self.tree.source(id)).note.len(),
                 Target::Search => self.query.len(),
                 Target::Palette => self.palette.as_ref().map_or(0, |p| p.query.len()),
+                Target::AuthorName => self.config.author.name.len(),
             };
             if e.sel == (0..len) && matches!(e.target, Target::Text(_)) {
                 // Second ⌘A selects every visible bullet.
@@ -1236,7 +1253,7 @@ impl Outline {
                     self.start_edit(Target::Text(first), 0, cx);
                 }
             }
-            Some(Target::Palette) => {}
+            Some(Target::Palette | Target::AuthorName) => {}
             None => self.enter_from_idle(cx),
         }
     }
@@ -1672,7 +1689,7 @@ impl Outline {
     /// Wrap the selection in `open`/`close`, or insert the pair around the caret.
     pub(crate) fn wrap(&mut self, open: &str, close: &str, cx: &mut Context<Self>) {
         let Some(e) = self.edit.as_ref() else { return };
-        if matches!(e.target, Target::Search | Target::Palette) {
+        if matches!(e.target, Target::Search | Target::Palette | Target::AuthorName) {
             return;
         }
         let r = e.sel.clone();
@@ -1806,7 +1823,7 @@ impl Outline {
                     self.set_query(String::new());
                 }
             }
-            Some(Target::Palette) => {}
+            Some(Target::Palette | Target::AuthorName) => {}
             None => {
                 if self.block.take().is_none() && !self.query.is_empty() {
                     self.set_query(String::new());

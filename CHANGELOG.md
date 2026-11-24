@@ -10,6 +10,13 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+### Added
+
+- Settings has a General tab, opened first by ⌘,: your author name (empty uses your name from the
+  OS) and author ID, for the share packages to come. Copy the ID on one device and Paste ID on
+  another to be the same author on both. Each outline database also gets a device ID, shown in
+  About.
+
 ### Changed
 
 - Bullets now have random UUIDs as ids, the same in every outline a bullet reaches, ready for

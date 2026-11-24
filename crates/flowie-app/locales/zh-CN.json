@@ -98,10 +98,27 @@
   "settings": {
     "heading": "设置",
     "tab": {
+      "general": "通用",
       "shortcuts": "快捷键",
       "appearance": "外观",
       "agent": "Agent",
       "about": "关于"
+    },
+    "general": {
+      "title": "通用",
+      "author_name": {
+        "label": "作者名",
+        "hint": "导出的分享包会带上这个名字。留空则使用 {os} 中你的名字。"
+      },
+      "author_id": {
+        "label": "作者 ID",
+        "hint": "用来识别作者身份。想在另一台设备上作为同一位作者，就在这里复制，到那边粘贴。",
+        "copy": "复制",
+        "paste": "粘贴 ID",
+        "copied": "已复制作者 ID",
+        "pasted": "作者 ID 已更改",
+        "invalid": "剪贴板里不是作者 ID"
+      }
     },
     "shortcuts": {
       "title": "键盘快捷键",
@@ -165,6 +182,7 @@
       "version": "版本 {version}（{commit}）",
       "bullets": "条目",
       "data": "数据",
+      "device": "设备",
       "settings": "设置",
       "in_memory": "仅内存（不保存）",
       "reveal": "在{manager}中显示数据",

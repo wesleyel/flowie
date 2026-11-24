@@ -32,6 +32,29 @@ pub const MONO_FONT: &str = match OS {
     Os::Linux => "monospace",
 };
 
+/// The signed-in user's full name as the OS knows it (the default author
+/// name), else the login name, else empty.
+pub fn full_user_name() -> String {
+    #[cfg(unix)]
+    {
+        // SAFETY: getpwuid returns a pointer to static storage or null; its fields are C strings.
+        let gecos = unsafe {
+            let pw = libc::getpwuid(libc::getuid());
+            if pw.is_null() || (*pw).pw_gecos.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr((*pw).pw_gecos).to_string_lossy().into_owned()
+            }
+        };
+        // GECOS is "Full Name,room,phone,…" on Linux; just the name on macOS.
+        let name = gecos.split(',').next().unwrap_or("").trim().to_string();
+        if !name.is_empty() {
+            return name;
+        }
+    }
+    std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default()
+}
+
 /// The OS's name, as in "Follow macOS".
 pub fn name() -> &'static str {
     match OS {

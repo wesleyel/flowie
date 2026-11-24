@@ -200,7 +200,7 @@ impl Outline {
             )
     }
 
-    fn base_style(&self, window: &Window, completed: bool) -> (gpui::Font, gpui::Hsla) {
+    pub(crate) fn base_style(&self, window: &Window, completed: bool) -> (gpui::Font, gpui::Hsla) {
         let font = window.text_style().font();
         let color = if completed { self.theme.muted } else { self.theme.text };
         (font, color)

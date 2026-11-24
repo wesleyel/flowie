@@ -217,6 +217,51 @@ common base: changed only there → update, only here → keep, both → conflic
   import reads them (needs the user to pick the folder, for the sandbox).
 - Share packages carry the images in `images/`.
 
+## What's New page
+
+A page like Trash: outside the outline (not a node under Home), read-only, generated from the
+release notes built into the app.
+
+### Content
+
+- The versioned sections of `CHANGELOG.md`, embedded at build time (`include_str!`) and parsed by
+  version; `[Unreleased]` only in development builds. Newest first.
+- Versions newer than the last one the user saw are marked **New**; older ones are folded and
+  open on a click. Each version links to its GitHub release.
+- Shown with Flowie's own markup renderer (bold, code, links); links open in the browser.
+- Open question: language. The changelog is English; either show it as is, or keep translated notes
+  in `locales/whats-new/<locale>.md` with English as the fallback.
+
+### Opening
+
+- Menu: Help → What's New (and Flowie → What's New… on macOS beside About), and the command
+  palette. No default shortcut.
+- Automatically, once per update:
+  - Settings keep `seen_version`. At launch, if the running version is newer (semver, so
+    `1.1.0-rc.2` → `1.1.0` counts), the page opens after the window appears.
+  - Not on a first install: no `seen_version` yet means the tutorial is what the user sees; the
+    current version is recorded without opening the page.
+  - Not after a downgrade: the lower version is recorded silently.
+  - Not on a `--background` launch (started by `flowie mcp`, nobody looking). It opens the first
+    time the window is shown or activated instead.
+  - Not if the changelog has no section for any version in between (nothing to show); the version
+    is still recorded.
+  - Settings → General: "Show What's New after updates" (on by default) turns the automatic
+    opening off; the menu item still works.
+- `seen_version` is written when the page is shown, not when it closes, so a crash or quit while
+  it is open doesn't show it again.
+
+### Closing
+
+- Esc, the page's ← button, ⌘[ / mouse back, or going anywhere else (palette, a star, journal,
+  calendar, Home, Trash, an agent's `open`). It and Trash replace each other: one overlay at a time
+  (`Outline::trash` becomes an `overlay` enum).
+- Closing returns to exactly where the user was: the same page, scroll position and caret
+  (the page location saved when it opened). It is not a step in back / forward history.
+- Edits keep working behind it: agent changes still land (and flash once the page closes);
+  ⌘Z closes the page first, then undoes in the outline.
+- The window title shows "What's New — Flowie" while it is open.
+
 ## Order
 
 1. ~~UUID node ids and short ids~~ (done).
@@ -226,4 +271,5 @@ common base: changed only there → update, only here → keep, both → conflic
 5. Images, then images in packages.
 6. Re-importing a package: first the "already imported" note, then the three-way update.
 7. Change history with authors, and the agent co-authoring setting.
-8. Signing, only if collaboration ends up local-first without a server.
+8. What's New page.
+9. Signing, only if collaboration ends up local-first without a server.

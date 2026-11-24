@@ -16,6 +16,16 @@ use crate::rich::{self, Click, Piece, Style};
 
 pub const FONT_SIZE: f32 = 15.0;
 pub const LINE_H: f32 = 24.0;
+
+pub(crate) fn row_metrics(kind: BlockKind) -> (f32, f32, f32) {
+    match kind {
+        BlockKind::H1 => (22.0, 32.0, 8.0),
+        BlockKind::H2 => (18.5, 28.0, 6.0),
+        BlockKind::H3 => (16.5, 26.0, 4.0),
+        BlockKind::Code => (13.0, 21.0, 3.0),
+        _ => (FONT_SIZE, LINE_H, 3.0),
+    }
+}
 pub const TITLE_SIZE: f32 = 26.0;
 /// KaTeX glyphs look small next to the UI font at the same size.
 pub const MATH_SCALE: f32 = 1.1;
@@ -646,19 +656,7 @@ impl Outline {
         let selected = self.is_block_selected(id);
         // The row being edited (caret or selection) gets a light tint.
         let editing_row = self.edit.as_ref().is_some_and(|e| matches!(e.target, Target::Text(n) | Target::Note(n) if n == id));
-        let (font_size, line_h) = match kind {
-            BlockKind::H1 => (22.0, 32.0),
-            BlockKind::H2 => (18.5, 28.0),
-            BlockKind::H3 => (16.5, 26.0),
-            BlockKind::Code => (13.0, 21.0),
-            _ => (FONT_SIZE, LINE_H),
-        };
-        let top_pad = match kind {
-            BlockKind::H1 => 8.0,
-            BlockKind::H2 => 6.0,
-            BlockKind::H3 => 4.0,
-            _ => 3.0,
-        };
+        let (font_size, line_h, top_pad) = row_metrics(kind);
 
         // Row grow/shrink animation.
         let mut p = 1.0;

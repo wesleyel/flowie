@@ -20,6 +20,9 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
   digits, more when another bullet starts the same way. Tools accept any unique prefix of 4 or more
   digits, and links agents write with a short id are saved with the full one.
 - Backlinks and mirrors are listed in outline order.
+- While editing, a link to another bullet shows only its label, not its id, and the caret steps
+  over it as one character: ← and → skip it, Backspace and Delete remove it whole, and a
+  double-click selects it. Links to web pages still show their address.
 
 ### Fixed
 

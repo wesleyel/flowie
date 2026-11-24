@@ -128,9 +128,14 @@ impl Outline {
                 cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
                     if let Some(ix) = this.index_for_point(ev.position) {
                         let text = this.edit_text().to_string();
+                        let link = this.link_at_point(ev.position);
                         if let Some(e) = this.edit.as_mut() {
                             if ev.click_count >= 2 {
-                                e.sel = if ev.click_count == 2 { word_range(&text, ix) } else { 0..text.len() };
+                                e.sel = match (ev.click_count, link) {
+                                    (2, Some(link)) => link,
+                                    (2, None) => word_range(&text, ix),
+                                    _ => 0..text.len(),
+                                };
                                 e.reversed = false;
                             } else if ev.modifiers.shift {
                                 let anchor = if e.reversed { e.sel.end } else { e.sel.start };

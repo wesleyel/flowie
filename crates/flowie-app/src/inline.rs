@@ -284,7 +284,7 @@ impl Outline {
         let i = self.inline.clone()?;
         let e = self.edit.as_ref()?;
         let layout = e.layout.as_ref()?;
-        let pos = layout.position_for_index(i.start.min(self.edit_text().len()))?;
+        let pos = layout.position_for_index(self.edit_map().to_display(i.start.min(self.edit_text().len())))?;
         let lh = layout.line_height();
         let entries = self.inline_entries();
         if entries.is_empty() {

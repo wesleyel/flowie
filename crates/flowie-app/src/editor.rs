@@ -64,9 +64,11 @@ impl Outline {
         };
         let styled = StyledText::new(shown).with_runs(runs);
         let layout = styled.layout().clone();
-        let sel = edit.sel.clone();
-        let caret = edit.caret();
-        let marked = edit.marked.clone();
+        // The editor paints in display offsets; the selection is in raw ones.
+        let map = self.edit_map();
+        let sel = map.to_display(edit.sel.start)..map.to_display(edit.sel.end);
+        let caret = map.to_display(edit.caret());
+        let marked = edit.marked.as_ref().map(|m| map.to_display(m.start)..map.to_display(m.end));
         let text_len = text.len();
         let entity = cx.entity();
         let focus = self.focus.clone();
@@ -122,7 +124,18 @@ impl Outline {
         let ix = match caret_index_for_position(layout, p) {
             Ok(i) | Err(i) => i,
         };
-        Some(ix.min(self.edit_text().len()))
+        Some(self.edit_map().to_raw(ix).min(self.edit_text().len()))
+    }
+
+    /// The internal link under a point, as a raw range (double-click selects it whole).
+    pub fn link_at_point(&self, p: Point<Pixels>) -> Option<Range<usize>> {
+        let layout = self.edit.as_ref()?.layout.as_ref()?;
+        let ix = match layout.index_for_position(p) {
+            Ok(i) => i,
+            Err(_) => return None,
+        };
+        let map = self.edit_map();
+        map.atom_at_display(ix).or_else(|| map.atom_at_display(ix + 1))
     }
 
     /// Index of the character under a point (not rounded), as the IME expects.
@@ -131,7 +144,7 @@ impl Outline {
         let ix = match layout.index_for_position(p) {
             Ok(i) | Err(i) => i,
         };
-        Some(ix.min(self.edit_text().len()))
+        Some(self.edit_map().to_raw(ix).min(self.edit_text().len()))
     }
 }
 
@@ -240,10 +253,11 @@ impl EntityInputHandler for Outline {
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let range = self.range_from_utf16(&range_utf16);
+        let map = self.edit_map();
         let layout = self.edit.as_ref()?.layout.as_ref()?;
         let lh = layout.line_height();
-        let start = layout.position_for_index(range.start).unwrap_or(element_bounds.origin);
-        let end = layout.position_for_index(range.end).unwrap_or(start);
+        let start = layout.position_for_index(map.to_display(range.start)).unwrap_or(element_bounds.origin);
+        let end = layout.position_for_index(map.to_display(range.end)).unwrap_or(start);
         let right = if (end.y - start.y).abs() < px(1.) { end.x } else { start.x + px(1.) };
         Some(Bounds::from_corners(start, point(right.max(start.x + px(1.)), start.y + lh)))
     }

@@ -14,6 +14,7 @@ enum Msg {
     Write { upserts: Vec<Node>, deletes: Vec<NodeId> },
     Trash { root: NodeId, label: String, nodes: Vec<Node> },
     Untrash(i64),
+    UntrashRoot(NodeId),
     Meta(String, String),
     ImportState(ImportState),
     ImportBatch { upserts: Vec<Node>, deletes: Vec<NodeId>, state: ImportState },
@@ -56,6 +57,13 @@ impl Writer {
     pub fn untrash(&self, seq: i64) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(Msg::Untrash(seq));
+        }
+    }
+
+    /// Remove every trash entry for `root` (deleting it for good).
+    pub fn untrash_root(&self, root: NodeId) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::UntrashRoot(root));
         }
     }
 
@@ -124,7 +132,13 @@ fn writer_loop(mut conn: Connection, rx: Receiver<Msg>) {
                 Ok(m) => Some(m),
                 Err(RecvTimeoutError::Timeout) => None,
                 Err(RecvTimeoutError::Disconnected) => {
-                    commit(&mut conn, &mut pending_up, &mut pending_del, &mut pending_meta);
+                    // Closing: a few more tries, then give up.
+                    for _ in 0..5 {
+                        if commit(&mut conn, &mut pending_up, &mut pending_del, &mut pending_meta) {
+                            break;
+                        }
+                        std::thread::sleep(RETRY);
+                    }
                     return;
                 }
             },
@@ -147,7 +161,9 @@ fn writer_loop(mut conn: Connection, rx: Receiver<Msg>) {
             }
             Some(Msg::Trash { root, label, nodes }) => {
                 // Make sure earlier writes land first, then record the trash entry.
-                commit(&mut conn, &mut pending_up, &mut pending_del, &mut pending_meta);
+                if !commit(&mut conn, &mut pending_up, &mut pending_del, &mut pending_meta) {
+                    deadline.get_or_insert(Instant::now() + RETRY);
+                }
                 let payload = serde_json::to_string(&nodes).unwrap_or_default();
                 if let Err(e) = conn.execute(
                     "INSERT INTO trash (root, deleted_at, label, payload) VALUES (?1, ?2, ?3, ?4)",
@@ -159,13 +175,18 @@ fn writer_loop(mut conn: Connection, rx: Receiver<Msg>) {
             Some(Msg::Untrash(seq)) => {
                 let _ = conn.execute("DELETE FROM trash WHERE seq = ?1", params![seq]);
             }
+            Some(Msg::UntrashRoot(root)) => {
+                let _ = conn.execute("DELETE FROM trash WHERE root = ?1", params![root]);
+            }
             Some(Msg::ImportState(state)) => {
                 if let Err(error) = save_import_state(&mut conn, &state) {
                     eprintln!("flowie: saving import state failed: {error}");
                 }
             }
             Some(Msg::ImportBatch { upserts, deletes, state }) => {
-                commit(&mut conn, &mut pending_up, &mut pending_del, &mut pending_meta);
+                if !commit(&mut conn, &mut pending_up, &mut pending_del, &mut pending_meta) {
+                    deadline.get_or_insert(Instant::now() + RETRY);
+                }
                 if let Err(error) = write_import_batch(&mut conn, &upserts, &deletes, &state) {
                     eprintln!("flowie: saving package change failed: {error}");
                 }
@@ -191,8 +212,9 @@ fn writer_loop(mut conn: Connection, rx: Receiver<Msg>) {
             None => {}
         }
         if deadline.is_some_and(|d| Instant::now() >= d) {
-            commit(&mut conn, &mut pending_up, &mut pending_del, &mut pending_meta);
-            deadline = None;
+            // A failed batch stays pending and is tried again shortly.
+            let written = commit(&mut conn, &mut pending_up, &mut pending_del, &mut pending_meta);
+            deadline = (!written).then(|| Instant::now() + RETRY);
             for w in waiters.drain(..) {
                 let _ = w.send(());
             }
@@ -200,19 +222,59 @@ fn writer_loop(mut conn: Connection, rx: Receiver<Msg>) {
     }
 }
 
+/// How long to wait before trying a failed batch again.
+const RETRY: Duration = Duration::from_secs(1);
+
+/// Write the pending changes in one transaction. Returns whether nothing is
+/// left pending: on failure the changes stay queued for another try.
 fn commit(
     conn: &mut Connection,
     up: &mut std::collections::HashMap<NodeId, Node>,
     del: &mut std::collections::HashSet<NodeId>,
     meta: &mut Vec<(String, String)>,
-) {
+) -> bool {
     if up.is_empty() && del.is_empty() && meta.is_empty() {
-        return;
+        return true;
     }
-    let upserts: Vec<Node> = up.drain().map(|(_, n)| n).collect();
-    let deletes: Vec<NodeId> = del.drain().collect();
-    if let Err(e) = write_batch(conn, &upserts, &deletes, meta) {
-        eprintln!("flowie: database write failed: {e}");
+    let upserts: Vec<Node> = up.values().cloned().collect();
+    let deletes: Vec<NodeId> = del.iter().copied().collect();
+    match write_batch(conn, &upserts, &deletes, meta) {
+        Ok(()) => {
+            up.clear();
+            del.clear();
+            meta.clear();
+            true
+        }
+        Err(e) => {
+            eprintln!("flowie: database write failed, will retry: {e}");
+            false
+        }
     }
-    meta.clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{list_trash, open};
+    use crate::ROOT;
+
+    #[test]
+    fn untrash_root_removes_every_entry_for_that_bullet_only() {
+        let work = std::env::temp_dir().join(format!("flowie-untrash-{}", NodeId::random()));
+        let db = work.join("flowie.sqlite");
+        let writer = Writer::spawn(open(&db).unwrap());
+        let (a, b) = (Node::new(NodeId::random(), ROOT, 1.0), Node::new(NodeId::random(), ROOT, 2.0));
+        writer.trash(a.id, "a", vec![a.clone()]);
+        writer.trash(a.id, "a again", vec![a.clone()]);
+        writer.trash(b.id, "b", vec![b.clone()]);
+        writer.untrash_root(a.id);
+        writer.flush();
+        drop(writer);
+
+        let conn = open(&db).unwrap();
+        let roots: Vec<NodeId> = list_trash(&conn, 30).unwrap().into_iter().map(|e| e.root).collect();
+        assert_eq!(roots, vec![b.id]);
+        drop(conn);
+        std::fs::remove_dir_all(work).unwrap();
+    }
 }

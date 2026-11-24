@@ -36,6 +36,20 @@ impl Outline {
             AgentMode::ReadOnly => t!("settings.agent.desc.read_only").to_string(),
             AgentMode::ReadWrite => t!("settings.agent.desc.read_write", undo = keymap::hint("undo", &self.config.keys)),
         };
+        let follow = self.config.agent_follow_edits;
+        let follow_toggle = div()
+            .id("agent-follow-edits")
+            .flex()
+            .items_center()
+            .gap_2()
+            .cursor_pointer()
+            .child(crate::ui::controls::checkbox(theme, follow))
+            .child(t!("settings.agent.follow_edits.toggle"))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.config.agent_follow_edits = !follow;
+                this.save_config();
+                cx.notify();
+            }));
         div()
             .id("agent")
             .size_full()
@@ -56,6 +70,17 @@ impl Outline {
                     .border_color(theme.divider)
                     .child(segmented)
                     .child(div().text_size(px(12.)).text_color(theme.muted).child(desc)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .py_3()
+                    .border_b_1()
+                    .border_color(theme.divider)
+                    .child(follow_toggle)
+                    .child(div().text_size(px(12.)).text_color(theme.muted).child(t!("settings.agent.follow_edits.hint"))),
             )
             .child(div().pt_3().pb_1().font_weight(FontWeight::SEMIBOLD).child("Claude Code"))
             .child(block(claude_label))

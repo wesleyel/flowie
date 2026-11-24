@@ -160,6 +160,7 @@ impl Outline {
             _ => {}
         }
         let result = match method {
+            "current" => Ok(self.agent_current()),
             "search" => self.agent_search(p),
             "read" => self.agent_read(p),
             "starred" => Ok(self.agent_starred()),

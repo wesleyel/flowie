@@ -210,8 +210,12 @@
         "read_only": "Agents can read and search your outline but not change it.",
         "read_write": "Agents can also add, edit, move, complete and delete bullets. Each change is one {undo} undo step, changed bullets briefly light up, and deletions go to the Trash."
       },
+      "follow_edits": {
+        "toggle": "Focus edited bullets",
+        "hint": "Jump and scroll to bullets as an agent changes them."
+      },
       "other_clients": "Other MCP clients",
-      "tools": "Tools: search, read, starred, create, update, complete, move, delete, journal, open."
+      "tools": "Tools: current, search, read, starred, create, update, complete, move, delete, attach_image, journal, open."
     },
     "about": {
       "tagline": "A fast outliner for thinking in lists.",

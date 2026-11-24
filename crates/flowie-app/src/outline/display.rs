@@ -149,7 +149,7 @@ impl Outline {
         self.list.bounds_for_item(ix).is_some_and(|b| b.top() < view.bottom() && b.bottom() > view.top())
     }
 
-    pub(super) fn reveal(&self, id: NodeId) {
+    pub(crate) fn reveal(&self, id: NodeId) {
         if let Some(ix) = self.display_index(id) {
             self.list.scroll_to_reveal_item(ix);
         }

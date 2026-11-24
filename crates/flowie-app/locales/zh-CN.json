@@ -183,8 +183,12 @@
         "read_only": "Agent 可以读取和搜索大纲，但不能修改。",
         "read_write": "Agent 还可以新增、编辑、移动、完成和删除条目。每次修改是一个 {undo} 撤销步骤，被修改的条目会短暂高亮，删除的条目进入废纸篓。"
       },
+      "follow_edits": {
+        "toggle": "自动聚焦到修改位置",
+        "hint": "Agent 修改条目时自动跳转并滚动到改动位置。"
+      },
       "other_clients": "其他 MCP 客户端",
-      "tools": "工具：search、read、starred、create、update、complete、move、delete、journal、open。"
+      "tools": "工具：current、search、read、starred、create、update、complete、move、delete、attach_image、journal、open。"
     },
     "about": {
       "tagline": "用列表思考的快速大纲工具。",

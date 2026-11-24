@@ -83,8 +83,11 @@ impl Outline {
         }
         let entries =
             self.db_path.as_ref().and_then(|p| store::open(p).ok()).and_then(|c| store::list_trash(&c, 30).ok()).unwrap_or_default();
-        // Hide entries whose bullet came back (undo or restore).
-        let entries = entries.into_iter().filter(|e| !self.tree.contains(e.root)).collect();
+        // Hide entries whose bullet came back (undo or restore). Restoring
+        // keeps the entry, so undoing the restore brings it back here; show
+        // only the newest entry for each bullet.
+        let mut shown = std::collections::HashSet::new();
+        let entries = entries.into_iter().filter(|e| !self.tree.contains(e.root) && shown.insert(e.root)).collect();
         let selection = self.suspend_outline_selection();
         self.trash = Some(TrashPage { entries, scroll: ScrollHandle::new(), selection });
         cx.notify();
@@ -98,10 +101,9 @@ impl Outline {
 
     pub fn restore_trash(&mut self, seq: i64, cx: &mut Context<Self>) {
         let Some(entry) = self.trash.as_ref().and_then(|trash| trash.entries.iter().find(|e| e.seq == seq)).cloned() else { return };
+        // The entry stays in the database: undoing the restore deletes the
+        // bullets again, and they must still be in Trash then.
         if let Some(root) = self.tree.restore(&entry.nodes) {
-            if let Some(w) = &self.writer {
-                w.untrash(seq);
-            }
             self.toast(t!("toast.restored", name = entry.label));
             self.close_trash(false, cx);
             let parent = self.tree.parent(root);
@@ -113,11 +115,13 @@ impl Outline {
     }
 
     pub fn purge_trash(&mut self, seq: i64, cx: &mut Context<Self>) {
+        let Some(root) = self.trash.as_ref().and_then(|trash| trash.entries.iter().find(|e| e.seq == seq)).map(|e| e.root) else { return };
+        // Older entries for the same bullet go too, or they would take its place.
         if let Some(w) = &self.writer {
-            w.untrash(seq);
+            w.untrash_root(root);
         }
         if let Some(page) = self.trash.as_mut() {
-            page.entries.retain(|e| e.seq != seq);
+            page.entries.retain(|e| e.root != root);
         }
         cx.notify();
     }

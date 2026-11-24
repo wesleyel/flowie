@@ -8,6 +8,19 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+### Added
+
+- **MCP**: add the `current` tool to report the active page, search filter, and focused or selected bullets, and accept `"current"` as a node ID.
+- **MCP**: automatically focus bullets edited by an agent (jumping to their page, expanding collapsed ancestors and scrolling them into view), configurable under **Settings → Agent**.
+
+### Fixed
+
+- **Trash**: undoing a restore puts the bullets back in Trash instead of losing them. Delete Forever removes every entry for that bullet.
+- **MCP**: `complete` on Home returns an error instead of crashing Flowie.
+- **MCP**: `delete` checks every ID before deleting anything, so one bad ID no longer leaves earlier deletions half-applied.
+- **MCP**: `create` removes the parent's only child as a blank placeholder only if it is an empty plain bullet. Images, mirrors and bullets with a note are kept.
+- **MCP**: `read` and `open` with `today` or a date no longer create journal pages. They return an error when the page does not exist, so read-only mode never changes the outline.
+
 ## [1.0.0-rc.4] - 2026-11-24
 
 ### Breaking changes

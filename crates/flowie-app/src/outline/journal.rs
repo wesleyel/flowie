@@ -11,8 +11,7 @@ impl Outline {
         if let Some(id) = self.journal_id.filter(|id| self.tree.contains(*id)) {
             return id;
         }
-        let existing = self.tree.children(ROOT).iter().copied().find(|id| markup::plain_text(&self.tree.node(*id).text) == "Journal");
-        let id = existing.unwrap_or_else(|| {
+        let id = self.find_journal().unwrap_or_else(|| {
             let n = self.tree.children(ROOT).len();
             self.tree.create_at(ROOT, n, "Journal")
         });
@@ -21,7 +20,19 @@ impl Outline {
         id
     }
 
-    /// Zoom into the daily note for `date` (YYYY-MM-DD), creating it if needed.
+    /// The "Journal" bullet, if there is one.
+    fn find_journal(&self) -> Option<NodeId> {
+        self.journal_id
+            .filter(|id| self.tree.contains(*id))
+            .or_else(|| self.tree.children(ROOT).iter().copied().find(|id| markup::plain_text(&self.tree.node(*id).text) == "Journal"))
+    }
+
+    /// The journal page for `date` (YYYY-MM-DD), if it exists.
+    pub fn find_day(&self, date: &str) -> Option<NodeId> {
+        let journal = self.find_journal()?;
+        self.tree.children(journal).iter().copied().find(|id| self.tree.node(*id).text.starts_with(date))
+    }
+
     /// The journal page for `date` (YYYY-MM-DD), created if needed (not committed).
     pub fn ensure_day(&mut self, date: &str, with_blank: bool) -> NodeId {
         let journal = self.journal_root();

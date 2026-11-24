@@ -98,15 +98,22 @@ impl Tree {
     }
 
     /// Backspace at the start of `id`: merge its text into `into` (usually the
-    /// row above). Children of `id` move to the end of `into`'s children.
-    /// Returns the caret offset inside `into`.
+    /// row above). Its note goes after `into`'s note, and its children move to
+    /// the end of `into`'s children. An image row is not merged (its image
+    /// would be lost). Returns the caret offset inside `into`.
     pub fn merge_into(&mut self, id: NodeId, into: NodeId) -> Option<usize> {
-        if id == into || into == ROOT || self.is_ancestor(id, into) {
+        if id == into || into == ROOT || self.is_ancestor(id, into) || !self.node(id).image.is_empty() {
             return None;
         }
         let caret = self.node(into).text.len();
         let text = format!("{}{}", self.node(into).text, self.node(id).text);
         self.set_text(into, &text);
+        let note = &self.node(id).note;
+        if !note.is_empty() {
+            let into_note = &self.node(into).note;
+            let merged = if into_note.is_empty() { note.clone() } else { format!("{into_note}\n{note}") };
+            self.set_note(into, &merged);
+        }
         let kids = self.children(id).to_vec();
         for kid in kids {
             let index = self.children(into).len();

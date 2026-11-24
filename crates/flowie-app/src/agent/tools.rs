@@ -5,7 +5,7 @@ use flowie_core::{io, markup, search::today, BlockKind, NodeId, ROOT};
 use gpui::Context;
 use serde_json::{json, Value};
 
-use crate::outline::Outline;
+use crate::outline::{Edit, Outline, Target};
 use crate::overlays::palette::node_label;
 use crate::ui::anim::{self, Channel};
 
@@ -82,15 +82,34 @@ impl Outline {
         short.short(id)
     }
 
-    /// Resolve "home", "today", a YYYY-MM-DD day, or a bullet id (full, or a
+    /// Resolve "home", "current", "today", a YYYY-MM-DD day, or a bullet id (full, or a
     /// unique prefix of at least 4 hex digits, optionally after "id:") to a real node id.
+    /// A missing journal day is created (uncommitted): for methods that write.
     pub(crate) fn agent_node(&mut self, p: &Value, key: &str) -> Result<NodeId, String> {
+        self.agent_node_with(p, key, true)
+    }
+
+    /// Like `agent_node`, but a missing journal day is an error instead of
+    /// being created: for methods that only read.
+    fn agent_existing_node(&mut self, p: &Value, key: &str) -> Result<NodeId, String> {
+        self.agent_node_with(p, key, false)
+    }
+
+    fn agent_node_with(&mut self, p: &Value, key: &str, create_day: bool) -> Result<NodeId, String> {
         let v = p.get(key).ok_or_else(|| format!("missing `{key}`"))?;
-        let bad = || format!("`{key}` must be a bullet id (from read/search), \"home\", \"today\" or a YYYY-MM-DD day");
+        let bad = || format!("`{key}` must be a bullet id (from read/search), \"home\", \"current\", \"today\" or a YYYY-MM-DD day");
+        let day = |this: &mut Self, date: &str| {
+            if create_day {
+                Ok(this.ensure_day(date, false))
+            } else {
+                this.find_day(date).ok_or_else(|| format!("there is no journal page for {date}"))
+            }
+        };
         let id = match v.as_str().map(|s| s.trim().trim_start_matches("id:")) {
             Some("home") | Some("root") => ROOT,
-            Some("today") => self.ensure_day(&today(), false),
-            Some(s) if s.len() == 10 && markup::date_len(s) == Some(10) => self.ensure_day(s, false),
+            Some("current") => self.zoom,
+            Some("today") => day(self, &today())?,
+            Some(s) if s.len() == 10 && markup::date_len(s) == Some(10) => day(self, s)?,
             Some(s) => match s.parse::<NodeId>() {
                 Ok(id) => id,
                 Err(()) => {
@@ -173,7 +192,7 @@ impl Outline {
     }
 
     pub(super) fn agent_read(&mut self, p: &Value) -> Result<String, String> {
-        let id = if p.get("id").is_some() { self.agent_node(p, "id")? } else { ROOT };
+        let id = if p.get("id").is_some() { self.agent_existing_node(p, "id")? } else { ROOT };
         let depth = n(p, "depth").unwrap_or(3).clamp(1, 20) as usize;
         let mut out = String::new();
         if id == ROOT {
@@ -244,25 +263,151 @@ impl Outline {
         out
     }
 
+    pub(super) fn agent_current(&self) -> String {
+        let mut out = String::new();
+        if self.zoom == ROOT {
+            out.push_str("Page: Home  [id:home]\n");
+        } else {
+            out.push_str(&format!("Path: {}\n", self.path_of(self.zoom)));
+            out.push_str(&format!("Page: {}\n", self.line_for(self.zoom)));
+        }
+        if !self.query.is_empty() {
+            out.push_str(&format!("Search: {}\n", self.query));
+        }
+        if self.trash.is_some() {
+            out.push_str("View: Trash\n");
+        } else if self.volatile_page.is_some() {
+            out.push_str("View: What's New\n");
+        }
+        let edit_target = self.edit.as_ref().map(|e| e.target).or_else(|| self.settings_return.map(|(t, _)| t));
+        match edit_target {
+            Some(Target::Text(id)) => {
+                let real = self.tree.resolve(id);
+                if real != ROOT && self.tree.contains(real) {
+                    out.push_str(&format!("Focused bullet: {}  — in {}\n", self.line_for(real), self.path_of(real)));
+                }
+            }
+            Some(Target::Note(id)) => {
+                let real = self.tree.resolve(id);
+                if real != ROOT && self.tree.contains(real) {
+                    out.push_str(&format!("Focused bullet (note): {}  — in {}\n", self.line_for(real), self.path_of(real)));
+                }
+            }
+            _ => {
+                if let Some(ids) = self.block_roots() {
+                    let live: Vec<NodeId> =
+                        ids.into_iter().map(|id| self.tree.resolve(id)).filter(|&id| id != ROOT && self.tree.contains(id)).collect();
+                    if !live.is_empty() {
+                        out.push_str("Selected bullets:\n");
+                        for id in live {
+                            out.push_str(&format!("- {}  — in {}\n", self.line_for(id), self.path_of(id)));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     pub(super) fn agent_open(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
-        let id = self.agent_node(p, "id")?;
+        let id = self.agent_existing_node(p, "id")?;
         self.zoom_to(id, cx);
+        if self.settings.is_some() {
+            self.edit = None;
+        }
         Ok(format!("Showing {} in Flowie", if id == ROOT { "Home".into() } else { format!("id:{}", self.sid(id)) }))
     }
 
-    /// Finish an agent edit: one undo step, persist, and flash the touched rows.
-    fn agent_commit(&mut self, touched: &[NodeId], cx: &mut Context<Self>) {
-        for &id in touched {
-            self.anims.start(id, Channel::Flash, anim::FLASH);
-        }
-        // Don't leave the caret on a node that no longer exists.
+    /// Finish an agent edit: one undo step, persist, optionally focus the
+    /// changed bullet, and flash the touched rows.
+    fn agent_commit(&mut self, touched: &[NodeId], focus_fallback: Option<NodeId>, cx: &mut Context<Self>) {
+        let before = self.caret();
+        // Don't leave the caret or zoom on a node that no longer exists.
         if let Some(id) = self.editing_node() {
-            if !self.tree.contains(id) {
+            if !self.tree.contains(self.tree.resolve(id)) {
                 self.edit = None;
             }
         }
-        self.commit_structure(None, cx);
+        let zoom_gone = self.zoom != ROOT && !self.tree.contains(self.zoom);
+        if zoom_gone {
+            self.zoom = ROOT;
+        }
+        self.commit_structure(before, cx);
         self.history.seal();
+        if zoom_gone {
+            self.zoom_to(ROOT, cx);
+            if self.settings.is_some() {
+                self.edit = None;
+            }
+        }
+        if self.config.agent_follow_edits {
+            if let Some(target) = touched.first().copied().filter(|&id| self.tree.contains(id)).or(focus_fallback) {
+                self.agent_focus_target(target, cx);
+            }
+        }
+        for &id in touched {
+            if self.tree.contains(id) {
+                self.anims.start(id, Channel::Flash, anim::FLASH);
+            }
+        }
+    }
+
+    /// Bring a bullet changed by an agent into view: close auxiliary pages,
+    /// jump to its parent page if it's outside the current zoom, expand
+    /// collapsed ancestors, and scroll to it.
+    fn agent_focus_target(&mut self, target: NodeId, cx: &mut Context<Self>) {
+        if target != ROOT && !self.tree.contains(target) {
+            return;
+        }
+        if self.is_auxiliary_page_open() {
+            self.close_auxiliary_page(false, cx);
+        }
+        if target == ROOT {
+            if self.zoom != ROOT {
+                self.zoom_to(ROOT, cx);
+                if self.settings.is_some() {
+                    self.edit = None;
+                }
+            }
+            return;
+        }
+        let mut jumped = false;
+        let in_view = target == self.zoom || self.tree.is_ancestor(self.zoom, target);
+        if !in_view {
+            let dest = self.tree.parent(target);
+            self.zoom_to(dest, cx);
+            if self.settings.is_some() {
+                self.edit = None;
+            }
+            jumped = true;
+        }
+        let mut need_refresh = false;
+        let mut expanded = false;
+        for a in self.tree.ancestors(target) {
+            if self.tree.node(a).collapsed && self.tree.is_ancestor(self.zoom, a) {
+                self.tree.set_collapsed(a, false);
+                expanded = true;
+            }
+        }
+        if expanded {
+            self.tree.take_journal();
+            self.persist();
+            need_refresh = true;
+        }
+        if target != self.zoom && !self.query.is_empty() && self.display_index(target).is_none() {
+            self.query.clear();
+            need_refresh = true;
+        }
+        if need_refresh {
+            self.refresh(false);
+        }
+        if target != self.zoom {
+            if jumped && self.settings.is_none() && self.row_index(target).is_some() {
+                let len = self.tree.node(self.tree.source(target)).text.len();
+                self.edit = Some(Edit::new(Target::Text(target), len));
+            }
+            self.reveal(target);
+        }
     }
 
     /// A new image bullet from base64 data, under `parent` (default Home) or after `after`.
@@ -289,7 +434,7 @@ impl Outline {
         if parent != ROOT && self.tree.node(parent).collapsed {
             self.tree.set_collapsed(parent, false);
         }
-        self.agent_commit(&[id], cx);
+        self.agent_commit(&[id], None, cx);
         let info = self.blobs.get(&self.tree.node(id).image);
         Ok(format!("Added image [id:{}] ({}×{})", self.sid(id), info.map_or(0, |b| b.width), info.map_or(0, |b| b.height)))
     }
@@ -314,7 +459,7 @@ impl Outline {
         };
         // Drop a lone empty placeholder bullet (e.g. a fresh journal day).
         let kids = self.tree.children(parent).to_vec();
-        let placeholder = (kids.len() == 1 && self.tree.node(kids[0]).text.is_empty() && !self.tree.has_children(kids[0])).then(|| kids[0]);
+        let placeholder = (kids.len() == 1 && self.is_blank_placeholder(kids[0])).then(|| kids[0]);
         let top = self.tree.insert_items(parent, index, &items);
         if let Some(ph) = placeholder {
             if self.editing_node() != Some(ph) {
@@ -329,7 +474,7 @@ impl Outline {
             all.push(t);
             all.extend(self.tree.descendants(t));
         }
-        self.agent_commit(&all, cx);
+        self.agent_commit(&all, None, cx);
         let mut out = format!(
             "Created {} bullet{} under {}:\n",
             all.len(),
@@ -340,6 +485,17 @@ impl Outline {
             self.write_tree(t, 0, 20, &mut out);
         }
         Ok(out)
+    }
+
+    /// A plain bullet with nothing in it: no text, note, image, children, and not a mirror.
+    fn is_blank_placeholder(&self, id: NodeId) -> bool {
+        let node = self.tree.node(id);
+        node.kind == BlockKind::Bullet
+            && node.mirror == ROOT
+            && node.text.is_empty()
+            && node.note.is_empty()
+            && node.image.is_empty()
+            && !self.tree.has_children(id)
     }
 
     pub(super) fn agent_update(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
@@ -379,16 +535,19 @@ impl Outline {
         if self.tree.journal_is_empty() {
             return Ok(format!("Nothing changed: {}", self.line_for(id)));
         }
-        self.agent_commit(&[id], cx);
+        self.agent_commit(&[id], None, cx);
         Ok(format!("Updated: {}", self.line_for(id)))
     }
 
     pub(super) fn agent_complete(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
         let id = self.agent_node(p, "id")?;
+        if id == ROOT {
+            return Err("Home can't be completed".into());
+        }
         let done = p.get("completed").and_then(Value::as_bool).unwrap_or(true);
         self.tree.set_completed(self.tree.source(id), done);
+        self.agent_commit(&[id], None, cx);
         self.anims.start(id, Channel::Complete, anim::FLAG);
-        self.agent_commit(&[id], cx);
         Ok(format!("{}: {}", if done { "Completed" } else { "Reopened" }, self.line_for(id)))
     }
 
@@ -407,7 +566,7 @@ impl Outline {
             return Err("can't move a bullet into itself".into());
         }
         self.tree.set_collapsed(parent, false);
-        self.agent_commit(&[id], cx);
+        self.agent_commit(&[id], None, cx);
         Ok(format!("Moved {} to {}", self.line_for(id), self.path_of(id)))
     }
 
@@ -417,18 +576,27 @@ impl Outline {
             Some(v) => vec![v.clone()],
             None => return Err("missing `ids`".into()),
         };
+        // Resolve every id before deleting anything, so a bad one changes nothing.
+        let ids = ids.into_iter().map(|v| self.agent_existing_node(&json!({ "id": v }), "id")).collect::<Result<Vec<_>, _>>()?;
+        let mut fallback_chain = Vec::new();
         let mut done = Vec::new();
-        for v in ids {
-            let id = self.agent_node(&json!({ "id": v }), "id")?;
+        for id in ids {
+            // Skip Home, and bullets already gone with an earlier id's subtree.
             if id == ROOT || !self.tree.contains(id) {
                 continue;
+            }
+            if fallback_chain.is_empty() {
+                fallback_chain = self.tree.ancestors(id);
+                fallback_chain.reverse();
+                fallback_chain.push(ROOT);
             }
             let label = self.line_for(id);
             self.send_to_trash(id);
             self.tree.delete(id);
             done.push(label);
         }
-        self.agent_commit(&[], cx);
+        let fallback = fallback_chain.into_iter().find(|&a| a == ROOT || self.tree.contains(a));
+        self.agent_commit(&[], fallback, cx);
         Ok(format!("Moved {} bullet(s) to Trash (restorable from File → Trash):\n- {}", done.len(), done.join("\n- ")))
     }
 

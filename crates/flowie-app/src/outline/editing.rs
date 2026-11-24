@@ -207,7 +207,8 @@ impl Outline {
             let before = self.caret();
             let Some(prev) = self.neighbor(id, -1) else { return };
             let node = self.tree.node(id);
-            if node.text.is_empty() && !self.tree.has_children(id) {
+            // Only a row with nothing in it goes away; a note or image is merged or kept.
+            if node.text.is_empty() && node.note.is_empty() && node.image.is_empty() && !self.tree.has_children(id) {
                 self.tree.delete(id);
                 let len = self.tree.node(prev).text.len();
                 self.edit = Some(Edit::new(Target::Text(prev), len));

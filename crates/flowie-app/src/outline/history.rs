@@ -6,14 +6,14 @@ use gpui::{Context, Window};
 use super::{Edit, Outline, Redo, Target, Undo};
 
 impl Outline {
-    pub(super) fn caret(&self) -> Option<Caret> {
+    pub(crate) fn caret(&self) -> Option<Caret> {
         match self.edit.as_ref()?.target {
             Target::Text(id) | Target::Note(id) => Some(Caret { node: id, offset: self.edit.as_ref()?.caret() }),
             Target::Search | Target::Palette | Target::Field(_) => None,
         }
     }
 
-    pub(super) fn persist(&mut self) {
+    pub(crate) fn persist(&mut self) {
         let (up, del) = self.tree.take_dirty();
         if let Some(w) = &self.writer {
             w.write(up, del);

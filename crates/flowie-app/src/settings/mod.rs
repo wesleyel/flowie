@@ -35,6 +35,9 @@ pub struct Config {
     /// What AI agents may do through `flowie mcp`.
     #[serde(default)]
     pub agent: crate::agent::AgentMode,
+    /// Jump and scroll to bullets as an AI agent edits them.
+    #[serde(default = "yes")]
+    pub agent_follow_edits: bool,
     /// UI language: a locale code from `locales/`; empty = follow macOS.
     #[serde(default)]
     pub language: String,
@@ -62,6 +65,7 @@ impl Default for Config {
             keys: HashMap::new(),
             author: Default::default(),
             agent: Default::default(),
+            agent_follow_edits: true,
             language: String::new(),
             smooth_scroll: true,
             seen_version: None,

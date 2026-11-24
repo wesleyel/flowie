@@ -12,8 +12,14 @@ use serde_json::{json, Value};
 const PROTOCOL: &str = "2025-06-18";
 
 fn tools() -> Value {
-    let id = json!({"type": "string", "description": "Bullet id as shown by read/search (any unique prefix of 4+ hex digits works), or \"home\" / \"today\" / a YYYY-MM-DD journal day"});
+    let id = json!({"type": "string", "description": "Bullet id as shown by read/search (any unique prefix of 4+ hex digits works), or \"home\" / \"current\" (the page open in Flowie) / \"today\" / a YYYY-MM-DD journal day"});
     json!([
+        {
+            "name": "current",
+            "description": "Report where the user currently is in Flowie: the zoomed page, any active search filter, and the focused or selected bullet(s).",
+            "inputSchema": {"type": "object", "properties": {}},
+            "annotations": {"readOnlyHint": true}
+        },
         {
             "name": "search",
             "description": "Search all bullets. Words must all match; also supports \"phrases\", -exclude, #tag, @person, is:done, is:open, is:todo, is:heading, has:note, changed:7d, date:2026-11, before:YYYY-MM-DD, after:today. Returns each hit with its id and path.",
@@ -205,7 +211,7 @@ pub fn run(db: &Path) {
                     "protocolVersion": version,
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": "flowie", "title": "Flowie outliner", "version": env!("CARGO_PKG_VERSION")},
-                    "instructions": "Flowie is the user's outliner. Use `read` (no id = Home) and `search` to find bullets; every bullet is shown with a short id like [id:3f9a1c], which any tool takes as `id`; link to a bullet with [label](flowie:3f9a1c). Write with `create` (Markdown lists), `update`, `move`, `complete`, `delete` (to Trash) and `journal`. Each call is one undo step for the user. Writing needs the user to allow it in Flowie → Settings → Agent."
+                    "instructions": "Flowie is the user's outliner. Use `current` to see the page and bullet the user is currently looking at (and pass `id: \"current\"` to read or write there), `read` (no id = Home) and `search` to find bullets; every bullet is shown with a short id like [id:3f9a1c], which any tool takes as `id`; link to a bullet with [label](flowie:3f9a1c). Write with `create` (Markdown lists), `update`, `move`, `complete`, `delete` (to Trash) and `journal`, and navigate the window with `open`. Each write call is one undo step for the user. Writing needs the user to allow it in Flowie → Settings → Agent."
                 }))
             }
             "ping" => Ok(json!({})),

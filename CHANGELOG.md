@@ -8,6 +8,8 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+## [1.0.0-rc.5] - 2026-11-24
+
 ### Added
 
 - **MCP**: add the `current` tool to report the active page, search filter, and focused or selected bullets, and accept `"current"` as a node ID.

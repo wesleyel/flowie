@@ -1,6 +1,6 @@
 //! Image files. Each bullet holds at most one image (`BlockKind::Image`,
 //! the text is its caption). Files live beside the database in
-//! `Images/<ab>/<sha256>.<ext>`, named by their content, so each is written
+//! `<database>.images/<ab>/<sha256>.<ext>`, named by their content, so each is written
 //! once (temp file, fsync, rename) before any bullet refers to it, backups
 //! copy it once, and identical images are stored once. The database keeps
 //! each file's type and size (`blobs`), so a row's height is known without
@@ -145,9 +145,11 @@ impl ImageDir {
         ImageDir { root }
     }
 
-    /// `Images` beside the database file.
+    /// A private image folder for this database, including its full filename.
     pub fn beside(db: &Path) -> ImageDir {
-        ImageDir::new(db.parent().unwrap_or(Path::new(".")).join("Images"))
+        let mut path = db.as_os_str().to_owned();
+        path.push(".images");
+        ImageDir::new(path.into())
     }
 
     pub fn root(&self) -> &Path {
@@ -198,6 +200,9 @@ impl ImageDir {
         let mut removed = Vec::new();
         let Ok(dirs) = std::fs::read_dir(&self.root) else { return removed };
         for dir in dirs.flatten() {
+            if !dir.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
             let Ok(files) = std::fs::read_dir(dir.path()) else { continue };
             for f in files.flatten() {
                 let name = f.file_name().to_string_lossy().into_owned();
@@ -241,6 +246,18 @@ pub(crate) mod tests {
         assert_eq!(sniff(&webp), Some(("webp", "image/webp", 100, 50)));
         assert_eq!(sniff(b"hello"), None);
         assert_eq!(info(b"<svg/>"), Err(ImageError::Unsupported));
+    }
+
+    #[test]
+    fn collecting_one_database_leaves_its_neighbours_images_alone() {
+        let dir = std::env::temp_dir().join(format!("flowie-images-{}", crate::NodeId::random()));
+        let first = ImageDir::beside(&dir.join("notes.sqlite"));
+        let second = ImageDir::beside(&dir.join("notes.db"));
+        let image = first.put(&png()).unwrap();
+        second.put(&png()).unwrap();
+        assert_eq!(first.collect(&HashSet::new(), std::time::Duration::ZERO), std::slice::from_ref(&image.name));
+        assert_eq!(second.read(&image.name).unwrap(), png());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

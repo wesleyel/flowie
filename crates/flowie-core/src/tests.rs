@@ -303,6 +303,36 @@ fn plain_indented_lines_without_markers() {
 }
 
 #[test]
+fn import_opml_exported_by_rc3() {
+    let items = io::parse_any(include_str!("../tests/fixtures/rc3-home.opml"));
+    let mut tree = Tree::new();
+    let roots = tree.insert_items(ROOT, 0, &items);
+    assert_eq!(roots.len(), 2);
+    use BlockKind::{Bullet, Code, Numbered, Paragraph, Quote, Todo, H1, H2, H3};
+    let rc3_kinds = [Bullet, Paragraph, H1, H2, H3, Todo, Quote, Code, Numbered];
+    for &root in &roots {
+        assert_eq!(tree.node(root).text, "项目 & plan");
+        assert_eq!(tree.node(root).mirror, ROOT);
+        assert!(!tree.node(root).collapsed);
+        assert!(tree.mirrors_of(root).is_empty());
+        assert!(tree.backlinks(root).is_empty());
+        let children = tree.children(root);
+        assert_eq!(children.iter().map(|&id| tree.node(id).kind).collect::<Vec<_>>(), rc3_kinds);
+        let paragraph = tree.node(children[1]);
+        assert_eq!(paragraph.text, "**段落** [项目](flowie:1) [网站](https://example.org) #迁移");
+        assert_eq!(paragraph.note, "参见 [项目](flowie:1)");
+        let task = tree.node(children[5]);
+        assert_eq!(task.note, "第一行\n第二行");
+        assert!(task.completed);
+        assert_eq!(tree.node(children[7]).text, "if x < y && y > 0 {}");
+    }
+    let source_task = tree.children(roots[0])[5];
+    let mirror_copy = tree.children(roots[1])[5];
+    tree.set_completed(source_task, false);
+    assert!(tree.node(mirror_copy).completed);
+}
+
+#[test]
 fn opml_roundtrip_and_workflowy_html() {
     let (mut t, [a, b, ..]) = sample();
     t.set_note(a, "line1\nline2 & <x>");

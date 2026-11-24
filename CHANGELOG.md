@@ -28,6 +28,8 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ### Fixed
 
+- Updated the `url` library to 2.5.9 for RUSTSEC-2026-0592 (a stack overflow on deeply nested
+  `blob:` URLs).
 - Clearing a search returns the page to where it was scrolled before the search, instead of to the
   top of the zoomed-in bullet.
 

@@ -4,7 +4,7 @@
 //! sections. Each version shows in the UI language when translated, else in
 //! English.
 
-use flowie_core::{flatten, Item, Tree, ROOT};
+use flowie_core::{flatten, BlockKind, Item, Tree, ROOT};
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight};
 use std::cmp::Ordering;
 
@@ -161,7 +161,7 @@ fn notes_tree(locale: &str, new_after: Option<&str>) -> Tree {
             match block {
                 Block::Heading(text) => {
                     group = Some(version.children.len());
-                    version.children.push(Item::new(&text));
+                    version.children.push(Item { kind: BlockKind::H2, ..Item::new(&text) });
                 }
                 Block::Para(text) | Block::Item(text) => {
                     let children = match group {
@@ -268,7 +268,7 @@ impl Outline {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .pt_2()
+                    .pt_4()
                     .child(div().text_size(px(crate::view::TITLE_SIZE)).font_weight(FontWeight::BOLD).child(t!("whats_new.title")))
                     .child(
                         button(theme, "whats-new-back", Variant::Plain)
@@ -287,7 +287,9 @@ impl Outline {
         let theme = self.theme;
         let id = row.id;
         let tree = &self.notes_page().unwrap().tree;
-        let collapsed = tree.node(id).collapsed;
+        let node = tree.node(id);
+        let collapsed = node.collapsed;
+        let (font_size, line_h, top_pad) = crate::view::row_metrics(node.kind);
         let has_children = tree.has_children(id);
         let toggle = move |this: &mut Outline, _: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut Context<Outline>| {
             let Some(page) = this.notes_page_mut() else { return };
@@ -299,7 +301,7 @@ impl Outline {
         let marker = div()
             .id(("whats-new-marker", id.as_usize()))
             .w(px(18.))
-            .h(px(crate::view::LINE_H))
+            .h(px(line_h))
             .flex_none()
             .flex()
             .items_center()
@@ -308,7 +310,7 @@ impl Outline {
             .when(has_children, |marker| marker.cursor_pointer().on_click(cx.listener(toggle)));
         let target = Target::Field(crate::outline::Field::WhatsNew(id));
         let editing = self.edit.as_ref().is_some_and(|edit| edit.target == target);
-        crate::view::bullet_row(row.depth, 3.)
+        crate::view::bullet_row(row.depth, top_pad)
             .group("notes-row")
             .when(has_children, |row_el| {
                 row_el.child(
@@ -316,9 +318,9 @@ impl Outline {
                         .id(("notes-fold", id.as_usize()))
                         .absolute()
                         .left(px(crate::outline::PAD_X + row.depth as f32 * crate::outline::INDENT - 20.))
-                        .top(px(3.))
+                        .top(px(top_pad))
                         .w(px(18.))
-                        .h(px(crate::view::LINE_H))
+                        .h(px(line_h))
                         .flex()
                         .items_center()
                         .justify_center()
@@ -332,7 +334,15 @@ impl Outline {
             .children(crate::view::indent_guides(row.depth, theme))
             .when(editing, |row| row.bg(theme.row_selected.opacity(0.45)))
             .child(marker)
-            .child(div().flex_1().min_w_0().pl(px(6.)).child(self.render_node_text(id, target, window, cx)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .pl(px(6.))
+                    .text_size(px(font_size))
+                    .line_height(px(line_h))
+                    .child(self.render_node_text(id, target, window, cx)),
+            )
             .into_any_element()
     }
 }

@@ -345,7 +345,7 @@ platform :mac do
       skip_metadata: true,
       skip_screenshots: true,
       submit_for_review: true,
-      automatic_release: false,
+      automatic_release: true,
       submission_information: SUBMISSION_INFORMATION,
       force: true
     )

@@ -262,7 +262,7 @@ fn store_roundtrip() {
     let (mut t, [a, b, ..]) = sample();
     t.set_note(a, "note");
     {
-        let w = store::Writer::spawn(path.clone());
+        let w = store::Writer::spawn(store::open(&path).unwrap());
         let (up, del) = t.take_dirty();
         w.write(up, del);
         t.delete(b);

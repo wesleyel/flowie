@@ -20,6 +20,7 @@ pub enum Kind {
 
 #[derive(Debug)]
 struct Step {
+    imports: Option<(crate::store::ImportState, crate::store::ImportState)>,
     changes: Vec<Change>,
     kind: Kind,
     caret_before: Option<Caret>,
@@ -43,8 +44,19 @@ impl History {
 
     /// Record everything journaled in `tree` since the last commit as one step.
     pub fn commit(&mut self, tree: &mut Tree, kind: Kind, caret_before: Option<Caret>, caret_after: Option<Caret>) {
+        self.commit_with_imports(tree, kind, caret_before, caret_after, None);
+    }
+
+    pub fn commit_with_imports(
+        &mut self,
+        tree: &mut Tree,
+        kind: Kind,
+        caret_before: Option<Caret>,
+        caret_after: Option<Caret>,
+        imports: Option<(crate::store::ImportState, crate::store::ImportState)>,
+    ) {
         let changes = tree.take_journal();
-        if changes.is_empty() {
+        if changes.is_empty() && imports.is_none() {
             return;
         }
         self.redo.clear();
@@ -56,7 +68,7 @@ impl History {
                 return;
             }
         }
-        self.undo.push(Step { changes, kind, caret_before, caret_after, at: Instant::now() });
+        self.undo.push(Step { imports, changes, kind, caret_before, caret_after, at: Instant::now() });
         if self.undo.len() > LIMIT {
             self.undo.remove(0);
         }
@@ -75,6 +87,13 @@ impl History {
 
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
+    }
+
+    pub fn undo_imports(&self) -> Option<&crate::store::ImportState> {
+        self.undo.last()?.imports.as_ref().map(|pair| &pair.0)
+    }
+    pub fn redo_imports(&self) -> Option<&crate::store::ImportState> {
+        self.redo.last()?.imports.as_ref().map(|pair| &pair.1)
     }
 
     pub fn undo(&mut self, tree: &mut Tree) -> Option<Option<Caret>> {

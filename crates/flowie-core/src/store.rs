@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS imports (
     author_name TEXT    NOT NULL,
     exported_at INTEGER NOT NULL,
     imported_at INTEGER NOT NULL,
-    seen_at     INTEGER
+    seen_at     INTEGER,
+    source_ids  TEXT    NOT NULL DEFAULT '[]'
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS import_bases (   -- each imported bullet as the package had it
     node      BLOB PRIMARY KEY,
@@ -63,8 +64,8 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 ";
 
-/// The database format, kept in `PRAGMA user_version`. Version 2 has UUID
-/// node ids, version 3 images; a database from before is moved aside, not converted.
+/// The database format, kept in `PRAGMA user_version`. An older database is
+/// moved aside, not converted.
 const FORMAT: i64 = 3;
 
 impl rusqlite::ToSql for NodeId {
@@ -85,8 +86,16 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
         let _ = std::fs::create_dir_all(dir);
     }
     let mut conn = Connection::open(path)?;
+    conn.busy_timeout(Duration::from_secs(5))?;
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let has_nodes: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'nodes'", [], |r| r.get(0))?;
+    if version > FORMAT {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    if has_nodes > 0 && version == FORMAT {
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        return Ok(conn);
+    }
     if has_nodes > 0 && version < FORMAT {
         // Fold the WAL into the file so the three files move as one.
         let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
@@ -94,6 +103,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
         let aside = set_aside(path).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         eprintln!("flowie: {} has an older format; moved it to {}", path.display(), aside.display());
         conn = Connection::open(path)?;
+        conn.busy_timeout(Duration::from_secs(5))?;
     }
     conn.execute_batch(SCHEMA)?;
     conn.pragma_update(None, "user_version", FORMAT)?;
@@ -153,37 +163,59 @@ pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, Stri
 
 pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], meta: &[(String, String)]) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
-    {
-        let mut up = tx.prepare_cached(
-            "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-             ON CONFLICT(id) DO UPDATE SET parent=?2, rank=?3, text=?4, note=?5,
-               completed=?6, collapsed=?7, modified=?9, kind=?10, mirror=?11, image=?12",
+    write_nodes_tx(&tx, upserts, deletes, meta)?;
+    tx.commit()
+}
+
+fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, upserts: &[Node], deletes: &[NodeId], meta: &[(String, String)]) -> rusqlite::Result<()> {
+    let mut up = tx.prepare_cached(
+        "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         ON CONFLICT(id) DO UPDATE SET parent=?2, rank=?3, text=?4, note=?5,
+           completed=?6, collapsed=?7, modified=?9, kind=?10, mirror=?11, image=?12",
+    )?;
+    for n in upserts {
+        up.execute(params![
+            n.id,
+            n.parent,
+            n.rank,
+            n.text,
+            n.note,
+            n.completed as i64,
+            n.collapsed as i64,
+            n.created,
+            n.modified,
+            n.kind.to_u8() as i64,
+            n.mirror,
+            n.image
+        ])?;
+    }
+    let mut del = tx.prepare_cached("DELETE FROM nodes WHERE id = ?1")?;
+    for id in deletes {
+        del.execute(params![id])?;
+    }
+    let mut m = tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2")?;
+    for (key, value) in meta {
+        m.execute(params![key, value])?;
+    }
+    Ok(())
+}
+
+pub fn write_import_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], state: &ImportState) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    write_nodes_tx(&tx, upserts, deletes, &[])?;
+    save_import_state_tx(&tx, state)?;
+    for (root, label, nodes) in &state.trash_removed {
+        tx.execute(
+            "DELETE FROM trash WHERE seq = (SELECT seq FROM trash WHERE root = ?1 AND label = ?2 AND payload = ?3 ORDER BY seq DESC LIMIT 1)",
+            params![root, label, serde_json::to_string(nodes).unwrap_or_default()],
         )?;
-        for n in upserts {
-            up.execute(params![
-                n.id,
-                n.parent,
-                n.rank,
-                n.text,
-                n.note,
-                n.completed as i64,
-                n.collapsed as i64,
-                n.created,
-                n.modified,
-                n.kind.to_u8() as i64,
-                n.mirror,
-                n.image
-            ])?;
-        }
-        let mut del = tx.prepare_cached("DELETE FROM nodes WHERE id = ?1")?;
-        for id in deletes {
-            del.execute(params![id])?;
-        }
-        let mut m = tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2")?;
-        for (k, v) in meta {
-            m.execute(params![k, v])?;
-        }
+    }
+    for (root, label, nodes) in &state.trash_added {
+        tx.execute(
+            "INSERT INTO trash (root, deleted_at, label, payload) VALUES (?1, ?2, ?3, ?4)",
+            params![root, crate::tree::now_millis(), label, serde_json::to_string(nodes).unwrap_or_default()],
+        )?;
     }
     tx.commit()
 }
@@ -200,12 +232,14 @@ pub struct ImportRecord {
     pub exported_at: i64,
     pub imported_at: i64,
     pub seen_at: Option<i64>,
+    pub source_ids: Vec<(NodeId, NodeId)>,
 }
 
 pub fn load_imports(conn: &Connection) -> rusqlite::Result<Vec<ImportRecord>> {
     let mut stmt =
-        conn.prepare("SELECT root, package_id, title, author_id, author_name, exported_at, imported_at, seen_at FROM imports")?;
+        conn.prepare("SELECT root, package_id, title, author_id, author_name, exported_at, imported_at, seen_at, source_ids FROM imports")?;
     let rows = stmt.query_map([], |r| {
+        let source_ids: String = r.get(8)?;
         Ok(ImportRecord {
             root: r.get(0)?,
             package_id: r.get(1)?,
@@ -215,19 +249,49 @@ pub fn load_imports(conn: &Connection) -> rusqlite::Result<Vec<ImportRecord>> {
             exported_at: r.get(5)?,
             imported_at: r.get(6)?,
             seen_at: r.get(7)?,
+            source_ids: serde_json::from_str(&source_ids).unwrap_or_default(),
         })
     })?;
     rows.collect()
 }
 
 /// The merge bases of everything imported with `roots`.
-pub fn load_bases(conn: &Connection, roots: &[NodeId]) -> rusqlite::Result<std::collections::HashMap<NodeId, String>> {
-    let mut out = std::collections::HashMap::new();
+#[derive(Clone, Debug, Default)]
+pub struct ImportState {
+    pub roots: Vec<NodeId>,
+    pub records: Vec<ImportRecord>,
+    pub bases: Vec<(NodeId, NodeId, String)>,
+    pub trash_added: Vec<(NodeId, String, Vec<Node>)>,
+    pub trash_removed: Vec<(NodeId, String, Vec<Node>)>,
+}
+
+fn save_import_state(conn: &mut Connection, state: &ImportState) -> rusqlite::Result<()> {
+    let transaction = conn.transaction()?;
+    save_import_state_tx(&transaction, state)?;
+    transaction.commit()
+}
+
+fn save_import_state_tx(tx: &rusqlite::Transaction<'_>, state: &ImportState) -> rusqlite::Result<()> {
+    for root in &state.roots {
+        tx.execute("DELETE FROM import_bases WHERE root=?1", [root])?;
+        tx.execute("DELETE FROM imports WHERE root=?1", [root])?;
+    }
+    for (node, root, hash) in &state.bases {
+        tx.execute("INSERT OR REPLACE INTO import_bases(node,root,base_hash) VALUES (?1,?2,?3)", params![node, root, hash])?;
+    }
+    for record in &state.records {
+        tx.execute("INSERT INTO imports(root,package_id,title,author_id,author_name,exported_at,imported_at,seen_at,source_ids) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![record.root,record.package_id,record.title,record.author_id,record.author_name,record.exported_at,record.imported_at,record.seen_at,serde_json::to_string(&record.source_ids).unwrap_or_default()])?;
+    }
+    Ok(())
+}
+
+pub fn load_bases(conn: &Connection, roots: &[NodeId]) -> rusqlite::Result<Vec<(NodeId, NodeId, String)>> {
+    let mut out = Vec::new();
     let mut stmt = conn.prepare("SELECT node, base_hash FROM import_bases WHERE root = ?1")?;
     for root in roots {
         for row in stmt.query_map(params![root], |r| Ok((r.get::<_, NodeId>(0)?, r.get::<_, String>(1)?)))? {
             let (node, hash) = row?;
-            out.insert(node, hash);
+            out.push((node, *root, hash));
         }
     }
     Ok(out)
@@ -310,9 +374,9 @@ enum Msg {
     Trash { root: NodeId, label: String, nodes: Vec<Node> },
     Untrash(i64),
     Meta(String, String),
-    Import(ImportRecord),
+    ImportState(ImportState),
+    ImportBatch { upserts: Vec<Node>, deletes: Vec<NodeId>, state: ImportState },
     Blob(crate::images::BlobInfo),
-    Bases(Vec<(NodeId, NodeId, String)>),
     Seen { root: NodeId, at: i64 },
     Flush(Sender<()>),
 }
@@ -324,10 +388,10 @@ pub struct Writer {
 }
 
 impl Writer {
-    pub fn spawn(path: PathBuf) -> Writer {
+    pub fn spawn(conn: Connection) -> Writer {
         let (tx, rx) = mpsc::channel();
         let thread =
-            std::thread::Builder::new().name("flowie-store".into()).spawn(move || writer_loop(path, rx)).expect("spawn store thread");
+            std::thread::Builder::new().name("flowie-store".into()).spawn(move || writer_loop(conn, rx)).expect("spawn store thread");
         Writer { tx: Some(tx), thread: Some(thread) }
     }
 
@@ -361,9 +425,15 @@ impl Writer {
     }
 
     /// Record an imported root.
-    pub fn import(&self, record: ImportRecord) {
+    pub fn import_state(&self, state: ImportState) {
         if let Some(tx) = &self.tx {
-            let _ = tx.send(Msg::Import(record));
+            let _ = tx.send(Msg::ImportState(state));
+        }
+    }
+
+    pub fn import_batch(&self, upserts: Vec<Node>, deletes: Vec<NodeId>, state: ImportState) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::ImportBatch { upserts, deletes, state });
         }
     }
 
@@ -371,13 +441,6 @@ impl Writer {
     pub fn blob(&self, info: crate::images::BlobInfo) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(Msg::Blob(info));
-        }
-    }
-
-    /// Record merge bases: (bullet, its import root, content hash).
-    pub fn bases(&self, rows: Vec<(NodeId, NodeId, String)>) {
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(Msg::Bases(rows));
         }
     }
 
@@ -408,14 +471,7 @@ impl Drop for Writer {
     }
 }
 
-fn writer_loop(path: PathBuf, rx: Receiver<Msg>) {
-    let mut conn = match open(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("flowie: cannot open database {}: {e}", path.display());
-            return;
-        }
-    };
+fn writer_loop(mut conn: Connection, rx: Receiver<Msg>) {
     let mut pending_up: std::collections::HashMap<NodeId, Node> = Default::default();
     let mut pending_del: std::collections::HashSet<NodeId> = Default::default();
     let mut pending_meta: Vec<(String, String)> = Vec::new();
@@ -462,13 +518,15 @@ fn writer_loop(path: PathBuf, rx: Receiver<Msg>) {
             Some(Msg::Untrash(seq)) => {
                 let _ = conn.execute("DELETE FROM trash WHERE seq = ?1", params![seq]);
             }
-            Some(Msg::Import(r)) => {
-                if let Err(e) = conn.execute(
-                    "INSERT OR REPLACE INTO imports (root, package_id, title, author_id, author_name, exported_at, imported_at, seen_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![r.root, r.package_id, r.title, r.author_id, r.author_name, r.exported_at, r.imported_at, r.seen_at],
-                ) {
-                    eprintln!("flowie: import record write failed: {e}");
+            Some(Msg::ImportState(state)) => {
+                if let Err(error) = save_import_state(&mut conn, &state) {
+                    eprintln!("flowie: saving import state failed: {error}");
+                }
+            }
+            Some(Msg::ImportBatch { upserts, deletes, state }) => {
+                commit(&mut conn, &mut pending_up, &mut pending_del, &mut pending_meta);
+                if let Err(error) = write_import_batch(&mut conn, &upserts, &deletes, &state) {
+                    eprintln!("flowie: saving package change failed: {error}");
                 }
             }
             Some(Msg::Blob(b)) => {
@@ -476,18 +534,6 @@ fn writer_loop(path: PathBuf, rx: Receiver<Msg>) {
                     "INSERT OR REPLACE INTO blobs (name, mime, width, height, size) VALUES (?1, ?2, ?3, ?4, ?5)",
                     params![b.name, b.mime, b.width, b.height, b.size as i64],
                 );
-            }
-            Some(Msg::Bases(rows)) => {
-                let tx = conn.transaction();
-                if let Ok(tx) = tx {
-                    for (node, root, hash) in rows {
-                        let _ = tx.execute(
-                            "INSERT OR REPLACE INTO import_bases (node, root, base_hash) VALUES (?1, ?2, ?3)",
-                            params![node, root, hash],
-                        );
-                    }
-                    let _ = tx.commit();
-                }
             }
             Some(Msg::Seen { root, at }) => {
                 let _ = conn.execute("UPDATE imports SET seen_at = ?2 WHERE root = ?1", params![root, at]);

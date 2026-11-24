@@ -22,7 +22,7 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 - **Sharing**: add Export as Package to save bullets and descendants as a `.flowie` file, with an option to leave completed bullets out.
 - **Sharing**: open `.flowie` packages for preview and import into a chosen location; imported bullets keep their IDs, and importing again creates a copy.
 - **Sharing**: mark imported package bullets unread and find them with `is:new`.
-- **Sharing**: offer to update an imported package while preserving local changes.
+- **Sharing**: offer to update an imported package while preserving local changes; copied imports retain their update mapping.
 - **Images**: attach one image to each bullet by pasting, dropping files or using Insert Image.
 - **Images**: transfer image files with a `.flowie` share package or with Markdown and its accompanying `images` folder. OPML carries only the image type and caption.
 - **What's New**: browse release notes as nested bullets. Edits last until the page closes. The page can open after an update and marks new versions.

@@ -25,7 +25,13 @@ impl Outline {
         let ago = crate::overlays::context_menu::ago;
         let rows = trash.entries.iter().map(|e| {
             let seq = e.seq;
+            let unrestorable = e.corrupted || e.nodes.is_empty();
             let count = e.nodes.len();
+            let meta = if unrestorable {
+                t!("trash.unrestorable", ago = ago(e.deleted_at))
+            } else {
+                t!("trash.entry", count = count, ago = ago(e.deleted_at))
+            };
             div()
                 .flex()
                 .items_center()
@@ -38,17 +44,21 @@ impl Outline {
                 } else {
                     e.label.clone()
                 }))
-                .child(div().text_size(px(12.)).text_color(theme.muted).whitespace_nowrap().child(t!(
-                    "trash.entry",
-                    count = count,
-                    ago = ago(e.deleted_at)
-                )))
                 .child(
-                    button(theme, ("restore", seq as usize), Variant::Link)
-                        .child(crate::ui::icons::icon("rotate-ccw", crate::ui::icons::SM, Variant::Link.fg(theme)))
-                        .child(t!("trash.restore"))
-                        .on_click(cx.listener(move |this, _, _, cx| this.restore_trash(seq, cx))),
+                    div()
+                        .text_size(px(12.))
+                        .text_color(if unrestorable { theme.danger } else { theme.muted })
+                        .whitespace_nowrap()
+                        .child(meta),
                 )
+                .when(!unrestorable, |row| {
+                    row.child(
+                        button(theme, ("restore", seq as usize), Variant::Link)
+                            .child(crate::ui::icons::icon("rotate-ccw", crate::ui::icons::SM, Variant::Link.fg(theme)))
+                            .child(t!("trash.restore"))
+                            .on_click(cx.listener(move |this, _, _, cx| this.restore_trash(seq, cx))),
+                    )
+                })
                 .child(
                     button(theme, ("purge", seq as usize), Variant::Destructive)
                         .child(crate::ui::icons::icon("trash-2", crate::ui::icons::SM, Variant::Destructive.fg(theme)))
@@ -77,10 +87,13 @@ impl Outline {
     }
 
     pub fn show_trash(&mut self, _: &ShowTrash, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_auxiliary_page(true, cx);
-        if let Some(w) = &self.writer {
-            w.flush();
+        if let Some(writer) = &self.writer {
+            if let Err(error) = writer.flush() {
+                self.toast(t!("outline.save_error", error = error));
+                return cx.notify();
+            }
         }
+        self.close_auxiliary_page(true, cx);
         let entries =
             self.db_path.as_ref().and_then(|p| store::open(p).ok()).and_then(|c| store::list_trash(&c, 30).ok()).unwrap_or_default();
         // Hide entries whose bullet came back (undo or restore). Restoring
@@ -101,6 +114,11 @@ impl Outline {
 
     pub fn restore_trash(&mut self, seq: i64, cx: &mut Context<Self>) {
         let Some(entry) = self.trash.as_ref().and_then(|trash| trash.entries.iter().find(|e| e.seq == seq)).cloned() else { return };
+        if entry.corrupted || entry.nodes.is_empty() {
+            self.toast(t!("toast.trash_unrestorable"));
+            cx.notify();
+            return;
+        }
         // The entry stays in the database: undoing the restore deletes the
         // bullets again, and they must still be in Trash then.
         if let Some(root) = self.tree.restore(&entry.nodes) {
@@ -111,6 +129,9 @@ impl Outline {
             self.zoom_to(parent, cx);
             let len = self.tree.node(root).text.len();
             self.start_edit(Target::Text(root), len, cx);
+        } else {
+            self.toast(t!("toast.trash_unrestorable"));
+            cx.notify();
         }
     }
 

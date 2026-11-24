@@ -60,6 +60,31 @@ fn split_and_merge() {
 }
 
 #[test]
+fn merge_preserves_notes_and_protects_images_and_mirrors() {
+    let (mut t, [a, b, c, _]) = sample();
+    t.set_note(a, "first note");
+    t.set_note(b, "second note");
+    assert_eq!(t.merge_into(b, a), Some(1));
+    assert_eq!(t.node(a).text, "ab");
+    assert_eq!(t.node(a).note, "first note\nsecond note");
+    assert!(!t.contains(b));
+
+    // Image rows must not be merged (which would drop the image).
+    let mut img = t.node(c).clone();
+    img.kind = BlockKind::Image;
+    img.image = "0000000000000000000000000000000000000000000000000000000000000000.png".into();
+    t.put(img);
+    assert_eq!(t.merge_into(c, a), None);
+    assert!(t.contains(c));
+    assert!(!t.node(c).image.is_empty());
+
+    // Mirror rows must not be merged away either.
+    let mirror = t.create_mirror(a, ROOT, t.children(ROOT).len()).unwrap();
+    assert_eq!(t.merge_into(mirror, a), None);
+    assert!(t.contains(mirror));
+}
+
+#[test]
 fn split_at_end_of_parent_makes_first_child() {
     let (mut t, [_, b, _, d]) = sample();
     let (child, _) = t.split(b, 1);
@@ -269,7 +294,7 @@ fn store_roundtrip() {
         let (up, del) = t.take_dirty();
         w.write(up, del);
         w.set_meta("zoom", "0");
-        w.flush();
+        w.flush().unwrap();
     }
     let conn = store::open(&path).unwrap();
     let (nodes, meta) = store::load(&conn).unwrap();

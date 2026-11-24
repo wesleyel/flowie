@@ -99,28 +99,40 @@ impl Tree {
 
     /// Backspace at the start of `id`: merge its text into `into` (usually the
     /// row above). Its note goes after `into`'s note, and its children move to
-    /// the end of `into`'s children. An image row is not merged (its image
-    /// would be lost). Returns the caret offset inside `into`.
+    /// the end of `into`'s children. An image or mirror row is not merged (its
+    /// image or mirror link would be lost). Returns the caret offset inside `into`.
     pub fn merge_into(&mut self, id: NodeId, into: NodeId) -> Option<usize> {
-        if id == into || into == ROOT || self.is_ancestor(id, into) || !self.node(id).image.is_empty() {
+        let (id, into) = (self.resolve(id), self.resolve(into));
+        let into_src = self.source(into);
+        if id == into
+            || id == into_src
+            || into == ROOT
+            || self.is_ancestor(id, into)
+            || self.is_ancestor(id, into_src)
+            || self.node(id).mirror != ROOT
+            || !self.node(id).image.is_empty()
+        {
             return None;
         }
-        let caret = self.node(into).text.len();
-        let text = format!("{}{}", self.node(into).text, self.node(id).text);
-        self.set_text(into, &text);
-        let note = &self.node(id).note;
+        let caret = self.node(into_src).text.len();
+        let text = format!("{}{}", self.node(into_src).text, self.node(id).text);
+        self.set_text(into_src, &text);
+        let note = self.node(id).note.clone();
         if !note.is_empty() {
-            let into_note = &self.node(into).note;
-            let merged = if into_note.is_empty() { note.clone() } else { format!("{into_note}\n{note}") };
-            self.set_note(into, &merged);
+            let into_note = &self.node(into_src).note;
+            let merged = if into_note.is_empty() { note } else { format!("{into_note}\n{note}") };
+            self.set_note(into_src, &merged);
         }
         let kids = self.children(id).to_vec();
         for kid in kids {
-            let index = self.children(into).len();
-            self.move_to(kid, into, index);
+            let index = self.children(into_src).len();
+            self.move_to(kid, into_src, index);
         }
-        if self.node(into).collapsed && self.has_children(into) {
+        if self.node(into).collapsed && self.has_children(into_src) {
             self.set_collapsed(into, false);
+        }
+        if into_src != into && self.node(into_src).collapsed && self.has_children(into_src) {
+            self.set_collapsed(into_src, false);
         }
         self.delete(id);
         Some(caret)

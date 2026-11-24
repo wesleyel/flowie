@@ -80,7 +80,7 @@ mod tests {
         writer.write(vec![image_node(&live.name)], Vec::new());
         let deleted = image_node(&trashed.name);
         writer.trash(deleted.id, "image", vec![deleted]);
-        writer.flush();
+        writer.flush().unwrap();
         drop(writer);
 
         assert_eq!(collect_unused_images(&db, Duration::ZERO).unwrap(), std::slice::from_ref(&unused.name));

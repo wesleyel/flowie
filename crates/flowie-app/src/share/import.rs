@@ -115,7 +115,7 @@ impl Outline {
 
     fn compare_package(&self, package: &Package) -> Result<ImportComparison, String> {
         if let Some(writer) = &self.writer {
-            writer.flush();
+            writer.flush().map_err(|error| t!("outline.save_error", error = error))?;
         }
         compare_package(package, &self.tree, &self.imports, self.db_path.as_deref()).map_err(|error| error.to_string())
     }

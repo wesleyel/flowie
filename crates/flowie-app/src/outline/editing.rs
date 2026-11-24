@@ -206,11 +206,13 @@ impl Outline {
             }
             let before = self.caret();
             let Some(prev) = self.neighbor(id, -1) else { return };
-            let node = self.tree.node(id);
-            // Only a row with nothing in it goes away; a note or image is merged or kept.
-            if node.text.is_empty() && node.note.is_empty() && node.image.is_empty() && !self.tree.has_children(id) {
-                self.tree.delete(id);
-                let len = self.tree.node(prev).text.len();
+            let real = self.tree.resolve(id);
+            let node = self.tree.node(real);
+            // Only a plain row with nothing in it goes away; notes, images and mirrors are preserved.
+            if node.mirror == ROOT && node.text.is_empty() && node.note.is_empty() && node.image.is_empty() && !self.tree.has_children(real)
+            {
+                self.tree.delete(real);
+                let len = self.tree.node(self.tree.source(prev)).text.len();
                 self.edit = Some(Edit::new(Target::Text(prev), len));
                 self.commit_structure(before, cx);
                 return;

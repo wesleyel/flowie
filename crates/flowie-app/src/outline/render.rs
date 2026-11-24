@@ -506,6 +506,34 @@ impl Render for Outline {
             .relative()
             .children(app_menu_bar)
             .child(header)
+            .children(self.save_error.as_ref().map(|error| {
+                let mut bg = theme.danger;
+                bg.a = if theme.dark { 0.18 } else { 0.10 };
+                div()
+                    .id("save-error-banner")
+                    .px(px(PAD_X))
+                    .py_2()
+                    .bg(bg)
+                    .border_b_1()
+                    .border_color(theme.danger)
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_size(px(12.))
+                    .text_color(theme.text)
+                    .child(crate::ui::icons::icon("circle-x", crate::ui::icons::SM, theme.danger))
+                    .child(div().flex_1().min_w_0().child(t!("outline.save_error", error = error)))
+                    .child(
+                        crate::ui::button::button(theme, "save-retry", crate::ui::button::Variant::Link)
+                            .child(crate::ui::icons::icon("rotate-ccw", crate::ui::icons::SM, theme.accent))
+                            .child(t!("outline.save_retry"))
+                            .on_click(cx.listener(|this, _, _, _| {
+                                if let Some(w) = &this.writer {
+                                    w.retry_now();
+                                }
+                            })),
+                    )
+            }))
             .child(
                 div()
                     .id("page")

@@ -12,7 +12,13 @@
     "linked_from": "引用来源",
     "mirrored_in": "镜像位置",
     "no_match": "没有匹配“{query}”的条目",
-    "link_count": "引用来源 · {count}"
+    "link_count": "引用来源 · {count}",
+    "save_error": "无法保存修改，正在自动重试（{error}）",
+    "save_retry": "重试",
+    "quit_unsaved": "部分修改未能保存",
+    "quit_unsaved_detail": "保持 Flowie 打开可继续重试。现在退出可能会丢失未保存的修改。\n\n{error}",
+    "keep_open": "继续使用",
+    "quit_without_saving": "不保存并退出"
   },
   "toast": {
     "page_created": "已在主页下新建页面「{name}」",
@@ -21,6 +27,7 @@
     "import_package_alone": "请一次只导入一个 Flowie 分享包，不要同时选择其他文件。",
     "nothing_to_export": "没有可导出的内容",
     "bullet_deleted": "该条目已删除（见废纸篓）",
+    "trash_unrestorable": "该废纸篓条目数据已损坏，无法恢复",
     "cut_kept_in_trash": "已剪切，废纸篓中也保留了一份",
     "moved": "已将 {count} 个条目移动到“{target}”",
     "starred": "已收藏“{name}”，按 {shortcut} 跳转",
@@ -97,7 +104,8 @@
     "delete_forever": "永久删除",
     "retention": "删除的条目会保留 30 天。",
     "empty": "废纸篓是空的。",
-    "entry": "{count} 个条目 · {ago}"
+    "entry": "{count} 个条目 · {ago}",
+    "unrestorable": "数据已损坏（无法恢复） · {ago}"
   },
   "settings": {
     "heading": "设置",

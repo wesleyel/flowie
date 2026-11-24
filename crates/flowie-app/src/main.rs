@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use flowie_core::{store, Tree, ROOT};
-use gpui::{px, size, App, AppContext, AssetSource, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions};
+use gpui::{px, size, App, AppContext, AssetSource, Bounds, QuitMode, SharedString, TitlebarOptions, WindowBounds, WindowOptions};
 
 use app::{i18n, keymap, platform, window_place};
 #[cfg(feature = "screenshots")]
@@ -97,6 +97,7 @@ fn main() {
         },
     };
 
+    let (save_err_tx, mut save_err_rx) = futures::channel::mpsc::unbounded::<Option<String>>();
     let (tree, writer, db_path, meta, imports, blobs) = match stress {
         Some(n) => (stress_tree(n), None, None, Vec::new(), Vec::new(), Vec::new()),
         None => {
@@ -106,7 +107,11 @@ fn main() {
             match loaded {
                 Ok(((nodes, meta), imports, blobs, conn)) => {
                     Outline::collect_images(&path);
-                    (Tree::from_nodes(nodes), Some(store::Writer::spawn(conn)), Some(path), meta, imports, blobs)
+                    let err_tx = save_err_tx.clone();
+                    let writer = store::Writer::spawn_with_error_hook(conn, move |status| {
+                        let _ = err_tx.unbounded_send(status);
+                    });
+                    (Tree::from_nodes(nodes), Some(writer), Some(path), meta, imports, blobs)
                 }
                 Err(e) => {
                     eprintln!("flowie: could not load {}: {e}", path.display());
@@ -115,6 +120,7 @@ fn main() {
             }
         }
     };
+    drop(save_err_tx);
     let n = tree.len();
     let config = settings::Config::load(&settings::Config::path(db_path.as_ref()));
     i18n::set(&config.language);
@@ -155,7 +161,7 @@ fn main() {
     app.run(move |cx: &mut App| {
         flowie_math::load_fonts(cx);
         keymap::install(cx, &keys);
-        cx.on_action(|_: &Quit, cx| cx.quit());
+        cx.set_quit_mode(QuitMode::LastWindowClosed);
 
         // Screenshot builds: a fixed window size (points) for 2880×1800 shots on a Retina display.
         #[cfg(feature = "screenshots")]
@@ -191,19 +197,43 @@ fn main() {
                 |window, cx| cx.new(|cx| Outline::new(tree, writer, db_path, meta, imports, blobs, config, window, cx)),
             )
             .expect("open window");
-        let view = window.update(cx, |_, _, cx| cx.entity()).unwrap();
         window
             .update(cx, |o, window, cx| {
                 window.focus(&o.focus, cx);
                 o.whats_new_on_launch(background, cx);
+                let outline = cx.weak_entity();
+                window.on_window_should_close(cx, move |window, cx| {
+                    outline.update(cx, |outline, cx| outline.request_close(window, cx)).unwrap_or(true)
+                });
             })
             .ok();
+        cx.on_action(move |_: &Quit, cx| {
+            cx.defer(move |cx| {
+                let _ = window.update(cx, |outline, window, cx| {
+                    if outline.request_close(window, cx) {
+                        window.remove_window();
+                    }
+                });
+            });
+        });
         if !background {
             cx.activate(true);
         }
         if let Some(listener) = listener {
             agent::start(listener, window, cx);
         }
+        cx.spawn(async move |cx| {
+            use futures::StreamExt;
+            while let Some(status) = save_err_rx.next().await {
+                window
+                    .update(cx, |o, _, cx| {
+                        o.save_error = status;
+                        cx.notify();
+                    })
+                    .ok();
+            }
+        })
+        .detach();
         cx.spawn(async move |cx| {
             use futures::StreamExt;
             while let Some(path) = open_rx.next().await {
@@ -219,14 +249,15 @@ fn main() {
         .detach();
         drop(open_tx);
 
-        // Flush pending writes before quitting.
-        let v = view.clone();
         cx.on_app_quit(move |cx| {
-            v.update(cx, |o, _| o.flush());
+            let _ = window.update(cx, |outline, _, _| {
+                if let Err(error) = outline.flush() {
+                    eprintln!("flowie: could not save before application shutdown: {error}");
+                }
+            });
             async {}
         })
         .detach();
-        cx.on_window_closed(|cx, _| cx.quit()).detach();
 
         eprintln!(
             "flowie: {n} nodes loaded in {:.1} ms, window at {:.1} ms",

@@ -1,9 +1,10 @@
 //! Commit edits to the undo history and persist changes to the outline.
 
 use flowie_core::{Caret, HistoryKind, NodeId, ROOT};
-use gpui::{Context, Window};
+use gpui::{Context, PromptButton, PromptLevel, Window};
 
 use super::{Edit, Outline, Redo, Target, Undo};
+use crate::app::i18n::t;
 
 impl Outline {
     pub(crate) fn caret(&self) -> Option<Caret> {
@@ -85,7 +86,7 @@ impl Outline {
         cx.notify();
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self) -> Result<(), String> {
         self.persist();
         self.remember_scroll();
         if let Some(s) = self.page_scrolls.get(&self.zoom) {
@@ -94,9 +95,34 @@ impl Outline {
         if let Some(place) = &self.window_place {
             self.set_meta("window", &place.encode());
         }
-        if let Some(w) = &self.writer {
-            w.flush();
+        self.writer.as_ref().map_or(Ok(()), |writer| writer.flush())
+    }
+
+    pub fn request_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.close_prompt_open {
+            return false;
         }
+        let Err(error) = self.flush() else { return true };
+        self.close_prompt_open = true;
+        let detail = t!("outline.quit_unsaved_detail", error = error);
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            t!("outline.quit_unsaved"),
+            Some(&detail),
+            &[PromptButton::cancel(t!("outline.keep_open")), PromptButton::new(t!("outline.quit_without_saving"))],
+            cx,
+        );
+        cx.spawn_in(window, async move |outline, cx| {
+            let quit = matches!(answer.await, Ok(1));
+            let _ = outline.update_in(cx, |outline, window, _| {
+                outline.close_prompt_open = false;
+                if quit {
+                    window.remove_window();
+                }
+            });
+        })
+        .detach();
+        false
     }
 
     pub fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {

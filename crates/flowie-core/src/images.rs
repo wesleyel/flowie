@@ -9,8 +9,15 @@
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use sha2::{Digest, Sha256};
+
+/// Coordinates in-process `put` and `collect` metadata/unlink steps so launch
+/// garbage collection can never delete an image file that is being reused or
+/// written concurrently.
+static FILE_OP_LOCK: Mutex<()> = Mutex::new(());
 
 /// Largest image accepted.
 pub const MAX_BYTES: usize = 50 << 20;
@@ -171,31 +178,42 @@ impl ImageDir {
     }
 
     /// Store an image (once: the same bytes give the same file).
+    /// Reusing an existing file refreshes its modification time so concurrent
+    /// garbage collection does not treat it as an old unused file.
     pub fn put(&self, bytes: &[u8]) -> Result<BlobInfo, ImageError> {
         let info = info(bytes)?;
         let path = self.path(&info.name).expect("a stored name");
-        if path.is_file() {
-            return Ok(info);
-        }
         let io = |e: std::io::Error| ImageError::Io(e.to_string());
         let dir = path.parent().expect("inside the image folder");
-        std::fs::create_dir_all(dir).map_err(io)?;
-        let (tmp, mut file) = loop {
-            let tmp = dir.join(format!(".{}.tmp-{}", info.name, uuid::Uuid::new_v4().simple()));
-            match std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp) {
-                Ok(file) => break (tmp, file),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(io(error)),
+        let (tmp, mut file) = {
+            let _guard = FILE_OP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            if let Ok(existing) = std::fs::OpenOptions::new().write(true).open(&path) {
+                if existing.set_modified(SystemTime::now()).is_ok() {
+                    return Ok(info);
+                }
+            }
+            std::fs::create_dir_all(dir).map_err(io)?;
+            loop {
+                let tmp = dir.join(format!(".{}.tmp-{}", info.name, uuid::Uuid::new_v4().simple()));
+                match std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp) {
+                    Ok(file) => break (tmp, file),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => return Err(io(error)),
+                }
             }
         };
         let written = (|| {
             file.write_all(bytes)?;
             file.sync_all()?;
             drop(file);
+            let _guard = FILE_OP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             match std::fs::rename(&tmp, &path) {
                 Ok(()) => Ok(()),
-                Err(_) if path.is_file() => Ok(()),
-                Err(error) => Err(error),
+                Err(error) => std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&path)
+                    .and_then(|existing| existing.set_modified(SystemTime::now()))
+                    .map_err(|_| error),
             }
         })();
         let _ = std::fs::remove_file(&tmp);
@@ -215,14 +233,19 @@ impl ImageDir {
             let Ok(files) = std::fs::read_dir(dir.path()) else { continue };
             for f in files.flatten() {
                 let name = f.file_name().to_string_lossy().into_owned();
+                let path = f.path();
+                let _guard = FILE_OP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
                 // Leftover temp files too, but only old ones: one may be in the middle of a write.
-                let age = f.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).unwrap_or_default();
+                let age =
+                    std::fs::symlink_metadata(&path).and_then(|metadata| metadata.modified()).ok().and_then(|time| time.elapsed().ok());
+                let Some(age) = age else { continue };
                 let stale_tmp = name.starts_with('.') && age.as_secs() > 3600;
                 let unused = is_name(&name) && !keep.contains(&name) && age >= min_age;
-                if (unused || stale_tmp) && std::fs::remove_file(f.path()).is_ok() && unused {
+                if (unused || stale_tmp) && std::fs::remove_file(&path).is_ok() && unused {
                     removed.push(name);
                 }
             }
+            let _guard = FILE_OP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let _ = std::fs::remove_dir(dir.path()); // only if now empty
         }
         removed
@@ -284,6 +307,24 @@ pub(crate) mod tests {
         let b = images.put(&other).unwrap();
         assert_eq!(images.collect(&[a.name.clone()].into_iter().collect(), std::time::Duration::ZERO), std::slice::from_ref(&b.name));
         assert!(images.has(&a.name) && !images.has(&b.name));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn reusing_an_old_image_refreshes_mtime_so_collection_keeps_it() {
+        let dir = std::env::temp_dir().join(format!("flowie-images-reuse-{}", crate::tree::NodeId::random()));
+        let images = ImageDir::new(dir.clone());
+        let a = images.put(&png()).unwrap();
+        let path = images.path(&a.name).unwrap();
+        // Backdate the file so an unused-image sweep would normally delete it.
+        let old = SystemTime::now() - std::time::Duration::from_secs(7200);
+        std::fs::OpenOptions::new().write(true).open(&path).unwrap().set_modified(old).unwrap();
+
+        // Re-pasting the same image reuses the file and refreshes its mtime.
+        assert_eq!(images.put(&png()).unwrap(), a);
+        assert!(images.collect(&HashSet::new(), std::time::Duration::from_secs(3600)).is_empty());
+        assert!(images.has(&a.name));
+        assert_eq!(images.read(&a.name).unwrap(), png());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

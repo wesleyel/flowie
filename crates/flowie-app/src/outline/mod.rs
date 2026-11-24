@@ -271,6 +271,9 @@ pub struct Outline {
     pub whats_new_pending: Option<Option<String>>,
     /// Roots imported from share packages, by root id.
     pub imports: std::collections::HashMap<NodeId, flowie_core::store::ImportRecord>,
+    /// Set when the background database writer failed and is retrying.
+    pub save_error: Option<String>,
+    close_prompt_open: bool,
 }
 
 pub const INDENT: f32 = 24.0;
@@ -357,6 +360,8 @@ impl Outline {
             image_preview: None,
             whats_new_pending: None,
             imports: imports.into_iter().map(|r| (r.root, r)).collect(),
+            save_error: None,
+            close_prompt_open: false,
             kill_buffer: String::new(),
             mouse_block: false,
             ghosts: Default::default(),

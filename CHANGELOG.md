@@ -15,6 +15,10 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ### Fixed
 
+- **Storage**: keep pending changes and retry after a database write fails. Flowie shows a save warning and asks for confirmation if you try to quit or close the window while changes still can't be saved.
+- **Editing**: Backspace at the start of a bullet preserves its note when merging and leaves bullets with images or mirror links in place.
+- **Images**: startup cleanup preserves old image files that are reused when you paste the same image again.
+- **Trash**: entries with damaged or empty data are marked as unrestorable instead of showing a Restore button that does nothing.
 - **Trash**: undoing a restore puts the bullets back in Trash instead of losing them. Delete Forever removes every entry for that bullet.
 - **MCP**: `complete` on Home returns an error instead of crashing Flowie.
 - **MCP**: `delete` checks every ID before deleting anything, so one bad ID no longer leaves earlier deletions half-applied.

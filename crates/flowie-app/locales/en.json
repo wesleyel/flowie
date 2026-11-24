@@ -122,10 +122,27 @@
   "settings": {
     "heading": "Settings",
     "tab": {
+      "general": "General",
       "shortcuts": "Shortcuts",
       "appearance": "Appearance",
       "agent": "Agent",
       "about": "About"
+    },
+    "general": {
+      "title": "General",
+      "author_name": {
+        "label": "Author name",
+        "hint": "Share packages you export carry this name. Empty uses your name from {os}."
+      },
+      "author_id": {
+        "label": "Author ID",
+        "hint": "Identifies you as an author. To be the same author on another device, copy it here and paste it there.",
+        "copy": "Copy",
+        "paste": "Paste ID",
+        "copied": "Author ID copied",
+        "pasted": "Author ID changed",
+        "invalid": "The clipboard doesn't hold an author ID"
+      }
     },
     "shortcuts": {
       "title": "Keyboard shortcuts",
@@ -189,6 +206,7 @@
       "version": "Version {version} ({commit})",
       "bullets": "Bullets",
       "data": "Data",
+      "device": "Device",
       "settings": "Settings",
       "in_memory": "In memory (not saved)",
       "reveal": "Show data in {manager}",

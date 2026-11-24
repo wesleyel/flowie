@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::i18n::{self, t};
 use crate::keymap;
-use crate::outline::{OpenAbout, OpenPrivacyPolicy, OpenSettings, OpenTerms, Outline, SendFeedback};
+use crate::outline::{OpenAbout, OpenPrivacyPolicy, OpenSettings, OpenTerms, Outline, SendFeedback, Target};
 use crate::theme::{Theme, ACCENTS};
 
 const ABOUT_BOX_W: f32 = 500.0;
@@ -36,6 +36,9 @@ pub struct Config {
     /// Shortcut overrides: binding id -> shortcuts (empty = unbound).
     #[serde(default)]
     pub keys: HashMap<String, Vec<String>>,
+    /// Who this user is when sharing.
+    #[serde(default)]
+    pub author: Author,
     /// What AI agents may do through `flowie mcp`.
     #[serde(default)]
     pub agent: crate::agent::AgentMode,
@@ -58,6 +61,7 @@ impl Default for Config {
             theme: ThemeMode::default(),
             accent: String::new(),
             keys: HashMap::new(),
+            author: Default::default(),
             agent: Default::default(),
             language: String::new(),
             smooth_scroll: true,
@@ -109,8 +113,32 @@ impl Config {
     }
 }
 
+/// Who this user is when sharing (share packages name their author). One
+/// per person: the same id on every device the person uses.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Author {
+    /// A UUID; generated on first launch, or pasted from another device.
+    #[serde(default)]
+    pub id: String,
+    /// Empty: the OS's full name for the user.
+    #[serde(default)]
+    pub name: String,
+}
+
+impl Author {
+    pub fn new_id() -> String {
+        uuid::Uuid::new_v4().hyphenated().to_string()
+    }
+
+    /// An author id as stored: hyphenated lowercase UUID, if `s` is one.
+    pub fn parse_id(s: &str) -> Option<String> {
+        uuid::Uuid::parse_str(s.trim()).ok().map(|u| u.hyphenated().to_string())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
+    General,
     Shortcuts,
     Appearance,
     Agent,
@@ -127,7 +155,85 @@ pub struct SettingsUi {
 
 impl Outline {
     pub fn open_settings(&mut self, _: &OpenSettings, _: &mut Window, cx: &mut Context<Self>) {
-        self.show_settings(Tab::Shortcuts, cx);
+        self.show_settings(Tab::General, cx);
+    }
+
+    /// The author name shared packages carry: the one set in Settings, else the OS's.
+    pub fn author_name(&self) -> String {
+        let name = self.config.author.name.trim();
+        if name.is_empty() {
+            crate::platform::full_user_name()
+        } else {
+            name.to_string()
+        }
+    }
+
+    /// Give this install an author id if it has none (first launch).
+    pub fn ensure_author(&mut self) {
+        match Author::parse_id(&self.config.author.id) {
+            Some(id) if id == self.config.author.id => {}
+            Some(id) => {
+                self.config.author.id = id;
+                self.save_config();
+            }
+            None => {
+                self.config.author.id = Author::new_id();
+                self.save_config();
+            }
+        }
+    }
+
+    /// Typing in the author name field: saved as it changes.
+    pub fn set_author_name(&mut self, name: String) {
+        self.config.author.name = name;
+        self.save_config();
+    }
+
+    /// Stop editing a settings field.
+    fn end_settings_edit(&mut self) -> bool {
+        if self.edit.as_ref().is_some_and(|e| e.target == Target::AuthorName) {
+            self.edit = None;
+            return true;
+        }
+        false
+    }
+
+    /// Keys for the text field being edited inside Settings, where the
+    /// outline's own bindings are off. True if the key was used.
+    fn settings_field_key(&mut self, ks: &gpui::Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        use crate::outline::*;
+        if self.edit.as_ref().map(|e| e.target) != Some(Target::AuthorName) {
+            return false;
+        }
+        let m = &ks.modifiers;
+        let mac = crate::platform::OS == crate::platform::Os::Mac;
+        let word = if mac { m.alt } else { m.control };
+        let primary = if mac { m.platform } else { m.control };
+        match ks.key.as_str() {
+            "escape" | "enter" | "tab" => {
+                self.end_settings_edit();
+            }
+            "backspace" => self.backspace(&Backspace, window, cx),
+            "delete" => self.delete(&Delete, window, cx),
+            "left" if m.shift && word => self.select_word_left(&SelectWordLeft, window, cx),
+            "right" if m.shift && word => self.select_word_right(&SelectWordRight, window, cx),
+            "left" if m.shift => self.select_left(&SelectLeft, window, cx),
+            "right" if m.shift => self.select_right(&SelectRight, window, cx),
+            "left" if word => self.word_left(&WordLeft, window, cx),
+            "right" if word => self.word_right(&WordRight, window, cx),
+            "left" if primary => self.home(&Home, window, cx),
+            "right" if primary => self.end(&End, window, cx),
+            "left" => self.left(&Left, window, cx),
+            "right" => self.right(&Right, window, cx),
+            "home" | "up" => self.home(&Home, window, cx),
+            "end" | "down" => self.end(&End, window, cx),
+            "a" if primary => self.select_all(&SelectAll, window, cx),
+            "c" if primary => self.copy(&Copy, window, cx),
+            "x" if primary => self.cut(&Cut, window, cx),
+            "v" if primary => self.paste(&Paste, window, cx),
+            _ => return false,
+        }
+        true
     }
 
     pub fn open_about(&mut self, _: &OpenAbout, _: &mut Window, cx: &mut Context<Self>) {
@@ -220,7 +326,9 @@ impl Outline {
                 cx.stop_propagation();
             }
             None => {
-                if ks.key == "escape" && !ks.modifiers.modified() {
+                if self.settings_field_key(ks, window, cx) {
+                    cx.stop_propagation();
+                } else if ks.key == "escape" && !ks.modifiers.modified() {
                     self.close_settings(window, cx);
                     cx.stop_propagation();
                 }
@@ -297,6 +405,7 @@ impl Outline {
         let theme = self.theme;
         let tab = ui.tab;
         let tabs = [
+            (Tab::General, t!("settings.tab.general"), "user"),
             (Tab::Shortcuts, t!("settings.tab.shortcuts"), "keyboard"),
             (Tab::Appearance, t!("settings.tab.appearance"), "sun-moon"),
             (Tab::Agent, t!("settings.tab.agent"), "bot"),
@@ -318,6 +427,7 @@ impl Outline {
                     .child(crate::icons::slot(icon, crate::icons::MD, if on { theme.on_accent } else { theme.accent }))
                     .child(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
+                        this.end_settings_edit();
                         if let Some(s) = this.settings.as_mut() {
                             s.tab = t;
                             s.recording = None;
@@ -329,6 +439,7 @@ impl Outline {
         let scroll = ui.scroll.clone();
         let content = match tab {
             // Only its list scrolls; it draws its own bar.
+            Tab::General => self.render_general(window, cx),
             Tab::Shortcuts => self.render_shortcuts(cx),
             Tab::Appearance => self.render_appearance(window, cx),
             Tab::Agent => self.render_agent(cx),
@@ -660,6 +771,108 @@ impl Outline {
             .into_any_element()
     }
 
+    fn render_general(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let scroll = self.settings.as_ref().map(|s| s.scroll.clone()).unwrap_or_default();
+        let theme = self.theme;
+        let editing = self.edit.as_ref().is_some_and(|e| e.target == Target::AuthorName);
+        let name = self.config.author.name.clone();
+        let inner = if editing {
+            let (font, _) = self.base_style(window, false);
+            let run =
+                gpui::TextRun { len: name.len(), font, color: theme.text, background_color: None, underline: None, strikethrough: None };
+            let ed = self.editor_element(name, vec![run], theme.caret, theme.selection, cx);
+            self.editor_mouse(cx).child(ed).into_any_element()
+        } else if name.trim().is_empty() {
+            div().text_color(theme.faint).child(self.author_name()).into_any_element()
+        } else {
+            div().text_color(theme.text).child(name).into_any_element()
+        };
+        let name_field = crate::ui::controls::search_field(theme, "author-name", editing)
+            .w(px(260.))
+            .child(div().flex_1().min_w_0().child(inner))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    cx.stop_propagation();
+                    if this.edit.as_ref().map(|e| e.target) != Some(Target::AuthorName) {
+                        let len = this.config.author.name.len();
+                        this.start_edit(Target::AuthorName, len, cx);
+                    }
+                }),
+            );
+        let id_label = self.label("author-id", self.config.author.id.clone(), cx);
+        let id_row = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(div().font_family(crate::platform::MONO_FONT).text_size(px(12.)).child(id_label))
+            .child(
+                crate::ui::button::button(theme, "author-id-copy", crate::ui::button::Variant::Link)
+                    .child(t!("settings.general.author_id.copy"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(this.config.author.id.clone()));
+                        this.toast(t!("settings.general.author_id.copied"));
+                        cx.notify();
+                    })),
+            )
+            .child(
+                crate::ui::button::button(theme, "author-id-paste", crate::ui::button::Variant::Link)
+                    .child(t!("settings.general.author_id.paste"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let pasted = cx.read_from_clipboard().and_then(|c| c.text()).and_then(|t| Author::parse_id(&t));
+                        match pasted {
+                            Some(id) => {
+                                this.config.author.id = id;
+                                this.save_config();
+                                this.toast(t!("settings.general.author_id.pasted"));
+                            }
+                            None => this.toast(t!("settings.general.author_id.invalid")),
+                        }
+                        cx.notify();
+                    })),
+            );
+        let field = |label: &'static str, hint: String, control: AnyElement| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .py_3()
+                .border_b_1()
+                .border_color(theme.divider)
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child(label))
+                        .child(div().text_size(px(12.)).text_color(theme.muted).child(hint)),
+                )
+                .child(control)
+        };
+        div()
+            .id("general")
+            .size_full()
+            .overflow_y_scroll()
+            .track_scroll(&scroll)
+            .px_4()
+            .pt_3()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.end_settings_edit() {
+                        cx.notify();
+                    }
+                }),
+            )
+            .child(crate::ui::text::page_title(theme, t!("settings.general.title"), None).pb_1())
+            .child(field(
+                t!("settings.general.author_name.label"),
+                t!("settings.general.author_name.hint", os = crate::platform::name()),
+                name_field.into_any_element(),
+            ))
+            .child(field(t!("settings.general.author_id.label"), t!("settings.general.author_id.hint").into(), id_row.into_any_element()))
+            .into_any_element()
+    }
+
     fn render_agent(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let scroll = self.settings.as_ref().map(|s| s.scroll.clone()).unwrap_or_default();
         use crate::agent::AgentMode;
@@ -730,6 +943,7 @@ impl Outline {
         let values = [
             (t!("settings.about.bullets"), self.label("bullets", format!("{nodes}"), cx)),
             (t!("settings.about.data"), self.label("data", db_label, cx)),
+            (t!("settings.about.device"), self.label("device", self.device_id.clone(), cx)),
             (t!("settings.about.settings"), self.label("settings", self.config_path.display().to_string(), cx)),
         ];
         let line = |k: &'static str, v: gpui::Entity<crate::selectable::SelectableText>| {

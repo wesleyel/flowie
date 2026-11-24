@@ -47,6 +47,7 @@ enum Item {
     MoveTo,
     MirrorTo,
     Export,
+    ExportPackage,
     Delete,
 }
 
@@ -180,6 +181,7 @@ impl Outline {
             Item::MoveTo => self.open_palette(Mode::MoveTo(ids), cx),
             Item::MirrorTo => self.open_palette(Mode::MirrorTo(ids), cx),
             Item::Export => self.export_markdown(&ExportMarkdown, window, cx),
+            Item::ExportPackage => return self.open_package_export(ids, cx),
             Item::Delete => self.delete_node(&DeleteNode, window, cx),
         }
         if let Some(r) = restore {
@@ -318,6 +320,7 @@ impl Outline {
             .child(item(8, "arrow-right", t!("shortcut.move-to").into(), chip("move-to"), Item::MoveTo, cx))
             .child(item(9, "circle", t!("bullet_menu.mirror_to").into(), None, Item::MirrorTo, cx))
             .child(item(10, "arrow-down", t!("shortcut.export-md").into(), chip("export-md"), Item::Export, cx))
+            .child(item(12, "package", t!("shortcut.export-package").into(), chip("export-package"), Item::ExportPackage, cx))
             .child(separator(theme));
 
         // Delete, saying how much goes with it.

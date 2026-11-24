@@ -16,6 +16,11 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
   OS) and author ID, for the share packages to come. Copy the ID on one device and Paste ID on
   another to be the same author on both. Each outline database also gets a device ID, shown in
   About.
+- Export as Package… (in a bullet's menu, the File menu and `/export`) saves bullets with
+  everything under them as one `.flowie` file for another Flowie user: a zip with the outline as
+  JSON and a Markdown preview. The dialog sets a title and an optional description, can leave
+  completed bullets out, and shows the author name the package carries. Links to bullets outside
+  the package become plain text; mirrors whose original is outside become copies.
 
 ### Changed
 

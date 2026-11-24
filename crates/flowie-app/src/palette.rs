@@ -54,6 +54,7 @@ pub enum Action {
     OpenLink,
     OpenMirror,
     OpenMove,
+    ExportPackage,
     Today,
 }
 

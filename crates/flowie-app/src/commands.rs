@@ -19,7 +19,7 @@ impl Outline {
         }
     }
 
-    fn targets(&self) -> Vec<NodeId> {
+    pub(crate) fn targets(&self) -> Vec<NodeId> {
         if self.block.is_some() {
             let ids = self.block_ids();
             let set: std::collections::HashSet<NodeId> = ids.iter().copied().collect();

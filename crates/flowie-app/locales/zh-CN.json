@@ -18,6 +18,7 @@
     "page_created": "已在主页下新建页面「{name}」",
     "mirror_into_self": "不能把条目镜像到它自身内部",
     "nothing_to_import": "没有可导入的内容",
+    "nothing_to_export": "没有可导出的内容",
     "bullet_deleted": "该条目已删除（见废纸篓）",
     "cut_kept_in_trash": "已剪切，废纸篓中也保留了一份",
     "moved": "已将 {count} 个条目移动到“{target}”",
@@ -208,6 +209,7 @@
     "file": {
       "title": "文件",
       "import": "导入…",
+      "export_package": "导出为分享包…",
       "export_markdown": "导出为 Markdown…",
       "export_opml": "导出为 OPML…",
       "export_text": "导出为纯文本…",
@@ -368,6 +370,7 @@
     "escape": "退出 / 选中条目",
     "import": "导入…",
     "export-md": "导出 Markdown…",
+    "export-package": "导出为分享包…",
     "trash": "废纸篓",
     "settings": "设置",
     "quit": "退出"
@@ -400,6 +403,7 @@
     "link": "链接到条目",
     "mirror": "镜像",
     "move": "移动到…",
+    "export_package": "导出为分享包",
     "complete": "完成",
     "note": "添加备注"
   },
@@ -434,5 +438,22 @@
     "descendants": "{count} 个子项",
     "links": "{count} 处链接",
     "mirrors": "{count} 处镜像"
+  },
+  "package": {
+    "size_kb": "{n} KB",
+    "size_mb": "{n} MB",
+    "export": {
+      "heading": "导出为分享包",
+      "summary": "{count} 个条目 · {size}",
+      "title": "标题",
+      "title_placeholder": "分享包的名称",
+      "description": "说明",
+      "description_placeholder": "可选：写给打开它的人的一句话",
+      "include_completed": "包含已完成的条目",
+      "author": "分享包会附带作者名：{name}",
+      "change_author": "修改",
+      "cancel": "取消",
+      "export": "导出…"
+    }
   }
 }

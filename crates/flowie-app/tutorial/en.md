@@ -68,6 +68,7 @@
   - ## 9 · Import, export and Trash {{collapsed}}
     - [ ] Import OPML, Markdown or text with {{key:import}} — Workflowy exports work
     - Export the page or the selected bullets as Markdown ({{key:export-md}}), OPML or plain text from the File menu
+    - To send bullets to another Flowie user, choose Export as Package… in a bullet's menu (or type /export): you get one `.flowie` file with the bullets and everything under them
     - Deleted bullets ({{key:delete-bullet}}) stay in the Trash for 30 days: File → Trash
   - ## 10 · Make it yours {{collapsed}}
     - [ ] Press {{key:settings}} for Settings: theme, accent color, language

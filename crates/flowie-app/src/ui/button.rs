@@ -30,6 +30,8 @@ fn square(theme: Theme, id: impl Into<ElementId>, size: f32) -> Stateful<Div> {
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Variant {
+    /// The accent-filled default button of a dialog (Export).
+    Primary,
     /// A bordered push button (About's Reveal / Send Feedback).
     Secondary,
     /// Accent text, no fill until hovered (Restore, Reset All, +).
@@ -44,6 +46,7 @@ impl Variant {
     /// The label and icon color.
     pub fn fg(self, theme: Theme) -> Hsla {
         match self {
+            Variant::Primary => theme.on_accent,
             Variant::Secondary => theme.text,
             Variant::Link => theme.link,
             Variant::Plain => theme.muted,
@@ -62,13 +65,18 @@ pub fn button(theme: Theme, id: impl Into<ElementId>, variant: Variant) -> State
         .justify_center()
         .gap_1()
         .h(px(24.))
-        .px(px(if variant == Variant::Secondary { 12. } else { 8. }))
+        .px(px(if matches!(variant, Variant::Primary | Variant::Secondary) { 12. } else { 8. }))
         .rounded(px(R_MD))
         .cursor_pointer()
         .text_size(px(13.))
         .text_color(variant.fg(theme))
         .whitespace_nowrap();
     match variant {
+        Variant::Primary => b
+            .bg(theme.accent)
+            .shadow(theme.control_shadow())
+            .hover(|s| s.bg(theme.accent.opacity(0.9)))
+            .active(|s| s.bg(theme.accent.opacity(0.8))),
         Variant::Secondary => b
             .bg(theme.control_selected)
             .border_1()

@@ -12,6 +12,7 @@
 //! Node ids are kept: they are global, so the same bullet has the same id in
 //! every outline it reaches. See `docs/roadmap.md` for the design.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
@@ -223,14 +224,17 @@ const MAX_DEPTH: usize = 1000;
 /// Most mirrors expanded into copies inside one another.
 const MAX_EXPANSIONS: usize = 8;
 
-fn remap_links(text: &str, id_map: &HashMap<NodeId, NodeId>) -> String {
+fn remap_links<'a>(text: &'a str, id_map: &HashMap<NodeId, NodeId>) -> Cow<'a, str> {
     if id_map.is_empty() || !text.contains("flowie:") {
-        return text.to_string();
+        return Cow::Borrowed(text);
     }
-    markup::rewrite_links(text, |url| match url.strip_prefix("flowie:").and_then(|id| id.parse::<NodeId>().ok()) {
-        Some(id) if id_map.contains_key(&id) => LinkEdit::Url(format!("flowie:{}", id_map[&id])),
-        _ => LinkEdit::Keep,
+    markup::rewrite_links(text, |url| {
+        url.strip_prefix("flowie:")
+            .and_then(|url| url.parse::<NodeId>().ok())
+            .and_then(|id| id_map.get(&id).filter(|&&local| local != id))
+            .map_or(LinkEdit::Keep, |local| LinkEdit::Url(format!("flowie:{local}")))
     })
+    .into()
 }
 
 impl Package {
@@ -329,11 +333,11 @@ impl Package {
                     }
                     None => {
                         n.image = None;
-                        n.kind = BlockKind::Bullet;
                     }
                 },
             }
         }
+        strip_missing_image_kinds(&mut nodes);
         let outline = Outline { roots: roots.clone(), nodes };
         let json = outline_json(&outline);
         let image_bytes: u64 = files.values().map(|b| b.len() as u64).sum();
@@ -436,11 +440,7 @@ impl Package {
                 }
             }
         }
-        for n in &mut outline.nodes {
-            if n.kind == BlockKind::Image && n.image.is_none() {
-                n.kind = BlockKind::Bullet;
-            }
-        }
+        strip_missing_image_kinds(&mut outline.nodes);
         Ok(Package { manifest, outline, images: files })
     }
 
@@ -524,45 +524,9 @@ impl Package {
         index: usize,
         opts: ImportOptions,
     ) -> (Vec<NodeId>, HashMap<NodeId, NodeId>) {
-        self.insert_into_with_id_map(tree, parent, index, opts, &HashMap::new())
-    }
-
-    pub fn insert_into_with_id_map(
-        &self,
-        tree: &mut Tree,
-        parent: NodeId,
-        index: usize,
-        opts: ImportOptions,
-        existing_map: &HashMap<NodeId, NodeId>,
-    ) -> (Vec<NodeId>, HashMap<NodeId, NodeId>) {
-        let root_of = self.root_of();
-        let mut fresh = HashMap::new();
-        if opts.fresh_ids {
-            for &source_root in &self.outline.roots {
-                let copied_root = existing_map.get(&source_root).copied().unwrap_or_else(|| tree.alloc_id());
-                fresh.insert(source_root, copied_root);
-                for node in self.outline.nodes.iter().filter(|node| root_of[&node.id] == source_root) {
-                    let copied = existing_map.get(&node.id).copied().unwrap_or_else(|| {
-                        if node.id == source_root {
-                            copied_root
-                        } else {
-                            copy_id(copied_root, node.id)
-                        }
-                    });
-                    fresh.insert(node.id, copied);
-                }
-            }
-        }
-        let map = |id: NodeId| fresh.get(&id).copied().unwrap_or(id);
-        let relink = |s: &str| {
-            if fresh.is_empty() || !s.contains("flowie:") {
-                return s.to_string();
-            }
-            markup::rewrite_links(s, |url| match url.strip_prefix("flowie:").and_then(|t| t.parse::<NodeId>().ok()) {
-                Some(id) if fresh.contains_key(&id) => LinkEdit::Url(format!("flowie:{}", map(id))),
-                _ => LinkEdit::Keep,
-            })
-        };
+        let root_ids = if opts.fresh_ids { self.outline.roots.iter().map(|&id| (id, tree.alloc_id())).collect() } else { HashMap::new() };
+        let id_map = self.complete_id_map(&root_ids);
+        let map = |id: NodeId| id_map[&id];
         let by_id: HashMap<NodeId, &PackageNode> = self.outline.nodes.iter().map(|n| (n.id, n)).collect();
         let kids = self.children();
         let now = crate::tree::now_millis();
@@ -580,8 +544,8 @@ impl Package {
                     id: new_id,
                     parent: under,
                     rank,
-                    text: relink(&n.text),
-                    note: relink(&n.note),
+                    text: remap_links(&n.text, &id_map).into_owned(),
+                    note: remap_links(&n.note, &id_map).into_owned(),
                     completed: n.completed && opts.keep_completion,
                     collapsed: n.collapsed && (!children.is_empty() || n.mirror_of.is_some()),
                     created: if n.created > 0 { n.created } else { now },
@@ -598,14 +562,13 @@ impl Package {
                 }
             }
         }
-        let id_map = self.outline.nodes.iter().map(|node| (node.id, map(node.id))).collect();
         (roots, id_map)
     }
 
     /// Each bullet's content hash as this package has it: the base the next
     /// version is merged against (`plan_update`).
     pub fn base_hashes(&self) -> Vec<(NodeId, String)> {
-        self.outline.nodes.iter().map(|node| (node.id, package_hash(node))).collect()
+        self.mapped_base_hashes(&HashMap::new()).collect()
     }
 
     fn complete_id_map(&self, id_map: &HashMap<NodeId, NodeId>) -> HashMap<NodeId, NodeId> {
@@ -613,57 +576,46 @@ impl Package {
             return self.outline.nodes.iter().map(|node| (node.id, node.id)).collect();
         }
         let root_of = self.root_of();
-        let mut mapped = id_map.clone();
-        for node in &self.outline.nodes {
-            mapped.entry(node.id).or_insert_with(|| {
-                let source_root = root_of[&node.id];
-                let copy_root = id_map.get(&source_root).copied().unwrap_or(source_root);
-                copy_id(copy_root, node.id)
-            });
-        }
-        mapped
-    }
-
-    pub fn package_hash_mapped(&self, node: &PackageNode, id_map: &HashMap<NodeId, NodeId>) -> String {
-        let complete = self.complete_id_map(id_map);
-        let parent = node.parent.map(|id| complete.get(&id).copied().unwrap_or(id));
-        let mirror = node.mirror_of.map(|id| complete.get(&id).copied().unwrap_or(id));
-        let text = remap_links(&node.text, &complete);
-        let note = remap_links(&node.note, &complete);
-        content_hash(&text, &note, node.kind, node.completed, node.image.as_deref(), parent, mirror)
-    }
-
-    pub fn base_hashes_mapped(&self, id_map: &HashMap<NodeId, NodeId>) -> Vec<(NodeId, String)> {
-        let complete = self.complete_id_map(id_map);
         self.outline
             .nodes
             .iter()
             .map(|node| {
-                let hash = self.package_hash_mapped(node, &complete);
-                (complete[&node.id], hash)
+                let id = id_map.get(&node.id).copied().unwrap_or_else(|| {
+                    let source_root = root_of[&node.id];
+                    match id_map.get(&source_root) {
+                        Some(&copy_root) if copy_root != source_root => copy_id(copy_root, node.id),
+                        _ => node.id,
+                    }
+                });
+                (node.id, id)
             })
             .collect()
     }
 
+    /// The source ID and mapped content hash of each bullet, using the complete
+    /// mapping from an insertion or update plan.
+    pub fn mapped_base_hashes<'a>(&'a self, id_map: &'a HashMap<NodeId, NodeId>) -> impl Iterator<Item = (NodeId, String)> + 'a {
+        self.outline.nodes.iter().map(move |node| (node.id, package_hash(node, id_map)))
+    }
+
     /// Each bullet's root in this package.
     pub fn root_of(&self) -> HashMap<NodeId, NodeId> {
-        let parent: HashMap<NodeId, Option<NodeId>> = self.outline.nodes.iter().map(|n| (n.id, n.parent)).collect();
-        let mut out = HashMap::new();
-        for n in &self.outline.nodes {
-            let mut cur = n.id;
-            // Validated: every chain ends at a root.
-            while let Some(Some(p)) = parent.get(&cur) {
-                cur = *p;
+        let children = self.children();
+        let mut out = HashMap::with_capacity(self.outline.nodes.len());
+        let mut stack = Vec::new();
+        for &root in &self.outline.roots {
+            stack.push(root);
+            while let Some(id) = stack.pop() {
+                out.insert(id, root);
+                stack.extend(children.get(&id).into_iter().flatten().copied());
             }
-            out.insert(n.id, cur);
         }
         out
     }
 
     /// The content hash of `id` as `tree` has it now (`None` if it's gone).
-    fn local_hash(&self, tree: &Tree, id: NodeId, id_map: &HashMap<NodeId, NodeId>) -> Option<String> {
+    fn local_hash(tree: &Tree, id: NodeId, is_root: bool) -> Option<String> {
         let n = tree.get(id)?;
-        let is_root = self.outline.roots.iter().any(|root| id_map.get(root).copied().unwrap_or(*root) == id);
         let parent = (!is_root).then_some(n.parent);
         let mirror = (n.mirror != ROOT).then_some(n.mirror);
         let image = (!n.image.is_empty()).then_some(n.image.as_str());
@@ -686,20 +638,23 @@ impl Package {
         id_map: &HashMap<NodeId, NodeId>,
     ) -> UpdatePlan {
         let complete = self.complete_id_map(id_map);
-        let map = |id: NodeId| complete[&id];
-        let mut plan = UpdatePlan::default();
-        let ids: HashSet<NodeId> = self.outline.nodes.iter().map(|n| map(n.id)).collect();
-        for n in &self.outline.nodes {
-            let id = map(n.id);
-            let theirs = self.package_hash_mapped(n, &complete);
-            match (self.local_hash(tree, id, &complete), bases.get(&id)) {
+        let roots: HashSet<_> = self.outline.roots.iter().map(|root| complete[root]).collect();
+        let ids: HashSet<_> = complete.values().copied().collect();
+        let mut plan = UpdatePlan { id_map: complete, ..Default::default() };
+        for (index, n) in self.outline.nodes.iter().enumerate() {
+            let id = plan.id_map[&n.id];
+            let theirs = package_hash(n, &plan.id_map);
+            match (Self::local_hash(tree, id, n.parent.is_none()), bases.get(&id)) {
                 // The same on both sides.
                 (Some(mine), _) if mine == theirs => {}
                 // Unchanged in the package (changed here, or nowhere): keep.
                 (Some(_), Some(base)) if *base == theirs => {}
                 (Some(mine), Some(base)) if mine == *base => plan.changed.push(id),
                 // Changed on both sides, or no base to tell.
-                (Some(_), _) => plan.conflicts.push(id),
+                (Some(_), _) => {
+                    plan.conflicts.push(id);
+                    plan.conflict_sources.insert(id, index);
+                }
                 (None, Some(_)) => plan.deleted_here += 1,
                 (None, None) => plan.added.push(id),
             }
@@ -709,31 +664,27 @@ impl Package {
             .iter()
             .copied()
             .filter(|id| !ids.contains(id) && tree.contains(*id))
-            .filter(|id| bases.get(id).is_some_and(|b| self.local_hash(tree, *id, &complete).as_ref() == Some(b)))
+            .filter(|id| bases.get(id).is_some_and(|b| Self::local_hash(tree, *id, roots.contains(id)).as_ref() == Some(b)))
             .collect();
         let set: HashSet<NodeId> = gone.iter().copied().collect();
         gone.retain(|id| !tree.ancestors(*id).iter().any(|a| set.contains(a)));
         // Nor anything holding bullets the package still has, or new ones of the user's.
         gone.retain(|id| tree.descendants(*id).iter().all(|d| set.contains(d)));
+        gone.sort_unstable();
         plan.removed = gone;
         plan
+    }
+
+    /// The package's side of a conflict keyed by the receiver's node ID.
+    pub fn update_conflict<'a>(&'a self, plan: &UpdatePlan, id: NodeId) -> Option<&'a PackageNode> {
+        self.outline.nodes.get(*plan.conflict_sources.get(&id)?)
     }
 
     /// Apply the package side of `plan` to `tree`: changed bullets, new
     /// ones, and the conflicts listed in `take_theirs`. Removals are left to
     /// the caller (they go to the Trash). Returns the bullets touched.
     pub fn apply_update(&self, tree: &mut Tree, plan: &UpdatePlan, take_theirs: &HashSet<NodeId>) -> Vec<NodeId> {
-        self.apply_update_mapped(tree, plan, take_theirs, &HashMap::new())
-    }
-
-    pub fn apply_update_mapped(
-        &self,
-        tree: &mut Tree,
-        plan: &UpdatePlan,
-        take_theirs: &HashSet<NodeId>,
-        id_map: &HashMap<NodeId, NodeId>,
-    ) -> Vec<NodeId> {
-        let complete = self.complete_id_map(id_map);
+        let complete = plan.id_map();
         let map = |id: NodeId| complete[&id];
         let by_id: HashMap<NodeId, &PackageNode> = self.outline.nodes.iter().map(|n| (map(n.id), n)).collect();
         let mut kids: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
@@ -764,31 +715,38 @@ impl Package {
                     id,
                     parent,
                     rank,
-                    text: remap_links(&n.text, &complete),
-                    note: remap_links(&n.note, &complete),
+                    text: remap_links(&n.text, complete).into_owned(),
+                    note: remap_links(&n.note, complete).into_owned(),
                     completed: n.completed,
                     collapsed: n.collapsed,
                     created: n.created,
                     modified: n.modified,
                     kind: n.kind,
-                    mirror: n.mirror_of.map(map).filter(|m| tree.contains(*m)).unwrap_or(ROOT),
+                    mirror: ROOT,
                     image: n.image.clone().unwrap_or_default(),
                 });
                 touched.push(id);
             } else if take.contains(&id) && tree.contains(id) {
                 let mut node = tree.node(id).clone();
-                node.text = remap_links(&n.text, &complete);
-                node.note = remap_links(&n.note, &complete);
+                node.text = remap_links(&n.text, complete).into_owned();
+                node.note = remap_links(&n.note, complete).into_owned();
                 node.kind = n.kind;
                 node.completed = n.completed;
                 node.image = n.image.clone().unwrap_or_default();
-                node.mirror = n.mirror_of.map(map).filter(|m| tree.contains(*m)).unwrap_or(ROOT);
                 tree.put(node);
                 if let Some(parent) = n.parent.map(map).filter(|p| tree.contains(*p) && tree.parent(id) != *p) {
                     let index = slot(tree, parent, id);
                     tree.move_to(id, parent, index);
                 }
                 touched.push(id);
+            }
+        }
+        for &id in &touched {
+            let source = by_id[&id].mirror_of.map(map).filter(|&source| tree.contains(source)).unwrap_or(ROOT);
+            if tree.node(id).mirror != source {
+                let mut node = tree.node(id).clone();
+                node.mirror = source;
+                tree.put(node);
             }
         }
         touched
@@ -801,6 +759,15 @@ impl Package {
             out.entry(n.parent.unwrap_or(ROOT)).or_default().push(n.id);
         }
         out
+    }
+}
+
+fn strip_missing_image_kinds(nodes: &mut [PackageNode]) {
+    let image_sources: HashSet<_> = nodes.iter().filter(|node| node.image.is_some()).map(|node| node.id).collect();
+    for node in nodes {
+        if node.kind == BlockKind::Image && node.image.is_none() && !node.mirror_of.is_some_and(|id| image_sources.contains(&id)) {
+            node.kind = BlockKind::Bullet;
+        }
     }
 }
 
@@ -817,11 +784,17 @@ pub struct UpdatePlan {
     pub conflicts: Vec<NodeId>,
     /// Bullets the user deleted, still in the package: left deleted.
     pub deleted_here: usize,
+    id_map: HashMap<NodeId, NodeId>,
+    conflict_sources: HashMap<NodeId, usize>,
 }
 
 impl UpdatePlan {
     pub fn is_empty(&self) -> bool {
         self.changed.is_empty() && self.added.is_empty() && self.removed.is_empty() && self.conflicts.is_empty()
+    }
+
+    pub fn id_map(&self) -> &HashMap<NodeId, NodeId> {
+        &self.id_map
     }
 }
 
@@ -841,8 +814,11 @@ pub fn content_hash(
     hex(&Sha256::digest(json.to_string().as_bytes()))
 }
 
-fn package_hash(n: &PackageNode) -> String {
-    content_hash(&n.text, &n.note, n.kind, n.completed, n.image.as_deref(), n.parent, n.mirror_of)
+fn package_hash(n: &PackageNode, id_map: &HashMap<NodeId, NodeId>) -> String {
+    let map = |id| id_map.get(&id).copied().unwrap_or(id);
+    let text = remap_links(&n.text, id_map);
+    let note = remap_links(&n.note, id_map);
+    content_hash(&text, &note, n.kind, n.completed, n.image.as_deref(), n.parent.map(map), n.mirror_of.map(map))
 }
 
 fn outline_json(outline: &Outline) -> Vec<u8> {
@@ -1356,6 +1332,78 @@ mod tests {
     }
 
     #[test]
+    fn image_mirrors_round_trip_using_their_sources_attachment() {
+        let dir = ImageDir::new(std::env::temp_dir().join(format!("flowie-pkg-image-mirror-{}", NodeId::random())));
+        let info = dir.put(&crate::images::tests::png()).unwrap();
+        let mut tree = Tree::new();
+        let root = tree.create_at(ROOT, 0, "root");
+        let source = tree.create_at(root, 0, "caption");
+        let mut node = tree.node(source).clone();
+        node.kind = BlockKind::Image;
+        node.image = info.name.clone();
+        tree.put(node);
+        let mirror = tree.create_mirror(source, root, 0).unwrap();
+
+        let package = Package::export(&tree, &[root], ExportOptions::default(), meta(), Some(&dir));
+        let read = Package::read(&package.to_bytes()).unwrap();
+        assert_eq!(read.images.len(), 1);
+        let entry = &read.outline.nodes[1];
+        assert_eq!((entry.id, entry.kind, entry.mirror_of, entry.image.as_ref()), (mirror, BlockKind::Image, Some(source), None));
+        let items = read.items();
+        let preview = &items[0].children[0];
+        assert_eq!((preview.kind, preview.image.as_str()), (BlockKind::Image, info.name.as_str()));
+
+        let mut imported = Tree::new();
+        read.insert_into(&mut imported, ROOT, 0, ImportOptions { fresh_ids: false, keep_completion: true });
+        assert_eq!(imported.source(mirror), source);
+        assert_eq!(imported.node(mirror).kind, BlockKind::Image);
+        assert_eq!(imported.node(source).image, info.name);
+
+        let baked = Package::export(&tree, &[mirror], ExportOptions::default(), meta(), Some(&dir));
+        let baked = Package::read(&baked.to_bytes()).unwrap();
+        let entry = &baked.outline.nodes[0];
+        assert_eq!((entry.kind, entry.mirror_of, entry.image.as_ref()), (BlockKind::Image, None, Some(&info.name)));
+
+        let mut without_attachment = package;
+        without_attachment.images.clear();
+        let read = Package::read(&without_attachment.to_bytes()).unwrap();
+        assert!(read.outline.nodes[1..].iter().all(|node| node.kind == BlockKind::Bullet));
+        std::fs::remove_dir_all(dir.root()).unwrap();
+    }
+
+    #[test]
+    fn package_update_keeps_forward_mirrors_and_skips_missing_sources() {
+        let opts = ExportOptions::default();
+        let mut sender = Tree::new();
+        let root = sender.create_at(ROOT, 0, "root");
+        let changing = sender.create_at(root, 0, "becomes a mirror");
+        let deleted_here = sender.create_at(root, 1, "will be kept deleted");
+        let previous = Package::export(&sender, &[root], opts, meta(), None);
+        let mut local = Tree::new();
+        previous.insert_into(&mut local, ROOT, 0, ImportOptions { fresh_ids: false, keep_completion: true });
+        local.delete(deleted_here);
+
+        let later_source = sender.create_at(root, 2, "later source");
+        let new_mirror = sender.create_mirror(later_source, root, 0).unwrap();
+        let broken_mirror = sender.create_mirror(deleted_here, root, 0).unwrap();
+        let mut changing_node = sender.node(changing).clone();
+        changing_node.mirror = later_source;
+        sender.put(changing_node);
+        let next = Package::export(&sender, &[root], opts, meta(), None);
+        let bases: HashMap<_, _> = previous.base_hashes().into_iter().collect();
+        let plan = next.plan_update(&local, &bases, &bases.keys().copied().collect());
+        assert_eq!(plan.added, [broken_mirror, new_mirror, later_source]);
+        assert_eq!(plan.changed, [changing]);
+        assert_eq!(plan.deleted_here, 1);
+
+        let touched = next.apply_update(&mut local, &plan, &HashSet::new());
+        assert_eq!(touched, [broken_mirror, new_mirror, changing, later_source]);
+        assert_eq!(local.mirrors_of(later_source), [new_mirror, changing]);
+        assert_eq!(local.node(broken_mirror).mirror, ROOT);
+        assert!(!local.contains(deleted_here));
+    }
+
+    #[test]
     fn updates_merge_three_ways() {
         // Version 1, imported.
         let mut sender = Tree::new();
@@ -1407,22 +1455,47 @@ mod tests {
     fn copied_package_update_uses_saved_id_map_and_remaps_links() {
         let mut sender = Tree::new();
         let root = sender.create_at(ROOT, 0, "source");
-        let child = sender.create_at(root, 0, "[child](flowie:00000000000000000000000000000000)");
+        let other_root = sender.create_at(ROOT, 1, "destination");
+        let child = sender.create_at(root, 0, "child");
         sender.set_text(child, &format!("[root](flowie:{root})"));
-        let v1 = Package::export(&sender, &[root], ExportOptions::default(), meta(), None);
+        let roots = [root, other_root];
+        let v1 = Package::export(&sender, &roots, ExportOptions::default(), meta(), None);
         let mut local = Tree::new();
-        let (copied_roots, id_map) = v1.insert_into_mapped(&mut local, ROOT, 0, ImportOptions { fresh_ids: true, keep_completion: true });
+        let opts = ImportOptions { fresh_ids: true, keep_completion: true };
+        let (copied_roots, id_map) = v1.insert_into_mapped(&mut local, ROOT, 0, opts);
         let copied_root = copied_roots[0];
-        let bases: HashMap<NodeId, String> = v1.base_hashes_mapped(&id_map).into_iter().collect();
+        let copied_child = id_map[&child];
+        let bases: HashMap<NodeId, String> = v1.mapped_base_hashes(&id_map).map(|(source, hash)| (id_map[&source], hash)).collect();
         let known = bases.keys().copied().collect();
 
+        let (duplicate_roots, duplicate_map) = v1.insert_into_mapped(&mut local, ROOT, 2, opts);
+        assert!(duplicate_roots.iter().all(|id| !copied_roots.contains(id)));
+        assert_eq!(local.node(duplicate_map[&child]).text, format!("[root](flowie:{})", duplicate_roots[0]));
+        assert_eq!(local.node(copied_child).text, format!("[root](flowie:{copied_root})"));
+
+        local.set_text(copied_child, "my text");
         sender.set_text(root, "source updated");
-        let plan =
-            Package::export(&sender, &[root], ExportOptions::default(), meta(), None).plan_update_mapped(&local, &bases, &known, &id_map);
+        sender.move_to(child, other_root, 0);
+        sender.set_text(child, &format!("see [root](flowie:{root})"));
+        let added = sender.create_at(other_root, 1, &format!("see [child](flowie:{child})"));
+        let updated = Package::export(&sender, &roots, ExportOptions::default(), meta(), None);
+        let plan = updated.plan_update_mapped(&local, &bases, &known, &id_map);
+        let copied_added = plan.id_map()[&added];
         assert_eq!(plan.changed, [copied_root]);
-        let updated = Package::export(&sender, &[root], ExportOptions::default(), meta(), None);
-        updated.apply_update_mapped(&mut local, &plan, &HashSet::new(), &id_map);
+        assert_eq!(plan.added, [copied_added]);
+        assert_eq!(plan.conflicts, [copied_child]);
+        assert_eq!(updated.update_conflict(&plan, copied_child).unwrap().id, child);
+        assert_eq!(plan.id_map()[&child], copied_child);
+        updated.apply_update(&mut local, &plan, &[copied_child].into_iter().collect());
         assert_eq!(local.node(copied_root).text, "source updated");
-        assert_eq!(local.node(id_map[&child]).text, format!("[root](flowie:{copied_root})"));
+        assert_eq!(local.parent(copied_child), copied_roots[1]);
+        assert_eq!(local.node(copied_child).text, format!("see [root](flowie:{copied_root})"));
+        assert_eq!(local.node(copied_added).text, format!("see [child](flowie:{copied_child})"));
+        assert_eq!(local.node(duplicate_roots[0]).text, "source");
+
+        let id_map = plan.id_map();
+        let bases: HashMap<_, _> = updated.mapped_base_hashes(id_map).map(|(source, hash)| (id_map[&source], hash)).collect();
+        let known = bases.keys().copied().collect();
+        assert!(updated.plan_update_mapped(&local, &bases, &known, id_map).is_empty());
     }
 }

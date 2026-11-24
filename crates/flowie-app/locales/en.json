@@ -18,6 +18,7 @@
     "page_created": "Created page “{name}” on Home",
     "mirror_into_self": "Can't mirror a bullet inside itself",
     "nothing_to_import": "Nothing to import",
+    "import_package_alone": "Import Flowie share packages one at a time, separately from other files.",
     "nothing_to_export": "Nothing to export",
     "bullet_deleted": "That bullet was deleted (see Trash)",
     "cut_kept_in_trash": "Cut — also kept in Trash",
@@ -535,6 +536,7 @@
       "newer": "This package was made by a newer Flowie. Update Flowie to open it.",
       "too_large": "That package is too large to import",
       "damaged": "That package is damaged and can't be imported",
+      "outline_changed": "Your outline changed while this package was open. Review the updated preview and confirm again.",
       "unreadable": "Couldn't read {path}: {error}"
     },
     "update": {

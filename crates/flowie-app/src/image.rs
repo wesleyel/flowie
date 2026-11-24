@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use flowie_core::images::{self, BlobInfo};
+use flowie_core::images::{self, BlobInfo, ImageDir};
 use flowie_core::{BlockKind, NodeId, ROOT};
 use gpui::{div, img, prelude::*, px, AnyElement, Context, MouseButton, ObjectFit, PathPromptOptions, StyledImage, Window};
 
@@ -20,22 +20,31 @@ pub fn is_image_path(p: &Path) -> bool {
     p.extension().and_then(|e| e.to_str()).is_some_and(|e| ["png", "jpg", "jpeg", "gif", "webp"].contains(&e.to_ascii_lowercase().as_str()))
 }
 
+pub(crate) fn write_image(dir: Option<&ImageDir>, bytes: &[u8]) -> Result<BlobInfo, String> {
+    let dir = dir.ok_or_else(|| t!("image.no_folder").to_string())?;
+    dir.put(bytes).map_err(|e| match e {
+        images::ImageError::Unsupported => t!("image.unsupported").to_string(),
+        images::ImageError::TooLarge => t!("image.too_large").to_string(),
+        images::ImageError::Io(e) => e,
+    })
+}
+
 impl Outline {
     /// Store image bytes; the name a bullet refers to them by.
     pub fn store_image(&mut self, bytes: &[u8]) -> Result<String, String> {
-        let dir = self.image_dir.as_ref().ok_or_else(|| t!("image.no_folder").to_string())?;
-        let info = dir.put(bytes).map_err(|e| match e {
-            images::ImageError::Unsupported => t!("image.unsupported").to_string(),
-            images::ImageError::TooLarge => t!("image.too_large").to_string(),
-            images::ImageError::Io(e) => e,
-        })?;
+        let info = write_image(self.image_dir.as_ref(), bytes)?;
+        let name = info.name.clone();
+        self.record_image(info);
+        Ok(name)
+    }
+
+    pub(crate) fn record_image(&mut self, info: BlobInfo) {
         if !self.blobs.contains_key(&info.name) {
             if let Some(w) = &self.writer {
                 w.blob(info.clone());
             }
-            self.blobs.insert(info.name.clone(), info.clone());
+            self.blobs.insert(info.name.clone(), info);
         }
-        Ok(info.name)
     }
 
     /// Where a new image goes: into the empty bullet being edited, else

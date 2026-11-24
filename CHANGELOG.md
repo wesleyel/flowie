@@ -10,6 +10,17 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+### Changed
+
+- Bullets now have random UUIDs as ids, the same in every outline a bullet reaches, ready for
+  sharing outlines later. An outline database from an earlier version is not converted: Flowie
+  renames it to `flowie.sqlite.old-<time>` beside the new one and starts afresh. Export to OPML
+  first to keep its contents.
+- The MCP server shows bullets with short ids, like git's abbreviated commits: at least 6 hex
+  digits, more when another bullet starts the same way. Tools accept any unique prefix of 4 or more
+  digits, and links agents write with a short id are saved with the full one.
+- Backlinks and mirrors are listed in outline order.
+
 ### Fixed
 
 - Clearing a search returns the page to where it was scrolled before the search, instead of to the

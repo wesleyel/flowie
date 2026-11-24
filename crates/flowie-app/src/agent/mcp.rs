@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 const PROTOCOL: &str = "2025-06-18";
 
 fn tools() -> Value {
-    let id = json!({"type": ["integer", "string"], "description": "Bullet id (from read/search), or \"home\" / \"today\" / a YYYY-MM-DD journal day"});
+    let id = json!({"type": "string", "description": "Bullet id as shown by read/search (any unique prefix of 4+ hex digits works), or \"home\" / \"today\" / a YYYY-MM-DD journal day"});
     json!([
         {
             "name": "search",
@@ -22,7 +22,7 @@ fn tools() -> Value {
         },
         {
             "name": "read",
-            "description": "Read an outline as Markdown with [id:N] after every bullet. Without `id`, reads Home. Deeper levels are summarized; read that id to expand.",
+            "description": "Read an outline as Markdown with [id:…] after every bullet (a short id; any unique prefix of 4+ hex digits works as input). Without `id`, reads Home. Deeper levels are summarized; read that id to expand.",
             "inputSchema": {"type": "object", "properties": {"id": id, "depth": {"type": "integer", "default": 3, "minimum": 1, "maximum": 20}}},
             "annotations": {"readOnlyHint": true}
         },
@@ -200,7 +200,7 @@ pub fn run(db: &Path) {
                     "protocolVersion": version,
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": "flowie", "title": "Flowie outliner", "version": env!("CARGO_PKG_VERSION")},
-                    "instructions": "Flowie is the user's outliner. Use `read` (no id = Home) and `search` to find bullets; every bullet is shown with [id:N]. Write with `create` (Markdown lists), `update`, `move`, `complete`, `delete` (to Trash) and `journal`. Each call is one undo step for the user. Writing needs the user to allow it in Flowie → Settings → Agent."
+                    "instructions": "Flowie is the user's outliner. Use `read` (no id = Home) and `search` to find bullets; every bullet is shown with a short id like [id:3f9a1c], which any tool takes as `id`; link to a bullet with [label](flowie:3f9a1c). Write with `create` (Markdown lists), `update`, `move`, `complete`, `delete` (to Trash) and `journal`. Each call is one undo step for the user. Writing needs the user to allow it in Flowie → Settings → Agent."
                 }))
             }
             "ping" => Ok(json!({})),

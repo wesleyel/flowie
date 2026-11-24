@@ -2,9 +2,9 @@
 
 Designs agreed on but not built yet. Each section says what is decided; open questions are marked.
 
-## Global node ids
+## Global node ids (done)
 
-Node ids become random UUIDs (v4) everywhere: in memory, in the database, in `flowie:` links, over
+Done (Unreleased). Node ids are random UUIDs (v4) everywhere: in memory, in the database, in `flowie:` links, over
 MCP and in share packages. There is no separate local id. Not compatible with existing databases
 (nothing has shipped yet).
 
@@ -219,7 +219,7 @@ common base: changed only there → update, only here → keep, both → conflic
 
 ## Order
 
-1. UUID node ids and short ids (no compatibility with older databases).
+1. ~~UUID node ids and short ids~~ (done).
 2. Identity: author id and name in settings, device id, Settings → Author name.
 3. Package export (without images).
 4. Package import: file type, hand-off to the running instance, import dialog, unread dot.

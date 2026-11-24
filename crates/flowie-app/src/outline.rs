@@ -229,7 +229,6 @@ pub struct Outline {
     /// Trash page contents while it is open.
     pub trash: Option<Vec<flowie_core::store::TrashEntry>>,
     pub db_path: Option<std::path::PathBuf>,
-    saved_next_id: NodeId,
     pub calendar: Option<crate::calendar::Calendar>,
     pub journal_id: Option<NodeId>,
     /// A block selection is being extended by dragging the mouse.
@@ -240,6 +239,8 @@ pub struct Outline {
     pub popup_scroll: gpui::ScrollHandle,
     /// Scroll positions of the trash page, the link popover and the open menu.
     pub page_scroll: gpui::ScrollHandle,
+    /// Short ids shown to agents, rebuilt when the tree changes.
+    pub short_ids: std::cell::RefCell<flowie_core::ShortIds>,
     pub popover_scroll: gpui::ScrollHandle,
     pub menu_scroll: gpui::ScrollHandle,
     pub settings: Option<crate::settings::SettingsUi>,
@@ -271,7 +272,7 @@ pub const PAD_X: f32 = 36.0;
 
 impl Outline {
     pub fn new(
-        mut tree: Tree,
+        tree: Tree,
         writer: Option<Writer>,
         db_path: Option<std::path::PathBuf>,
         meta: Vec<(String, String)>,
@@ -290,13 +291,11 @@ impl Outline {
                 "zoom" => zoom = v.parse().unwrap_or(ROOT),
                 "hide_completed" => hide_completed = v == "1",
                 "scroll" => page_scrolls.extend(PageScroll::decode(v)),
-                "next_id" => tree.ensure_next_id(v.parse().unwrap_or(0)),
                 "starred" => starred = v.split(',').filter_map(|x| x.parse().ok()).collect(),
                 "saved_searches" => saved_searches = v.split('\n').filter(|x| !x.is_empty()).map(String::from).collect(),
                 _ => {}
             }
         }
-        let saved_next_id = tree.next_id();
         if !tree.contains(zoom) {
             zoom = ROOT;
         }
@@ -331,7 +330,6 @@ impl Outline {
             saved_searches,
             trash: None,
             db_path,
-            saved_next_id,
             calendar: None,
             journal_id: meta.iter().find(|(k, _)| k == "journal").and_then(|(_, v)| v.parse().ok()),
             toast: None,
@@ -346,6 +344,7 @@ impl Outline {
             ghosts: Default::default(),
             popup_scroll: gpui::ScrollHandle::new(),
             page_scroll: gpui::ScrollHandle::new(),
+            short_ids: Default::default(),
             popover_scroll: gpui::ScrollHandle::new(),
             menu_scroll: gpui::ScrollHandle::new(),
             settings: None,
@@ -544,10 +543,6 @@ impl Outline {
         let (up, del) = self.tree.take_dirty();
         if let Some(w) = &self.writer {
             w.write(up, del);
-            if self.tree.next_id() != self.saved_next_id {
-                self.saved_next_id = self.tree.next_id();
-                w.set_meta("next_id", &self.saved_next_id.to_string());
-            }
         }
     }
 

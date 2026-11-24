@@ -1,7 +1,7 @@
 //! Outline editing operations. Each mutates the tree through `put`/`remove`,
 //! so every operation is journaled for undo and persistence automatically.
 
-use crate::tree::{BlockKind, Node, NodeId, Tree, ROOT};
+use super::{BlockKind, Node, NodeId, Tree, ROOT};
 
 impl Tree {
     /// Create an empty node at `index` among `parent`'s children.

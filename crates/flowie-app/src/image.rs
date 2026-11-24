@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use flowie_core::images::{self, BlobInfo, ImageDir};
+use flowie_core::images::{self, BlobInfo};
 use flowie_core::{BlockKind, NodeId, ROOT};
 use gpui::{div, img, prelude::*, px, AnyElement, Context, MouseButton, ObjectFit, PathPromptOptions, StyledImage, Window};
 
@@ -20,19 +20,19 @@ pub fn is_image_path(p: &Path) -> bool {
     p.extension().and_then(|e| e.to_str()).is_some_and(|e| ["png", "jpg", "jpeg", "gif", "webp"].contains(&e.to_ascii_lowercase().as_str()))
 }
 
-pub(crate) fn write_image(dir: Option<&ImageDir>, bytes: &[u8]) -> Result<BlobInfo, String> {
-    let dir = dir.ok_or_else(|| t!("image.no_folder").to_string())?;
-    dir.put(bytes).map_err(|e| match e {
+pub(crate) fn image_error(error: images::ImageError) -> String {
+    match error {
         images::ImageError::Unsupported => t!("image.unsupported").to_string(),
         images::ImageError::TooLarge => t!("image.too_large").to_string(),
-        images::ImageError::Io(e) => e,
-    })
+        images::ImageError::Io(message) => message,
+    }
 }
 
 impl Outline {
     /// Store image bytes; the name a bullet refers to them by.
     pub fn store_image(&mut self, bytes: &[u8]) -> Result<String, String> {
-        let info = write_image(self.image_dir.as_ref(), bytes)?;
+        let dir = self.image_dir.as_ref().ok_or_else(|| t!("image.no_folder").to_string())?;
+        let info = dir.put(bytes).map_err(image_error)?;
         let name = info.name.clone();
         self.record_image(info);
         Ok(name)
@@ -356,11 +356,10 @@ impl Outline {
         std::thread::Builder::new()
             .name("flowie-images".into())
             .spawn(move || {
-                let Ok(conn) = flowie_core::store::open(&db) else { return };
-                let Ok(used) = flowie_core::store::image_names_in_use(&conn) else { return };
-                let removed = images::ImageDir::beside(&db).collect(&used, std::time::Duration::from_secs(3600));
-                if !removed.is_empty() {
-                    let _ = flowie_core::store::drop_blobs(&conn, &removed);
+                if let Ok(removed) = flowie_core::store::collect_unused_images(&db, std::time::Duration::from_secs(3600)) {
+                    if removed.is_empty() {
+                        return;
+                    }
                     eprintln!("flowie: removed {} unused image files", removed.len());
                 }
             })

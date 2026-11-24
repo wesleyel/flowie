@@ -6,7 +6,6 @@ pub mod history;
 pub mod images;
 pub mod io;
 pub mod markup;
-mod ops;
 pub mod package;
 pub mod search;
 pub mod short_id;

@@ -618,6 +618,16 @@ impl Outline {
         }
     }
 
+    /// How the edited text maps to what the editor shows (internal links show their label only).
+    pub fn edit_map(&self) -> crate::rich::EditMap {
+        let code = match self.edit.as_ref().map(|e| e.target) {
+            Some(Target::Text(id)) => self.tree.get(id).is_some_and(|n| n.kind == flowie_core::BlockKind::Code),
+            Some(Target::Note(_)) => false,
+            _ => true,
+        };
+        crate::rich::EditMap::new(self.edit_text(), code)
+    }
+
     /// Replace `range` of the edited text with `new`, leaving the caret after it.
     pub fn replace_edit_text(&mut self, range: Range<usize>, new: &str, mark: bool, cx: &mut Context<Self>) {
         let Some(target) = self.edit.as_ref().map(|e| e.target) else { return };
@@ -722,26 +732,33 @@ impl Outline {
         cx.notify();
     }
 
+    // Caret steps treat an internal link as one character (see `EditMap`).
+
     fn prev_boundary(&self, offset: usize) -> usize {
-        self.edit_text().grapheme_indices(true).rev().find_map(|(i, _)| (i < offset).then_some(i)).unwrap_or(0)
+        let at = self.edit_text().grapheme_indices(true).rev().find_map(|(i, _)| (i < offset).then_some(i)).unwrap_or(0);
+        self.edit_map().snap(at, false)
     }
 
     fn next_boundary(&self, offset: usize) -> usize {
         let text = self.edit_text();
-        text.grapheme_indices(true).find_map(|(i, _)| (i > offset).then_some(i)).unwrap_or(text.len())
+        let at = text.grapheme_indices(true).find_map(|(i, _)| (i > offset).then_some(i)).unwrap_or(text.len());
+        self.edit_map().snap(at, true)
     }
 
     fn prev_word(&self, offset: usize) -> usize {
         let text = self.edit_text();
-        text.split_word_bound_indices().rev().find(|(i, w)| *i < offset && !w.trim().is_empty()).map(|(i, _)| i).unwrap_or(0)
+        let at = text.split_word_bound_indices().rev().find(|(i, w)| *i < offset && !w.trim().is_empty()).map(|(i, _)| i).unwrap_or(0);
+        self.edit_map().snap(at, false)
     }
 
     fn next_word(&self, offset: usize) -> usize {
         let text = self.edit_text();
-        text.split_word_bound_indices()
+        let at = text
+            .split_word_bound_indices()
             .find(|(i, w)| i + w.len() > offset && !w.trim().is_empty())
             .map(|(i, w)| i + w.len())
-            .unwrap_or(text.len())
+            .unwrap_or(text.len());
+        self.edit_map().snap(at, true)
     }
 
     /// The row above/below the given node in display order (None at the edges).
@@ -1137,7 +1154,8 @@ impl Outline {
     fn vertical(&mut self, dir: isize, select: bool, cx: &mut Context<Self>) -> bool {
         let Some(e) = self.edit.as_ref() else { return false };
         let (Some(layout), Some(bounds)) = (e.layout.clone(), e.bounds) else { return false };
-        let caret = e.caret().min(self.edit_text().len());
+        let map = self.edit_map();
+        let caret = map.to_display(e.caret().min(self.edit_text().len()));
         let Some(pos) = layout.position_for_index(caret) else { return false };
         let lh = layout.line_height();
         let target_y = if dir < 0 { pos.y - lh * 0.5 } else { pos.y + lh * 1.5 };
@@ -1147,7 +1165,7 @@ impl Outline {
         let ix = match layout.index_for_position(gpui::point(pos.x, target_y)) {
             Ok(i) | Err(i) => i,
         };
-        self.move_caret(ix.min(self.edit_text().len()), select, cx);
+        self.move_caret(map.to_raw(ix).min(self.edit_text().len()), select, cx);
         true
     }
 

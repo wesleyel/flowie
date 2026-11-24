@@ -44,6 +44,14 @@ and press Backspace while recording to remove that binding.
 
 File menu: export as OPML, Markdown or plain text (selected bullets, or the whole page), and the Trash.
 
+Flowie writes [OPML 2.0](https://opml.org/spec2.opml). Every `outline` has a standard `text`
+attribute. A mirror's `text` is a snapshot of its source text, so any OPML reader can display it.
+The `flowie` namespace (`https://github.com/wesleyel/flowie/ns/opml/1`) adds `id` for the bullet's
+UUID and `mirrorOf` for its source UUID. A mirror is a leaf in the file. Flowie resolves its
+source in the imported document first, then in the destination outline. If the source is missing,
+the snapshot becomes a regular item. On an ID collision, Flowie gives the imported item a fresh ID
+and redirects its document's internal links and mirrors to the imported copy.
+
 ## Search
 
 Search terms: words, `"phrases"`, `-exclude`, `#tag`, `@person`, `is:done`, `is:open`, `is:todo`, `is:heading`, `is:quote`, `is:code`, `has:note`, `changed:7d` (`m`/`h`/`d`/`w`), `date:2026-11`, `date:today`, `before:2026-12-01`, `after:today`. Save a search from the header to run it later from ⌘P.

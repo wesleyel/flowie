@@ -1,13 +1,19 @@
 //! Import and export: indented text / Markdown and OPML (including
 //! Workflowy's OPML exports). Everything goes through `Item`, a detached
-//! subtree without ids.
+//! subtree with optional Flowie OPML identity.
 
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
-use crate::tree::{BlockKind, NodeId, Tree};
+use crate::markup::{rewrite_links, LinkEdit};
+use crate::tree::{BlockKind, Node, NodeId, Tree, ROOT};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Item {
+    #[serde(skip)]
+    pub id: Option<NodeId>,
+    #[serde(skip)]
+    pub mirror_of: Option<NodeId>,
     pub text: String,
     #[serde(default)]
     pub note: String,
@@ -54,31 +60,113 @@ impl Tree {
             collapsed: n.collapsed,
             children,
             image: s.image.clone(),
+            ..Default::default()
         }
+    }
+
+    pub fn to_opml_items(&self, ids: &[NodeId]) -> Vec<Item> {
+        fn build(tree: &Tree, id: NodeId) -> Item {
+            let node = tree.node(id);
+            let shown = tree.node(tree.source(id));
+            Item {
+                id: Some(node.id),
+                mirror_of: (node.mirror != ROOT).then_some(node.mirror),
+                text: shown.text.clone(),
+                note: shown.note.clone(),
+                completed: shown.completed,
+                kind: node.kind,
+                collapsed: node.collapsed,
+                children: tree.children(id).iter().map(|&child| build(tree, child)).collect(),
+                image: String::new(),
+            }
+        }
+        let selected: HashSet<_> = ids.iter().map(|&id| self.resolve(id)).collect();
+        let mut emitted = HashSet::new();
+        ids.iter()
+            .map(|&id| self.resolve(id))
+            .filter(|&id| {
+                id != ROOT && self.contains(id) && emitted.insert(id) && !self.ancestors(id).iter().any(|parent| selected.contains(parent))
+            })
+            .map(|id| build(self, id))
+            .collect()
     }
 
     /// Insert items at `index` under `parent`; returns the new top-level ids.
     pub fn insert_items(&mut self, parent: NodeId, index: usize, items: &[Item]) -> Vec<NodeId> {
-        let mut top = Vec::new();
-        for (i, item) in items.iter().enumerate() {
-            top.push(self.insert_item(parent, index + i, item));
+        let mut roots = Vec::new();
+        let parent = self.source(parent);
+        let mut stack: Vec<_> = items.iter().enumerate().rev().map(|(offset, item)| (parent, index + offset, item)).collect();
+        let mut imported = Vec::new();
+        let mut mapped = HashMap::new();
+        let mut ambiguous = HashSet::new();
+        while let Some((under, position, item)) = stack.pop() {
+            let original = item.id.filter(|id| *id != ROOT && !id.is_virtual());
+            let id = original.filter(|id| !self.contains(*id)).unwrap_or_else(|| self.alloc_id());
+            if let Some(original) = original {
+                if mapped.insert(original, id).is_some() {
+                    ambiguous.insert(original);
+                }
+            }
+            let mut node = Node::new(id, under, self.rank_at(under, position));
+            node.text = item.text.clone();
+            node.note = item.note.clone();
+            node.completed = item.completed;
+            node.kind = item.kind;
+            node.collapsed = item.collapsed && (!item.children.is_empty() || item.mirror_of.is_some());
+            if item.kind == BlockKind::Image {
+                node.image = item.image.clone();
+            }
+            self.put(node);
+            if under == parent {
+                roots.push(id);
+            }
+            imported.push((id, item.mirror_of));
+            stack.extend(item.children.iter().enumerate().rev().map(|(offset, child)| (id, offset, child)));
         }
-        top
-    }
-
-    fn insert_item(&mut self, parent: NodeId, index: usize, item: &Item) -> NodeId {
-        let id = self.create_at(parent, index, &item.text);
-        let mut node = self.node(id).clone();
-        node.note = item.note.clone();
-        node.completed = item.completed;
-        node.kind = item.kind;
-        node.collapsed = item.collapsed && !item.children.is_empty();
-        node.image = if item.kind == BlockKind::Image { item.image.clone() } else { String::new() };
-        self.put(node);
-        for (i, kid) in item.children.iter().enumerate() {
-            self.insert_item(id, i, kid);
+        let mirrors: HashSet<_> = imported.iter().filter(|(_, source)| source.is_some()).map(|(id, _)| *id).collect();
+        let remap = |target: NodeId| mapped.get(&target).copied().unwrap_or(target);
+        for (id, mirror_of) in imported {
+            let source = mirror_of.filter(|source| !ambiguous.contains(source)).map(remap).filter(|&source| {
+                source != ROOT
+                    && source != id
+                    && !source.is_virtual()
+                    && !mirrors.contains(&source)
+                    && self.contains(source)
+                    && self.node(source).mirror == ROOT
+                    && !self.has_children(id)
+                    && !self.is_ancestor(source, id)
+            });
+            if source.is_none() && mapped.is_empty() {
+                continue;
+            }
+            let mut node = self.node(id).clone();
+            if let Some(source) = source {
+                node.mirror = source;
+                node.text.clear();
+                node.note.clear();
+                node.image.clear();
+                node.kind = self.node(source).kind;
+            } else {
+                let relink = |text: &str| {
+                    rewrite_links(text, |url| {
+                        let Some(target) = url.strip_prefix("flowie:").and_then(|value| value.parse().ok()) else { return LinkEdit::Keep };
+                        if ambiguous.contains(&target) {
+                            return LinkEdit::Unlink;
+                        }
+                        match mapped.get(&target) {
+                            Some(&new) if target != new => LinkEdit::Url(format!("flowie:{new}")),
+                            _ => LinkEdit::Keep,
+                        }
+                    })
+                };
+                if node.kind != BlockKind::Code {
+                    node.text = relink(&node.text);
+                }
+                node.note = relink(&node.note);
+            }
+            self.put(node);
         }
-        id
+        roots
     }
 }
 
@@ -282,6 +370,8 @@ fn parse_line(s: &str) -> Item {
 
 // ------------------------------------------------------------------ OPML
 
+const OPML_NAMESPACE: &str = "https://github.com/wesleyel/flowie/ns/opml/1";
+
 fn xml_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -291,6 +381,9 @@ fn xml_escape(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\n' => out.push_str("&#10;"),
+            '\t' => out.push_str("&#9;"),
+            '\r' => out.push_str("&#13;"),
+            '\0'..='\u{1f}' | '\u{fffe}' | '\u{ffff}' => out.push('\u{fffd}'),
             _ => out.push(c),
         }
     }
@@ -301,14 +394,23 @@ pub fn to_opml(title: &str, items: &[Item]) -> String {
     fn walk(it: &Item, depth: usize, out: &mut String) {
         let pad = "  ".repeat(depth + 2);
         out.push_str(&format!("{pad}<outline text=\"{}\"", xml_escape(&it.text)));
+        if let Some(id) = it.id {
+            out.push_str(&format!(" flowie:id=\"{id}\""));
+        }
+        if let Some(source) = it.mirror_of {
+            out.push_str(&format!(" flowie:mirrorOf=\"{source}\""));
+        }
         if !it.note.is_empty() {
-            out.push_str(&format!(" _note=\"{}\"", xml_escape(&it.note)));
+            out.push_str(&format!(" flowie:note=\"{}\"", xml_escape(&it.note)));
         }
         if it.completed {
-            out.push_str(" _complete=\"true\"");
+            out.push_str(" flowie:complete=\"true\"");
+        }
+        if it.collapsed {
+            out.push_str(" flowie:collapsed=\"true\"");
         }
         if it.kind != BlockKind::Bullet {
-            out.push_str(&format!(" _flowieKind=\"{}\"", it.kind.name()));
+            out.push_str(&format!(" flowie:kind=\"{}\"", it.kind.name()));
         }
         if it.children.is_empty() {
             out.push_str("/>\n");
@@ -320,7 +422,8 @@ pub fn to_opml(title: &str, items: &[Item]) -> String {
             out.push_str(&format!("{pad}</outline>\n"));
         }
     }
-    let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\">\n  <head>\n");
+    let mut out =
+        format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\" xmlns:flowie=\"{OPML_NAMESPACE}\">\n  <head>\n");
     out.push_str(&format!("    <title>{}</title>\n  </head>\n  <body>\n", xml_escape(title)));
     for it in items {
         walk(it, 0, &mut out);
@@ -425,52 +528,44 @@ fn html_to_markup(s: &str) -> String {
 }
 
 pub fn parse_opml(xml: &str) -> Vec<Item> {
-    let body = xml.find("<body").map(|i| &xml[i..]).unwrap_or(xml);
-    let mut roots: Vec<Item> = Vec::new();
-    let mut stack: Vec<Item> = Vec::new();
-    let mut rest = body;
-    while let Some(lt) = rest.find('<') {
-        rest = &rest[lt..];
-        let Some(gt) = rest.find('>') else { break };
-        let tag = &rest[1..gt];
-        rest = &rest[gt + 1..];
-        if let Some(t) = tag.strip_prefix("outline") {
-            let self_closing = t.trim_end().ends_with('/');
-            let attrs = parse_attrs(t.trim_end_matches('/'));
-            let mut it = Item::default();
-            for (k, v) in attrs {
-                match k.as_str() {
-                    "text" => it.text = html_to_markup(&v).replace('\n', " "),
-                    "_note" => it.note = html_to_markup(&v),
-                    "_complete" => it.completed = v == "true",
-                    "_flowieKind" => it.kind = BlockKind::from_name(&v).unwrap_or_default(),
-                    _ => {}
+    fn children(parent: roxmltree::Node<'_, '_>) -> Vec<Item> {
+        parent
+            .children()
+            .filter(|node| node.has_tag_name("outline") && node.tag_name().namespace().is_none())
+            .map(|node| {
+                let extension = |name| node.attribute((OPML_NAMESPACE, name));
+                let identity =
+                    |name| extension(name).and_then(|value| value.parse::<NodeId>().ok()).filter(|id| *id != ROOT && !id.is_virtual());
+                let raw = node.attribute("text").unwrap_or_default();
+                let text = if node.namespaces().any(|namespace| namespace.uri() == OPML_NAMESPACE) {
+                    raw.to_owned()
+                } else {
+                    html_to_markup(raw).replace('\n', " ")
+                };
+                Item {
+                    text,
+                    id: identity("id"),
+                    mirror_of: identity("mirrorOf"),
+                    note: extension("note")
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| html_to_markup(node.attribute("_note").unwrap_or_default())),
+                    kind: extension("kind").or_else(|| node.attribute("_flowieKind")).and_then(BlockKind::from_name).unwrap_or_default(),
+                    completed: extension("complete").or_else(|| node.attribute("_complete")) == Some("true"),
+                    collapsed: extension("collapsed") == Some("true"),
+                    children: children(node),
+                    ..Item::default()
                 }
-            }
-            if self_closing {
-                match stack.last_mut() {
-                    Some(p) => p.children.push(it),
-                    None => roots.push(it),
-                }
-            } else {
-                stack.push(it);
-            }
-        } else if tag.starts_with("/outline") {
-            if let Some(done) = stack.pop() {
-                match stack.last_mut() {
-                    Some(p) => p.children.push(done),
-                    None => roots.push(done),
-                }
-            }
+            })
+            .collect()
+    }
+    let Ok(document) = roxmltree::Document::parse(xml.trim_start()) else { return Vec::new() };
+    let root = document.root_element();
+    if root.tag_name().name() == "opml" {
+        if let Some(body) = root.children().find(|node| node.has_tag_name("body") && node.tag_name().namespace().is_none()) {
+            return children(body);
         }
     }
-    while let Some(done) = stack.pop() {
-        match stack.last_mut() {
-            Some(p) => p.children.push(done),
-            None => roots.push(done),
-        }
-    }
-    roots
+    Vec::new()
 }
 
 /// Guess the format from the content.

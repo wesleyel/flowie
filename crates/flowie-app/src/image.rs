@@ -319,7 +319,9 @@ impl Outline {
     /// refer to them by name. One that can't be read stays as its text.
     pub fn resolve_item_images(&mut self, items: &mut [flowie_core::Item], base: Option<&Path>) {
         for it in items.iter_mut() {
-            if it.kind == BlockKind::Image && !self.image_dir.as_ref().is_some_and(|d| d.has(&it.image)) {
+            if it.kind == BlockKind::Image && it.image.is_empty() {
+                it.kind = BlockKind::Bullet;
+            } else if it.kind == BlockKind::Image && !self.image_dir.as_ref().is_some_and(|d| d.has(&it.image)) {
                 let stored = base.and_then(|b| {
                     let path = b.join(it.image.trim_start_matches("./"));
                     let bytes = std::fs::read(&path).ok()?;

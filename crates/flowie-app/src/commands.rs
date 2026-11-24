@@ -344,30 +344,35 @@ impl Outline {
                 }
             }
             this.update(cx, |this, cx| {
-                let mut items = Vec::new();
-                for (mut found, dir) in files {
-                    this.resolve_item_images(&mut found, dir.as_deref());
-                    items.extend(found);
-                }
-                this.import_items(items, cx)
+                let documents = files
+                    .into_iter()
+                    .map(|(mut items, dir)| {
+                        this.resolve_item_images(&mut items, dir.as_deref());
+                        items
+                    })
+                    .collect();
+                this.import_documents(documents, cx)
             })
             .ok();
         })
         .detach();
     }
 
-    pub fn import_items(&mut self, items: Vec<io::Item>, cx: &mut Context<Self>) {
-        if items.is_empty() {
+    fn import_documents(&mut self, documents: Vec<Vec<io::Item>>, cx: &mut Context<Self>) {
+        let count: usize = documents.iter().map(|items| io::Item::count(items)).sum();
+        if count == 0 {
             self.toast(t!("toast.nothing_to_import"));
             cx.notify();
             return;
         }
-        let count = io::Item::count(&items);
         let (parent, index) = match self.editing_node().filter(|id| *id != self.zoom) {
             Some(id) => (self.tree.parent(id), self.tree.index_in_parent(id) + 1),
             None => (self.zoom, self.tree.children(self.zoom).len()),
         };
-        let top = self.tree.insert_items(parent, index, &items);
+        let mut top = Vec::new();
+        for items in documents {
+            top.extend(self.tree.insert_items(parent, index + top.len(), &items));
+        }
         self.edit = None;
         self.block = top.first().zip(top.last()).map(|(a, h)| BlockSel { anchor: *a, head: *h });
         self.toast(t!("toast.imported", count = count));
@@ -375,14 +380,14 @@ impl Outline {
     }
 
     /// What to export: the selected bullets, or everything on the current page.
-    fn export_items(&self) -> (String, Vec<io::Item>) {
+    fn export_items(&self, opml: bool) -> (String, Vec<io::Item>) {
         let ids = if self.block.is_some() { self.targets() } else { self.tree.children(self.zoom).to_vec() };
         let title = if self.zoom == ROOT { "Flowie".to_string() } else { node_label(self, self.zoom) };
-        (title, self.tree.to_items(&ids))
+        (title, if opml { self.tree.to_opml_items(&ids) } else { self.tree.to_items(&ids) })
     }
 
     fn export_with(&mut self, ext: &str, render: fn(&str, &[io::Item]) -> String, cx: &mut Context<Self>) {
-        let (title, items) = self.export_items();
+        let (title, items) = self.export_items(ext == "opml");
         let content = render(&title, &items);
         let safe: String = title.chars().map(|c| if "/\\:*?\"<>|".contains(c) { '-' } else { c }).take(60).collect();
         let dir = dirs::desktop_dir().unwrap_or_else(|| PathBuf::from("."));

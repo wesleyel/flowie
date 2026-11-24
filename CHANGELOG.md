@@ -11,8 +11,8 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 ### Breaking changes
 
 - **MCP**: node IDs are now UUID strings or short hexadecimal prefixes; clients sending numeric IDs must update their requests.
-- **Storage**: Flowie uses UUIDs for bullets and cannot upgrade an older database in place. On first open, it keeps the old file beside the new database as `<database>.old-<timestamp>`. Database initialization stops if moving the old file fails.
-- **Migration**: before upgrading, go to Home in the old version, clear any bullet selection and choose File → Export as OPML…. In the new version, return to Home and choose File → Import… to add the saved outline.
+- **Storage**: Flowie uses UUIDs for bullets. If the app opens an older database, it keeps the old file beside the new database as `<database>.old-<timestamp>`. Database initialization stops if moving the old file fails.
+- **Migration**: a [one-time database tool](docs/usage.md#database-migration-from-rc3-to-rc4) supports RC3 → RC4 only, including an in-place option with a WAL-aware backup. For OPML migration, export from Home with no selection in the old version and import the file at Home in the new version.
 - **Import and export**: OPML from rc.3 and earlier carries text, order, hierarchy, notes, completion and block types. Recreate internal links and mirrors after migrating. Stars, saved searches, Trash, fold state and image files are omitted from those exports.
 
 ### Added

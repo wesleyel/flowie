@@ -20,9 +20,30 @@ pub const TITLE_SIZE: f32 = 26.0;
 /// KaTeX glyphs look small next to the UI font at the same size.
 pub const MATH_SCALE: f32 = 1.1;
 
+pub(crate) fn bullet_row(depth: u16, top_pad: f32) -> gpui::Div {
+    div().relative().flex().items_start().pl(px(PAD_X + depth as f32 * INDENT)).pr(px(PAD_X)).pt(px(top_pad)).pb(px(3.))
+}
+
+pub(crate) fn indent_guides(depth: u16, theme: crate::theme::Theme) -> impl Iterator<Item = gpui::Div> {
+    (0..depth).map(move |level| div().absolute().top_0().bottom_0().left(px(PAD_X + level as f32 * INDENT + 8.5)).w(px(1.)).bg(theme.guide))
+}
+
 struct DragPreview {
     label: SharedString,
     theme: crate::theme::Theme,
+}
+
+pub(crate) fn bullet_dot(theme: crate::theme::Theme, folded: bool, mirror: bool, completed: bool) -> gpui::Div {
+    div()
+        .size(px(17.))
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .when(folded, |dot| dot.bg(theme.bullet_ring))
+        .when(mirror, |dot| dot.border_1().border_color(theme.accent.opacity(0.7)))
+        .hover(|style| style.bg(theme.bullet_ring))
+        .child(div().size(px(6.)).rounded_full().bg(if completed { theme.faint } else { theme.bullet }))
 }
 
 impl Render for DragPreview {
@@ -86,10 +107,13 @@ impl Outline {
         cx: &mut Context<Self>,
     ) {
         cx.stop_propagation();
-        if ev.modifiers.shift {
+        let temporary = matches!(target, Target::Field(Field::WhatsNew(_)));
+        if ev.modifiers.shift && !temporary {
             return self.shift_click(id, cx);
         }
         match click {
+            Some(Click::Link(url)) if temporary && (url.starts_with("https://") || url.starts_with("http://")) => return cx.open_url(&url),
+            _ if temporary => {}
             Some(Click::Tag(t)) => return self.search_for(&t, cx),
             Some(Click::Link(u)) => return cx.open_url(&u),
             Some(Click::Node(n)) => {
@@ -208,9 +232,17 @@ impl Outline {
 
     /// Text of a node, as the editor (when active) or as rendered rich text.
     fn render_text(&mut self, id: NodeId, note: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let target = if note { Target::Note(id) } else { Target::Text(id) };
+        self.render_node_text(id, target, window, cx)
+    }
+
+    pub(crate) fn render_node_text(&mut self, id: NodeId, target: Target, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let temporary = matches!(target, Target::Field(Field::WhatsNew(_)));
+        let tree = if temporary { &self.whats_new.as_ref().unwrap().tree } else { &self.tree };
+        let note = matches!(target, Target::Note(_));
         let bold_title = !note && id == self.zoom && id != ROOT;
-        let kind = self.tree.node(id).kind;
-        let node = self.tree.node(self.tree.source(id));
+        let kind = tree.node(id).kind;
+        let node = tree.node(tree.source(id));
         let raw = if note { node.note.clone() } else { node.text.clone() };
         let completed = node.completed;
         let (mut font, mut color) = self.base_style(window, completed);
@@ -221,9 +253,8 @@ impl Outline {
         if note || (kind == BlockKind::Quote && !completed) {
             color = self.theme.muted;
         }
-        let target = if note { Target::Note(id) } else { Target::Text(id) };
         let editing = self.edit.as_ref().is_some_and(|e| e.target == target);
-        let terms = self.highlight_terms.clone();
+        let terms = if temporary { Vec::new() } else { self.highlight_terms.clone() };
         let code = !note && kind == BlockKind::Code;
         let style = Style { theme: &self.theme, font, color, completed: completed && !note, highlights: &terms, code };
 
@@ -533,17 +564,7 @@ impl Outline {
             BlockKind::Paragraph => {
                 div().size(px(5.)).rounded_full().bg(theme.faint).opacity(0.).group_hover("row", |s| s.opacity(1.)).into_any_element()
             }
-            _ => div()
-                .size(px(17.))
-                .rounded_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .when(collapsed && has_kids, |d| d.bg(theme.bullet_ring))
-                .when(is_mirror, |d| d.border_1().border_color(theme.accent.opacity(0.7)))
-                .hover(|s| s.bg(theme.bullet_ring))
-                .child(div().size(px(6.)).rounded_full().bg(if completed { theme.faint } else { theme.bullet }))
-                .into_any_element(),
+            _ => bullet_dot(theme, collapsed && has_kids, is_mirror, completed).into_any_element(),
         };
         // An imported root not looked at yet: an unread dot, like mail.
         let base = match self.unread(id).is_some() {
@@ -665,11 +686,6 @@ impl Outline {
         let references = self.render_reference_count(id, cx);
         let picture = self.render_row_image(id, cx);
 
-        let mut guides = Vec::new();
-        for k in 0..d.row.depth {
-            guides.push(div().absolute().top_0().bottom_0().left(px(PAD_X + k as f32 * INDENT + 8.5)).w(px(1.)).bg(theme.guide));
-        }
-
         let drop_line = self.drop.filter(|t| t.node == id).map(|t| {
             let el = div().absolute().left(px(PAD_X + t.depth as f32 * INDENT)).right(px(PAD_X)).h(px(2.)).rounded_full().bg(theme.accent);
             if t.below {
@@ -727,16 +743,9 @@ impl Outline {
             .group("row")
             .relative()
             .w_full()
-            .children(guides)
+            .children(indent_guides(d.row.depth, theme))
             .child(
-                div()
-                    .relative()
-                    .flex()
-                    .items_start()
-                    .pl(px(left))
-                    .pr(px(PAD_X))
-                    .pt(px(top_pad))
-                    .pb(px(3.))
+                bullet_row(d.row.depth, top_pad)
                     .when(selected, |d| d.bg(theme.row_selected))
                     .when(editing_row && !selected, |d| d.bg(theme.row_selected.opacity(0.45)))
                     .when_some(self.anims.t(id, Channel::Flash), |d, t| d.bg(theme.accent.opacity(0.18 * (1.0 - ease_in_out(t)))))

@@ -219,24 +219,17 @@ common base: changed only there → update, only here → keep, both → conflic
 
 ## What's New page (done)
 
-A page like Trash: outside the outline (not a node under Home), read-only, generated from the
-release notes built into the app.
+A page outside the user's outline, generated from the release notes built into the app.
+Edits to its bullets last until the page closes.
 
 ### Content
 
 - The versioned sections of `CHANGELOG.md`, embedded at build time (`include_str!`) and parsed by
   version; `[Unreleased]` only in development builds. Newest first.
-- Versions newer than the last one the user saw are marked **New**; older ones are folded and
-  open on a click. Each version links to its GitHub release.
+- Versions newer than the last one the user saw are marked **New**.
 - Shown with Flowie's own markup renderer (bold, code, links); links open in the browser.
-- Translated, with English as the fallback, per version:
-  - `CHANGELOG.md` stays the English source (and the GitHub release notes).
-  - Translations live in `crates/flowie-app/locales/whats-new/<code>.md`, in the same
-    `## [x.y.z] - date` sections, embedded at build time next to the UI locales.
-  - Each version shows in the UI language when that file has its section, otherwise in English;
-    a page can mix the two.
-  - The i18n coverage test lists released versions missing from each translation (a report, not a
-    failure). Translating a version's notes joins the release steps, before tagging.
+- Chinese release notes live in the root `CHANGELOG.zh-CN.md` and follow the same sections as
+  `CHANGELOG.md`; other languages fall back to English.
 
 ### Opening
 

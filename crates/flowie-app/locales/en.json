@@ -565,7 +565,6 @@
   "whats_new": {
     "title": "What's New",
     "unreleased": "Coming next",
-    "new": "New",
-    "release_page": "Release page"
+    "new": "New"
   }
 }

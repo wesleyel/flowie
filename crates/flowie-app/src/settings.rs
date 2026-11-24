@@ -49,6 +49,12 @@ pub struct Config {
     /// the Settings window yet; set `"smooth_scroll": false` in settings.json to turn it off.
     #[serde(default = "yes")]
     pub smooth_scroll: bool,
+    /// The newest version whose What's New the user has had the chance to see.
+    #[serde(default)]
+    pub seen_version: Option<String>,
+    /// Open What's New once after each update.
+    #[serde(default = "yes")]
+    pub whats_new_after_updates: bool,
 }
 
 fn yes() -> bool {
@@ -65,6 +71,8 @@ impl Default for Config {
             agent: Default::default(),
             language: String::new(),
             smooth_scroll: true,
+            seen_version: None,
+            whats_new_after_updates: true,
         }
     }
 }
@@ -856,6 +864,20 @@ impl Outline {
                         cx.notify();
                     })),
             );
+        let on = self.config.whats_new_after_updates;
+        let whats_new = div()
+            .id("whats-new-after-updates")
+            .flex()
+            .items_center()
+            .gap_2()
+            .cursor_pointer()
+            .child(crate::ui::controls::checkbox(theme, on))
+            .child(t!("settings.general.whats_new.toggle"))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.config.whats_new_after_updates = !on;
+                this.save_config();
+                cx.notify();
+            }));
         let field = |label: &'static str, hint: String, control: AnyElement| {
             div()
                 .flex()
@@ -895,6 +917,11 @@ impl Outline {
                 name_field.into_any_element(),
             ))
             .child(field(t!("settings.general.author_id.label"), t!("settings.general.author_id.hint").into(), id_row.into_any_element()))
+            .child(field(
+                t!("settings.general.whats_new.label"),
+                t!("settings.general.whats_new.hint").into(),
+                whats_new.into_any_element(),
+            ))
             .into_any_element()
     }
 

@@ -80,6 +80,7 @@ actions!(
         ExportText,
         ExportPackage,
         InsertImage,
+        WhatsNew,
         ShowTrash,
         SaveSearch,
         Highlight,
@@ -291,6 +292,10 @@ pub struct Outline {
     pub blobs: std::collections::HashMap<String, flowie_core::images::BlobInfo>,
     /// The image shown full-window (Space on an image bullet).
     pub image_preview: Option<NodeId>,
+    /// The What's New page, while open (it and Trash replace each other).
+    pub whats_new: Option<crate::whats_new::WhatsNewPage>,
+    /// What's New to show once the window is (after a background launch).
+    pub whats_new_pending: Option<Option<String>>,
     /// Roots imported from share packages, by root id.
     pub imports: std::collections::HashMap<NodeId, flowie_core::store::ImportRecord>,
 }
@@ -376,6 +381,8 @@ impl Outline {
             image_dir: db_path_for_images.as_deref().map(flowie_core::images::ImageDir::beside),
             blobs: blobs.into_iter().map(|b| (b.name.clone(), b)).collect(),
             image_preview: None,
+            whats_new: None,
+            whats_new_pending: None,
             imports: imports.into_iter().map(|r| (r.root, r)).collect(),
             kill_buffer: String::new(),
             mouse_block: false,
@@ -408,6 +415,12 @@ impl Outline {
         this.window_place = crate::window_place::Place::observe(saved_place.as_ref(), window, cx);
         cx.observe_window_bounds(window, |this, window, cx| {
             this.window_place = crate::window_place::Place::observe(this.window_place.as_ref(), window, cx).or(this.window_place.take());
+        })
+        .detach();
+        cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.whats_new_window_shown(cx);
+            }
         })
         .detach();
         cx.observe_window_appearance(window, |this, window, cx| {
@@ -1452,6 +1465,10 @@ impl Outline {
         if self.modal_open() {
             return;
         }
+        // Back from What's New returns to where the user was; it's not a step in the history.
+        if direction == gpui::NavigationDirection::Back && self.close_whats_new(true, cx) {
+            return;
+        }
         let pages = match direction {
             gpui::NavigationDirection::Back => &mut self.back_pages,
             gpui::NavigationDirection::Forward => &mut self.forward_pages,
@@ -1522,6 +1539,9 @@ impl Outline {
         let came_from = self.zoom;
         self.zoom = id;
         self.see_around(id);
+        // Going anywhere closes What's New (and Trash) without putting the caret back.
+        self.close_whats_new(false, cx);
+        self.trash = None;
         self.block = None;
         self.history.seal();
         self.anims.clear();
@@ -1623,6 +1643,10 @@ impl Outline {
     }
 
     pub fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        // ⌘Z first closes What's New, then undoes in the outline.
+        if self.close_whats_new(true, cx) {
+            return;
+        }
         if let Some(caret) = self.history.undo(&mut self.tree) {
             self.after_history(caret, cx);
         }
@@ -1854,7 +1878,7 @@ impl Outline {
             cx.notify();
             return;
         }
-        if self.trash.take().is_some() {
+        if self.trash.take().is_some() || self.close_whats_new(true, cx) {
             cx.notify();
             return;
         }

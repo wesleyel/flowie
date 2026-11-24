@@ -38,6 +38,10 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
   are removed. Agents add images with the new MCP tool `attach_image`.
 - Markdown export writes images to an `images` folder beside the file as `![caption](images/…)`;
   Markdown import reads such images back. Share packages carry their images.
+- What's New (Help menu, Flowie menu on macOS, `/whats`): the release notes of each version, in
+  your language where translated, with versions since your last update marked New. It opens by
+  itself once after Flowie updates (not on a first install); turn that off in Settings → General.
+  Esc, Back or ⌘Z returns to exactly where you were.
 
 ### Changed
 

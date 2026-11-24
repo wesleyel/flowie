@@ -148,6 +148,11 @@
         "copied": "Author ID copied",
         "pasted": "Author ID changed",
         "invalid": "The clipboard doesn't hold an author ID"
+      },
+      "whats_new": {
+        "label": "What's New",
+        "hint": "Show the release notes once after Flowie updates. Help → What's New always works.",
+        "toggle": "Show after updates"
       }
     },
     "shortcuts": {
@@ -226,14 +231,16 @@
     "app": {
       "about": "About Flowie",
       "settings": "Settings…",
-      "quit": "Quit Flowie"
+      "quit": "Quit Flowie",
+      "whats_new": "What's New…"
     },
     "help": {
       "title": "Help",
       "tutorial": "Flowie Tutorial",
       "feedback": "Send Feedback…",
       "privacy": "Privacy Policy",
-      "terms": "Terms of Use"
+      "terms": "Terms of Use",
+      "whats_new": "What's New"
     },
     "file": {
       "title": "File",
@@ -437,7 +444,8 @@
     "export_package": "Export as package",
     "complete": "Complete",
     "note": "Add note",
-    "image": "Image"
+    "image": "Image",
+    "whats_new": "What's New"
   },
   "group": {
     "editing": "Editing",
@@ -553,5 +561,11 @@
     "missing": "Image file missing",
     "preview_hint": "Esc or click to close",
     "export_images_failed": "Exported the text, but not its images: {error}"
+  },
+  "whats_new": {
+    "title": "What's New",
+    "unreleased": "Coming next",
+    "new": "New",
+    "release_page": "Release page"
   }
 }

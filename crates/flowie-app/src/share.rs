@@ -103,7 +103,7 @@ impl Outline {
             title: title.trim().to_string(),
             description: description.trim().to_string(),
             author: Person { id: self.config.author.id.clone(), name: self.author_name(), device: self.device_id.clone() },
-            app: format!("Flowie {}", env!("CARGO_PKG_VERSION")),
+            app: format!("Flowie {}", crate::whats_new::running_version()),
         };
         Package::export(&self.tree, roots, ExportOptions { include_completed }, meta, self.image_dir.as_ref())
     }

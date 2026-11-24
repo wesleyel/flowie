@@ -217,7 +217,7 @@ common base: changed only there → update, only here → keep, both → conflic
   import reads them (needs the user to pick the folder, for the sandbox).
 - Share packages carry the images in `images/`.
 
-## What's New page
+## What's New page (done)
 
 A page like Trash: outside the outline (not a node under Home), read-only, generated from the
 release notes built into the app.
@@ -279,6 +279,9 @@ release notes built into the app.
    GPUI decodes and caches each image in memory).
 6. ~~Re-importing a package: first the "already imported" note, then the three-way update~~ (done;
    bases are keyed by imported root, since each export has its own `package_id`).
-7. Change history with authors, and the agent co-authoring setting.
-8. What's New page.
+7. Change history with authors, and the agent co-authoring setting (not started; left out of the
+   sharing release).
+8. ~~What's New page~~ (done; Trash and it are two fields that replace each other, and the
+   running version is the newest changelog section for Cargo's `X.Y.Z`, since release candidates
+   keep Cargo.toml at `X.Y.Z`).
 9. Signing, only if collaboration ends up local-first without a server.

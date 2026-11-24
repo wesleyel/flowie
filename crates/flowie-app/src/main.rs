@@ -27,6 +27,7 @@ mod theme;
 mod tutorial;
 mod ui;
 mod view;
+mod whats_new;
 mod window_place;
 
 use std::borrow::Cow;
@@ -206,6 +207,7 @@ fn main() {
         window
             .update(cx, |o, window, cx| {
                 window.focus(&o.focus, cx);
+                o.whats_new_on_launch(background, cx);
             })
             .ok();
         if !background {

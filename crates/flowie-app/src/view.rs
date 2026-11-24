@@ -1063,10 +1063,13 @@ impl Render for Outline {
                 cx,
             )))
             .child(tools.flex_none());
-        let title_el = if self.trash.is_some() { None } else { self.render_title(window, cx) };
+        let overlay = self.trash.is_some() || self.whats_new.is_some();
+        let title_el = if overlay { None } else { self.render_title(window, cx) };
 
         let entity = cx.entity();
-        let body: AnyElement = if self.trash.is_some() {
+        let body: AnyElement = if self.whats_new.is_some() {
+            self.render_whats_new(window, cx)
+        } else if self.trash.is_some() {
             self.render_trash(cx)
         } else {
             // A popover sits at fixed window coordinates: scrolling the page
@@ -1232,6 +1235,7 @@ impl Render for Outline {
             .on_action(cx.listener(Self::export_markdown))
             .on_action(cx.listener(Self::export_package))
             .on_action(cx.listener(Self::insert_image))
+            .on_action(cx.listener(Self::whats_new))
             .on_action(cx.listener(Self::export_text))
             .on_action(cx.listener(Self::show_trash))
             .on_action(cx.listener(Self::save_search))
@@ -1409,7 +1413,9 @@ impl Outline {
 }
 
 fn window_title(o: &Outline) -> String {
-    if o.zoom == ROOT {
+    if o.whats_new.is_some() {
+        format!("{} — Flowie", t!("whats_new.title"))
+    } else if o.zoom == ROOT {
         "Flowie".into()
     } else {
         let text = markup::plain_text(&o.tree.node(o.zoom).text);

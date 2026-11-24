@@ -58,6 +58,7 @@ pub enum Action {
     OpenMove,
     ExportPackage,
     InsertImage,
+    WhatsNew,
     Today,
 }
 

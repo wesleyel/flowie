@@ -452,6 +452,7 @@ impl Outline {
     // ----------------------------------------------------------- trash
 
     pub fn show_trash(&mut self, _: &ShowTrash, _: &mut Window, cx: &mut Context<Self>) {
+        self.close_whats_new(false, cx);
         self.load_trash();
         self.edit = None;
         self.block = None;

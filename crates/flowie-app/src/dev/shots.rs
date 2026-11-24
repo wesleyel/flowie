@@ -186,9 +186,9 @@ impl Outline {
             "package_update" => {
                 let take: Vec<NodeId> =
                     p.get("take").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_str()?.parse().ok()).collect();
-                let plan = self.package_import.as_mut().and_then(|i| i.update_mut()).ok_or("nothing to update")?;
-                plan.1.extend(take);
-                let summary = format!("{:?}", plan.0);
+                let (plan, take_theirs) = self.package_import.as_mut().and_then(|import| import.update_mut()).ok_or("nothing to update")?;
+                take_theirs.extend(take);
+                let summary = format!("{plan:?}");
                 self.update_package_now(cx);
                 Ok(summary)
             }

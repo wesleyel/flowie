@@ -1,11 +1,12 @@
 //! Open share packages, preview their contents, and apply imports or updates.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 
-use flowie_core::images::{BlobInfo, ImageDir};
-use flowie_core::package::{ImportOptions, Package, PackageError, UpdatePlan, EXTENSION};
-use flowie_core::store::{ImportRecord, ImportState};
+#[cfg(feature = "screenshots")]
+use flowie_core::package::UpdatePlan;
+use flowie_core::package::{compare_package, package_import_state, ImportComparison, ImportOptions, Package, PackageError, EXTENSION};
+use flowie_core::store::ImportState;
 use flowie_core::{NodeId, ROOT};
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, KeyDownEvent, MouseButton, SharedString, Window};
 
@@ -47,6 +48,7 @@ pub fn path_from_url(url: &str) -> Option<std::path::PathBuf> {
 /// The open import dialog.
 pub struct PackageImport {
     comparison: ImportComparison,
+    take_theirs: HashSet<NodeId>,
     scroll: gpui::ScrollHandle,
     package: Package,
     /// Where the roots go (at the end).
@@ -61,22 +63,11 @@ pub struct PackageImport {
     return_to: Option<(Target, usize)>,
 }
 
-struct ImportComparison {
-    revision: u64,
-    before: ImportState,
-    already: bool,
-    update: Option<(UpdatePlan, HashSet<NodeId>)>,
-}
-
-fn write_package_images(package: &Package, dir: Option<&ImageDir>) -> Result<Vec<BlobInfo>, String> {
-    package.images.values().map(|bytes| crate::image::write_image(dir, bytes)).collect()
-}
-
 #[cfg(feature = "screenshots")]
 impl PackageImport {
     /// The update plan and the conflicts taken from the package (`shot.package_update`).
-    pub fn update_mut(&mut self) -> Option<&mut (UpdatePlan, HashSet<NodeId>)> {
-        self.comparison.update.as_mut()
+    pub fn update_mut(&mut self) -> Option<(&UpdatePlan, &mut HashSet<NodeId>)> {
+        Some((self.comparison.update.as_ref()?, &mut self.take_theirs))
     }
 }
 
@@ -85,108 +76,6 @@ const CONFLICTS_SHOWN: usize = 6;
 
 /// Lines of the import preview.
 const PREVIEW_LINES: usize = 8;
-
-fn copied_imports<'a>(package: &Package, tree: &flowie_core::Tree, records: &'a HashMap<NodeId, ImportRecord>) -> Vec<&'a ImportRecord> {
-    let roots: HashSet<_> = package.outline.roots.iter().copied().collect();
-    let mut batches = BTreeMap::<_, Vec<_>>::new();
-    for record in records.values().filter(|record| record.package_id == package.manifest.package_id) {
-        if let Some(&(source, _)) = record.source_ids.iter().find(|&&(source, local)| local == record.root && source != local) {
-            if roots.contains(&source) {
-                batches.entry(record.imported_at).or_default().push((source, record));
-            }
-        }
-    }
-    let complete = |batch: &[(NodeId, &'a ImportRecord)]| {
-        batch.len() == roots.len()
-            && batch.iter().all(|&(_, record)| tree.contains(record.root))
-            && batch.iter().map(|&(source, _)| source).collect::<HashSet<_>>() == roots
-    };
-    let batch = batches.values().rev().find(|batch| complete(batch)).cloned().unwrap_or_else(|| {
-        let batch: Vec<_> = batches.into_values().flatten().collect();
-        if complete(&batch) {
-            batch
-        } else {
-            Vec::new()
-        }
-    });
-    let by_source: HashMap<_, _> = batch.into_iter().collect();
-    package.outline.roots.iter().filter_map(|source| by_source.get(source).copied()).collect()
-}
-
-fn package_import_state(package: &Package, id_map: &HashMap<NodeId, NodeId>, imported_at: i64) -> ImportState {
-    let root_of = package.root_of();
-    let mut source_ids = HashMap::<_, Vec<_>>::new();
-    let bases = package
-        .mapped_base_hashes(id_map)
-        .map(|(source, hash)| {
-            let root = id_map[&root_of[&source]];
-            let local = id_map[&source];
-            source_ids.entry(root).or_default().push((source, local));
-            (local, root, hash)
-        })
-        .collect();
-    let roots: Vec<_> = package.outline.roots.iter().map(|source| id_map[source]).collect();
-    let manifest = &package.manifest;
-    let records = roots
-        .iter()
-        .map(|&root| ImportRecord {
-            root,
-            package_id: manifest.package_id.clone(),
-            title: manifest.title.clone(),
-            author_id: manifest.exported_by.id.clone(),
-            author_name: manifest.exported_by.name.clone(),
-            exported_at: manifest.exported_at_millis(),
-            imported_at,
-            seen_at: None,
-            source_ids: source_ids.remove(&root).unwrap_or_default(),
-        })
-        .collect();
-    ImportState { roots, records, bases, ..Default::default() }
-}
-
-fn compare_package(
-    package: &Package,
-    tree: &flowie_core::Tree,
-    imports: &HashMap<NodeId, ImportRecord>,
-    db_path: Option<&Path>,
-) -> Result<ImportComparison, String> {
-    let connection = db_path.map(flowie_core::store::open).transpose().map_err(|error| error.to_string())?;
-    let load_bases = |roots: &[NodeId]| {
-        connection.as_ref().map(|connection| flowie_core::store::load_bases(connection, roots)).transpose().map(Option::unwrap_or_default)
-    };
-    let source_roots = &package.outline.roots;
-    let source_bases = load_bases(source_roots).map_err(|error| error.to_string())?;
-    let can_update_original = !source_bases.is_empty() && source_roots.iter().all(|&root| tree.contains(root));
-    let copies = if can_update_original { Vec::new() } else { copied_imports(package, tree, imports) };
-    let mut already =
-        !package.present_in(tree).is_empty() || imports.values().any(|record| record.package_id == package.manifest.package_id);
-    if let Some(connection) = connection.as_ref().filter(|_| !already) {
-        for &root in source_roots {
-            if flowie_core::store::in_trash(connection, root).map_err(|error| error.to_string())? {
-                already = true;
-                break;
-            }
-        }
-    }
-    let (roots, bases) = if copies.is_empty() {
-        (source_roots.clone(), source_bases)
-    } else {
-        let roots: Vec<_> = copies.iter().map(|record| record.root).collect();
-        let bases = load_bases(&roots).map_err(|error| error.to_string())?;
-        (roots, bases)
-    };
-    let update = if (can_update_original || !copies.is_empty()) && !bases.is_empty() {
-        let id_map = copies.iter().flat_map(|record| record.source_ids.iter().copied()).collect();
-        let hashes: HashMap<_, _> = bases.iter().map(|(node, _, hash)| (*node, hash.clone())).collect();
-        let known = hashes.keys().copied().collect();
-        Some((package.plan_update_mapped(tree, &hashes, &known, &id_map), HashSet::new()))
-    } else {
-        None
-    };
-    let records = roots.iter().filter_map(|id| imports.get(id).cloned()).collect();
-    let before = ImportState { records, roots, bases, ..Default::default() };
-    Ok(ImportComparison { revision: tree.revision(), before, already, update })
-}
 
 impl Outline {
     /// Open a package file: the import dialog, or a message saying why not.
@@ -228,7 +117,7 @@ impl Outline {
         if let Some(writer) = &self.writer {
             writer.flush();
         }
-        compare_package(package, &self.tree, &self.imports, self.db_path.as_deref())
+        compare_package(package, &self.tree, &self.imports, self.db_path.as_deref()).map_err(|error| error.to_string())
     }
 
     pub fn open_package_import(&mut self, package: Package, bytes: usize, cx: &mut Context<Self>) {
@@ -261,6 +150,7 @@ impl Outline {
         let return_to = self.edit.take().map(|e| (e.target, e.caret()));
         self.package_import = Some(PackageImport {
             comparison,
+            take_theirs: HashSet::new(),
             scroll: gpui::ScrollHandle::new(),
             package,
             parent: ROOT,
@@ -298,7 +188,7 @@ impl Outline {
     /// The dialog's main button: Update when it can, else Import (a Copy).
     fn finish_package_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
-        let update = self.package_import.as_ref().and_then(|p| p.comparison.update.as_ref()).is_some_and(|(plan, _)| !plan.is_empty());
+        let update = self.package_import.as_ref().and_then(|p| p.comparison.update.as_ref()).is_some_and(|plan| !plan.is_empty());
         if update {
             self.update_package_now(cx);
         } else {
@@ -311,7 +201,9 @@ impl Outline {
         if dialog.comparison.revision != self.tree.revision() {
             match self.compare_package(&dialog.package) {
                 Ok(comparison) => {
-                    self.package_import.as_mut()?.comparison = comparison;
+                    let dialog = self.package_import.as_mut()?;
+                    dialog.comparison = comparison;
+                    dialog.take_theirs.clear();
                     self.toast(t!("package.import.outline_changed"));
                 }
                 Err(error) => self.toast(error),
@@ -319,7 +211,12 @@ impl Outline {
             cx.notify();
             return None;
         }
-        match write_package_images(&dialog.package, self.image_dir.as_ref()) {
+        let images = match &self.image_dir {
+            Some(dir) => dialog.package.write_images(dir).map_err(crate::image::image_error),
+            None if dialog.package.images.is_empty() => Ok(Vec::new()),
+            None => Err(t!("image.no_folder").to_string()),
+        };
+        match images {
             Ok(blobs) => {
                 for blob in blobs {
                     self.record_image(blob);
@@ -366,8 +263,8 @@ impl Outline {
     /// Bring an imported package up to date: one undo step.
     pub fn update_package_now(&mut self, cx: &mut Context<Self>) {
         let Some(p) = self.take_confirmed_import(cx) else { return };
-        let Some((plan, take)) = p.comparison.update.as_ref() else { return };
-        let mut touched = p.package.apply_update(&mut self.tree, plan, take);
+        let Some(plan) = p.comparison.update.as_ref() else { return };
+        let mut touched = p.package.apply_update(&mut self.tree, plan, &p.take_theirs);
         let mut trash = Vec::new();
         for &id in &plan.removed {
             if self.tree.contains(id) {
@@ -385,7 +282,7 @@ impl Outline {
         for &id in &touched {
             self.anims.start(id, crate::ui::anim::Channel::Flash, crate::ui::anim::FLASH);
         }
-        let taken = plan.conflicts.iter().filter(|c| take.contains(c)).count();
+        let taken = plan.conflicts.iter().filter(|id| p.take_theirs.contains(id)).count();
         self.toast(t!(
             "package.update.done",
             title = m.title,
@@ -472,11 +369,11 @@ impl Outline {
                     cx.notify();
                 }))
         });
-        let can_update = update.is_some_and(|(plan, _)| !plan.is_empty());
+        let can_update = update.is_some_and(|plan| !plan.is_empty());
         let note = already.then(|| {
             let text = match update {
-                Some((plan, _)) if plan.is_empty() => t!("package.update.nothing").to_string(),
-                Some((plan, _)) => t!(
+                Some(plan) if plan.is_empty() => t!("package.update.nothing").to_string(),
+                Some(plan) => t!(
                     "package.update.summary",
                     changed = plan.changed.len(),
                     added = plan.added.len(),
@@ -487,20 +384,20 @@ impl Outline {
             };
             div().text_size(px(12.)).text_color(theme.muted).child(text)
         });
-        let conflicts = update.filter(|(plan, _)| !plan.conflicts.is_empty()).map(|(plan, take)| {
+        let conflicts = update.filter(|plan| !plan.conflicts.is_empty()).map(|plan| {
             let rows = plan.conflicts.iter().take(CONFLICTS_SHOWN).filter_map(|&id| {
                 let mine = flowie_core::markup::plain_text(&self.tree.get(id)?.text);
                 let theirs = flowie_core::markup::plain_text(&p.package.update_conflict(plan, id)?.text);
-                let theirs_on = take.contains(&id);
+                let theirs_on = p.take_theirs.contains(&id);
                 let choice = |label: &'static str, on: bool, pick_theirs: bool| {
                     crate::ui::segmented::segment(theme, SharedString::from(format!("conflict-{id}-{pick_theirs}")), on)
                         .child(label)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some((_, take)) = this.package_import.as_mut().and_then(|p| p.comparison.update.as_mut()) {
+                            if let Some(dialog) = this.package_import.as_mut() {
                                 if pick_theirs {
-                                    take.insert(id);
+                                    dialog.take_theirs.insert(id);
                                 } else {
-                                    take.remove(&id);
+                                    dialog.take_theirs.remove(&id);
                                 }
                             }
                             cx.notify();
@@ -615,106 +512,6 @@ impl Outline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flowie_core::package::{ExportMeta, ExportOptions};
-
-    #[test]
-    fn update_uses_a_tracked_copy_when_the_original_has_no_baseline() {
-        let work = std::env::temp_dir().join(format!("flowie-package-baseline-{}", NodeId::random()));
-        let db = work.join("flowie.sqlite");
-        let mut connection = flowie_core::store::open(&db).unwrap();
-        let mut sender = flowie_core::Tree::new();
-        let root = sender.create_at(ROOT, 0, "root");
-        let child = sender.create_at(root, 0, "before");
-        let previous = Package::export(&sender, &[root], ExportOptions::default(), ExportMeta::default(), None);
-        let mut receiver = flowie_core::Tree::from_nodes(sender.nodes().cloned());
-        let (copies, id_map) =
-            previous.insert_into_mapped(&mut receiver, ROOT, 1, ImportOptions { fresh_ids: true, keep_completion: true });
-        let state = package_import_state(&previous, &id_map, 1);
-        flowie_core::store::write_import_batch(&mut connection, &[], &[], &state).unwrap();
-        let mut imports: HashMap<_, _> = state.records.into_iter().map(|record| (record.root, record)).collect();
-        sender.set_text(child, "after");
-        let updated = Package::export(&sender, &[root], ExportOptions::default(), ExportMeta::default(), None);
-
-        let comparison = compare_package(&updated, &receiver, &imports, Some(&db)).unwrap();
-        assert_eq!(comparison.before.roots, copies);
-        let (plan, take) = comparison.update.unwrap();
-        assert_eq!(plan.changed, [id_map[&child]]);
-        updated.apply_update(&mut receiver, &plan, &take);
-        assert_eq!(receiver.node(id_map[&child]).text, "after");
-        assert_eq!(receiver.node(child).text, "before");
-
-        let original = package_import_state(&previous, &HashMap::from([(root, root), (child, child)]), 2);
-        flowie_core::store::write_import_batch(&mut connection, &[], &[], &original).unwrap();
-        imports.extend(original.records.into_iter().map(|record| (record.root, record)));
-        let comparison = compare_package(&updated, &receiver, &imports, Some(&db)).unwrap();
-        assert_eq!(comparison.before.roots, [root]);
-        assert_eq!(comparison.update.unwrap().0.changed, [child]);
-        drop(connection);
-        std::fs::remove_dir_all(work).unwrap();
-    }
-
-    #[test]
-    fn copied_imports_use_one_complete_batch_and_keep_all_mappings() {
-        let mut sender = flowie_core::Tree::new();
-        let first = sender.create_at(ROOT, 0, "first");
-        let second = sender.create_at(ROOT, 1, "second");
-        let child = sender.create_at(first, 0, "child");
-        let package = Package::export(&sender, &[first, second], ExportOptions::default(), ExportMeta::default(), None);
-        let mut receiver = flowie_core::Tree::new();
-        let opts = ImportOptions { fresh_ids: true, keep_completion: true };
-        let mut records = HashMap::new();
-        let insert = |receiver: &mut flowie_core::Tree, records: &mut HashMap<_, _>, imported_at| {
-            let (roots, id_map) = package.insert_into_mapped(receiver, ROOT, 0, opts);
-            let state = package_import_state(&package, &id_map, imported_at);
-            assert_eq!(state.roots, roots);
-            assert!(state.bases.iter().any(|(node, root, _)| *node == id_map[&child] && *root == roots[0]));
-            records.extend(state.records.into_iter().map(|record| (record.root, record)));
-            (roots, id_map)
-        };
-        let (older, _) = insert(&mut receiver, &mut records, 10);
-        let (newer, newer_map) = insert(&mut receiver, &mut records, 20);
-        let (incomplete, _) = insert(&mut receiver, &mut records, 30);
-        receiver.delete(incomplete[1]);
-
-        let batch = copied_imports(&package, &receiver, &records);
-        assert_eq!(batch.iter().map(|record| record.root).collect::<Vec<_>>(), newer);
-        assert!(batch[0].source_ids.contains(&(child, newer_map[&child])));
-        receiver.delete(newer[0]);
-        let batch = copied_imports(&package, &receiver, &records);
-        assert_eq!(batch.iter().map(|record| record.root).collect::<Vec<_>>(), older);
-        receiver.delete(older[0]);
-        assert!(copied_imports(&package, &receiver, &records).is_empty());
-    }
-
-    #[test]
-    fn package_image_write_failure_can_be_retried() {
-        let work = std::env::temp_dir().join(format!("flowie-package-write-{}", NodeId::random()));
-        let sender = ImageDir::new(work.join("sender"));
-        let receiver = ImageDir::new(work.join("receiver"));
-        let mut tree = flowie_core::Tree::new();
-        let root = tree.create_at(ROOT, 0, "album");
-        for bytes in [b"GIF89a\x05\x00\x07\x00", b"GIF89a\x06\x00\x07\x00"] {
-            let image = sender.put(bytes).unwrap();
-            let id = tree.create_at(root, tree.children(root).len(), "caption");
-            let mut node = tree.node(id).clone();
-            node.kind = flowie_core::BlockKind::Image;
-            node.image = image.name;
-            tree.put(node);
-        }
-        let package = Package::export(&tree, &[root], ExportOptions::default(), ExportMeta::default(), Some(&sender));
-        let names: Vec<_> = package.images.keys().collect();
-        let blocked = receiver.path(names[1]).unwrap();
-        std::fs::create_dir_all(&blocked).unwrap();
-        assert!(write_package_images(&package, Some(&receiver)).is_err());
-        assert!(receiver.has(names[0]));
-        assert!(!receiver.has(names[1]));
-
-        std::fs::remove_dir(&blocked).unwrap();
-        let stored = write_package_images(&package, Some(&receiver)).unwrap();
-        assert_eq!(stored.iter().map(|blob| &blob.name).collect::<Vec<_>>(), names);
-        assert!(names.iter().all(|name| receiver.has(name)));
-        std::fs::remove_dir_all(work).unwrap();
-    }
 
     #[test]
     fn file_urls_become_paths() {

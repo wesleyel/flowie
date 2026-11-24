@@ -35,6 +35,14 @@ editing and UI components.
 and image storage live in `flowie-core`. Screenshot tooling lives in `dev/`
 and builds with the `screenshots` feature.
 
+## Core source layout
+
+In `crates/flowie-core/src`, `tree/` holds node IDs, the model, and editing
+operations. `io/` handles text, Markdown, and OPML. `package/` handles share
+package encoding, export, import tracking, and three-way updates. `store/`
+holds SQLite persistence for nodes, Trash, imports, and image metadata, plus
+the background writer. `images.rs` provides the content-addressed file store.
+
 ## Licensing of contributions
 
 Flowie is licensed under the GNU General Public License v3.0 or later (`LICENSE`).

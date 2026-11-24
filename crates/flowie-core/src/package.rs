@@ -150,6 +150,14 @@ impl Default for ExportOptions {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImportOptions {
+    /// New ids for every bullet ("Import a copy").
+    pub fresh_ids: bool,
+    /// Keep completed bullets completed; off, everything arrives open.
+    pub keep_completion: bool,
+}
+
 /// What the manifest says besides the outline.
 #[derive(Debug, Clone, Default)]
 pub struct ExportMeta {
@@ -398,6 +406,66 @@ impl Package {
         self.outline.roots.iter().filter_map(|r| by_id.get(r)).map(|n| build(n, &by_id, &kids, &unlink, 0)).collect()
     }
 
+    /// Ids of this package's bullets that `tree` has already: it was imported before.
+    pub fn present_in(&self, tree: &Tree) -> Vec<NodeId> {
+        self.outline.nodes.iter().map(|n| n.id).filter(|&id| tree.contains(id)).collect()
+    }
+
+    /// Add the package's bullets to `tree` at `index` under `parent`, one
+    /// recorded change per node (one undo step for the caller). Returns the
+    /// new roots. With `fresh_ids` every bullet gets a new id and links and
+    /// mirrors between them follow; otherwise the package's ids are kept,
+    /// which needs none of them to be in the tree yet (`present_in`).
+    pub fn insert_into(&self, tree: &mut Tree, parent: NodeId, index: usize, opts: ImportOptions) -> Vec<NodeId> {
+        let fresh: HashMap<NodeId, NodeId> =
+            if opts.fresh_ids { self.outline.nodes.iter().map(|n| (n.id, tree.alloc_id())).collect() } else { HashMap::new() };
+        let map = |id: NodeId| fresh.get(&id).copied().unwrap_or(id);
+        let relink = |s: &str| {
+            if fresh.is_empty() || !s.contains("flowie:") {
+                return s.to_string();
+            }
+            markup::rewrite_links(s, |url| match url.strip_prefix("flowie:").and_then(|t| t.parse::<NodeId>().ok()) {
+                Some(id) if fresh.contains_key(&id) => LinkEdit::Url(format!("flowie:{}", map(id))),
+                _ => LinkEdit::Keep,
+            })
+        };
+        let by_id: HashMap<NodeId, &PackageNode> = self.outline.nodes.iter().map(|n| (n.id, n)).collect();
+        let kids = self.children();
+        let now = crate::tree::now_millis();
+        let mut roots = Vec::new();
+        let index = index.min(tree.children(parent).len());
+        for (i, &r) in self.outline.roots.iter().enumerate() {
+            let rank = tree.rank_at(parent, index + i);
+            // (package node, parent in the tree, rank), parents before children.
+            let mut stack = vec![(r, parent, rank)];
+            while let Some((id, under, rank)) = stack.pop() {
+                let Some(n) = by_id.get(&id) else { continue };
+                let new_id = map(id);
+                let children = kids.get(&id).map(Vec::as_slice).unwrap_or(&[]);
+                tree.put(crate::tree::Node {
+                    id: new_id,
+                    parent: under,
+                    rank,
+                    text: relink(&n.text),
+                    note: relink(&n.note),
+                    completed: n.completed && opts.keep_completion,
+                    collapsed: n.collapsed && (!children.is_empty() || n.mirror_of.is_some()),
+                    created: if n.created > 0 { n.created } else { now },
+                    modified: if n.modified > 0 { n.modified } else { now },
+                    kind: n.kind,
+                    mirror: n.mirror_of.map_or(ROOT, map),
+                });
+                if under == parent {
+                    roots.push(new_id);
+                }
+                for (j, &c) in children.iter().enumerate().rev() {
+                    stack.push((c, new_id, j as f64 + 1.0));
+                }
+            }
+        }
+        roots
+    }
+
     /// Each node's children in order, keyed by parent (`ROOT` for the roots).
     pub fn children(&self) -> HashMap<NodeId, Vec<NodeId>> {
         let mut out: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
@@ -458,8 +526,24 @@ fn validate(outline: &mut Outline) -> Result<(), PackageError> {
     if seen != outline.nodes.len() {
         return Err(damaged("parent cycle"));
     }
+    // Mirrors as Flowie makes them: of a node in the package that is no
+    // mirror itself and not above the mirror, with no children of their own.
+    let parent: HashMap<NodeId, NodeId> = outline.nodes.iter().filter_map(|n| Some((n.id, n.parent?))).collect();
+    let is_mirror: HashSet<NodeId> = outline.nodes.iter().filter(|n| n.mirror_of.is_some()).map(|n| n.id).collect();
+    let above = |source: NodeId, mut id: NodeId| {
+        while let Some(&p) = parent.get(&id) {
+            if p == source {
+                return true;
+            }
+            id = p;
+        }
+        false
+    };
     for n in &mut outline.nodes {
-        if n.mirror_of.is_some_and(|m| m == n.id || !ids.contains(&m)) {
+        let ok = n
+            .mirror_of
+            .is_none_or(|m| m != n.id && ids.contains(&m) && !is_mirror.contains(&m) && !above(m, n.id) && !kids.contains_key(&n.id));
+        if !ok {
             n.mirror_of = None;
             n.was_mirror = true;
         }
@@ -787,5 +871,74 @@ mod tests {
             _ => LinkEdit::Keep,
         });
         assert_eq!(out, "a **[b](w)** https://y.org [c](z)");
+    }
+
+    fn sample() -> (Tree, NodeId, NodeId, NodeId) {
+        let mut t = Tree::new();
+        let a = t.create_at(ROOT, 0, "a");
+        let b = t.create_at(a, 0, "b");
+        let c = t.create_after(b, "c");
+        let mut node = t.node(c).clone();
+        node.text = format!("see [b](flowie:{b})");
+        t.put(node);
+        t.set_completed(b, true);
+        t.create_mirror(b, c, 0).unwrap();
+        t.take_journal();
+        (t, a, b, c)
+    }
+
+    fn shape(t: &Tree, root: NodeId) -> Vec<String> {
+        let mut out = vec![t.node(root).text.clone()];
+        out.extend(t.descendants(root).into_iter().map(|d| t.node(t.source(d)).text.clone()));
+        out
+    }
+
+    #[test]
+    fn import_keeps_ids_order_and_mirrors() {
+        let (t, a, b, c) = sample();
+        let p = Package::read(&Package::export(&t, &[a], ExportOptions::default(), meta()).to_bytes()).unwrap();
+        let mut other = Tree::new();
+        let home = other.create_at(ROOT, 0, "home");
+        assert!(p.present_in(&other).is_empty());
+        let roots = p.insert_into(&mut other, ROOT, 1, ImportOptions { fresh_ids: false, keep_completion: true });
+        assert_eq!(roots, [a]);
+        assert_eq!(other.children(ROOT), [home, a]);
+        assert_eq!(other.children(a), [b, c]);
+        assert_eq!(shape(&other, a), shape(&t, a));
+        assert!(other.node(b).completed);
+        assert_eq!(other.backlinks(b), [c]);
+        assert_eq!(other.mirrors_of(b).len(), 1);
+        assert_eq!(p.present_in(&other).len(), 4);
+    }
+
+    #[test]
+    fn import_a_copy_gets_new_ids_and_follows_them() {
+        let (t, a, b, _) = sample();
+        let p = Package::export(&t, &[a], ExportOptions::default(), meta());
+        let mut same = Tree::from_nodes(t.nodes().cloned());
+        let roots = p.insert_into(&mut same, ROOT, 0, ImportOptions { fresh_ids: true, keep_completion: false });
+        let copy = roots[0];
+        assert_ne!(copy, a);
+        assert_eq!(shape(&same, copy).len(), shape(&t, a).len());
+        let (b2, c2) = (same.children(copy)[0], same.children(copy)[1]);
+        assert!(!same.node(b2).completed);
+        assert_eq!(same.node(c2).text, format!("see [b](flowie:{b2})"));
+        assert_eq!(same.node(same.children(c2)[0]).mirror, b2);
+        // The original is untouched.
+        assert_eq!(same.backlinks(b).len(), 1);
+    }
+
+    #[test]
+    fn impossible_mirrors_arrive_as_plain_bullets() {
+        let (t, a, ..) = sample();
+        let mut p = Package::export(&t, &[a], ExportOptions::default(), meta());
+        // A mirror of its own ancestor.
+        let m = p.outline.nodes.iter_mut().find(|n| n.mirror_of.is_some()).unwrap();
+        m.mirror_of = Some(a);
+        let json = outline_json(&p.outline);
+        p.manifest.outline_sha256 = hex(&Sha256::digest(&json));
+        let back = Package::read(&p.to_bytes()).unwrap();
+        let m = back.outline.nodes.iter().find(|n| n.was_mirror).unwrap();
+        assert_eq!(m.mirror_of, None);
     }
 }

@@ -21,6 +21,12 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
   JSON and a Markdown preview. The dialog sets a title and an optional description, can leave
   completed bullets out, and shows the author name the package carries. Links to bullets outside
   the package become plain text; mirrors whose original is outside become copies.
+- Opening a `.flowie` package (double-click it on macOS, File → Import…, or `flowie <file>`, which
+  hands it to the Flowie already running) shows what it holds: who sent it and when, a preview,
+  and where to put it (Home unless you pick another bullet). Imported bullets keep their IDs, so
+  links between them still work. A package imported before comes in as a copy with new IDs.
+- Imported bullets show an unread dot until you open them, edit inside them or choose Mark as Seen;
+  hovering the dot says who sent it and when. `is:new` finds them.
 
 ### Changed
 

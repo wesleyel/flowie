@@ -48,6 +48,7 @@ enum Item {
     MirrorTo,
     Export,
     ExportPackage,
+    MarkSeen,
     Delete,
 }
 
@@ -65,7 +66,7 @@ pub fn ago(ms: i64) -> String {
     }
 }
 
-fn date_time(ms: i64) -> String {
+pub fn date_time(ms: i64) -> String {
     use chrono::TimeZone;
     chrono::Local.timestamp_millis_opt(ms).single().map(|d| d.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default()
 }
@@ -182,6 +183,12 @@ impl Outline {
             Item::MirrorTo => self.open_palette(Mode::MirrorTo(ids), cx),
             Item::Export => self.export_markdown(&ExportMarkdown, window, cx),
             Item::ExportPackage => return self.open_package_export(ids, cx),
+            Item::MarkSeen => {
+                for &id in &ids {
+                    self.mark_seen(id);
+                }
+                self.refresh(false);
+            }
             Item::Delete => self.delete_node(&DeleteNode, window, cx),
         }
         if let Some(r) = restore {
@@ -288,6 +295,9 @@ impl Outline {
         if single {
             let star_label = if starred { t!("bullet_menu.unstar") } else { t!("bullet_menu.star") };
             c = c.child(item(4, "star", star_label.into(), chip("star"), Item::Star, cx));
+            if self.unread(first).is_some() {
+                c = c.child(item(13, "check", t!("bullet_menu.mark_seen").into(), None, Item::MarkSeen, cx));
+            }
         }
 
         // Block type: a row of icons, like the color row of the text menu.

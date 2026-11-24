@@ -470,3 +470,12 @@ fn recolor_text() {
     assert_eq!(next_color(Some(5)), Some(6));
     assert_eq!(next_color(Some(6)), None);
 }
+
+#[test]
+fn is_new_matches_the_given_ids() {
+    let (t, [a, b, ..]) = sample();
+    let mut q = Query::parse("is:new");
+    q.set_new([b].into_iter().collect());
+    assert!(!q.matches(t.node(a)));
+    assert!(q.matches(t.node(b)));
+}

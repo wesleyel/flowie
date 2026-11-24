@@ -19,6 +19,8 @@ pub enum Mode {
     LinkTo { node: NodeId, at: usize },
     /// Create a mirror of the chosen bullet after `after`.
     Mirror { after: NodeId },
+    /// Where the import dialog puts the package.
+    ImportTo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -228,6 +230,24 @@ impl Outline {
                     });
                 }
             }
+            Mode::ImportTo => {
+                if q.trim().is_empty() || ("home".contains(&q.to_lowercase()) || t!("common.home").contains(q.trim())) {
+                    entries.push(Entry {
+                        label: t!("common.home").into(),
+                        detail: t!("palette.top_level").into(),
+                        icon: "house",
+                        action: Action::Node(ROOT),
+                    });
+                }
+                for id in self.search_nodes(&q, 40, &[]) {
+                    entries.push(Entry {
+                        label: node_label(self, id),
+                        detail: path_label(self, id),
+                        icon: "corner-down-right",
+                        action: Action::Node(id),
+                    });
+                }
+            }
             Mode::MoveTo(ids) | Mode::MirrorTo(ids) => {
                 if q.trim().is_empty() || ("home".contains(&q.to_lowercase()) || t!("common.home").contains(q.trim())) {
                     entries.push(Entry {
@@ -368,6 +388,8 @@ impl Outline {
             }
             (Mode::MirrorTo(ids), Action::Node(target)) => self.mirror_nodes_to(&ids, target, cx),
             (Mode::LinkTo { node, at }, Action::NewPage(name)) => self.link_to_new_page(node, at, &name, cx),
+            (Mode::ImportTo, Action::Node(target)) => self.import_put_in(target, cx),
+            (Mode::ImportTo, _) => {}
             (_, Action::Search(q)) => self.search_for(&q, cx),
             (Mode::MoveTo(ids), Action::Node(target)) => self.move_nodes_to(&ids, target, cx),
             (Mode::LinkTo { node, at }, Action::Node(target)) => self.insert_link_to(node, at, target, cx),
@@ -385,6 +407,7 @@ impl Outline {
             Mode::MirrorTo(_) => t!("palette.title.mirror_to"),
             Mode::LinkTo { .. } => t!("palette.title.link"),
             Mode::Mirror { .. } => t!("palette.title.mirror"),
+            Mode::ImportTo => t!("palette.title.import_to"),
         };
         let selected = p.selected;
         let entries = p.entries.clone();

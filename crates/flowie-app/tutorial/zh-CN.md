@@ -69,6 +69,7 @@
     - [ ] 按 {{key:import}} 导入 OPML、Markdown 或纯文本——支持 Workflowy 导出的文件
     - 在「文件」菜单把当前页面或选中的条目导出为 Markdown（{{key:export-md}}）、OPML 或纯文本
     - 要把条目发给另一位 Flowie 用户，在条目菜单里选「导出为分享包…」（或输入 /export）：得到一个包含这些条目及其所有子条目的 `.flowie` 文件
+    - 打开别人发来的 `.flowie` 文件即可导入；新导入的条目会显示一个圆点，打开后消失（搜索 `is:new` 可找到它们）
     - 删除的条目（{{key:delete-bullet}}）会在废纸篓保留 30 天：「文件 → 废纸篓」
   - ## 10 · 个性化 {{collapsed}}
     - [ ] 按 {{key:settings}} 打开设置：主题、强调色、语言

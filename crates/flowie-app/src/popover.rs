@@ -30,6 +30,8 @@ pub enum PopoverKind {
     Path(Vec<NodeId>),
     /// What a link to another bullet points at: its path, text, note and first children.
     Link(NodeId),
+    /// Where an imported root came from (its unread dot).
+    Import(NodeId),
 }
 
 /// Children a link preview lists before "…".
@@ -213,6 +215,10 @@ impl Outline {
                     );
                 }
                 out
+            }
+            PopoverKind::Import(id) => {
+                let label = self.unread_label(*id)?;
+                vec![div().px_2().py_1().text_color(theme.text).child(label).into_any_element()]
             }
             PopoverKind::Path(ids) => ids
                 .iter()

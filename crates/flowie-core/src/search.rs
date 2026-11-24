@@ -2,7 +2,7 @@
 //! Terms: plain words (substring, case-insensitive, in text or note),
 //! `"quoted phrases"`, `#tag` / `@mention` (whole-token), `-term` (exclude),
 //! `is:done` / `is:open`, `is:todo` / `is:heading` / `is:quote` / `is:code`,
-//! `has:note`, `changed:7d` (also `h`, `m`, `w`), and date filters over the
+//! `has:note`, `is:new` (imported roots not looked at yet), `changed:7d` (also `h`, `m`, `w`), and date filters over the
 //! dates written in bullets: `date:2026-11`, `date:today`, `before:2026-12-01`,
 //! `after:today`.
 
@@ -15,6 +15,8 @@ enum Term {
     Done(bool),
     Kinds(Vec<BlockKind>),
     HasNote,
+    /// An imported root not seen yet (see `Query::set_new`).
+    New,
     /// Modified within this many milliseconds.
     Changed(i64),
     DatePrefix(String),
@@ -54,6 +56,8 @@ fn parse_span(s: &str) -> Option<i64> {
 pub struct Query {
     terms: Vec<(bool, Term)>, // (negated, term)
     raw: String,
+    /// What `is:new` matches: the tree doesn't know which roots are unread.
+    new: std::collections::HashSet<crate::tree::NodeId>,
 }
 
 impl Query {
@@ -100,6 +104,7 @@ impl Query {
                 "is:code" => Term::Kinds(vec![BlockKind::Code]),
                 "is:paragraph" => Term::Kinds(vec![BlockKind::Paragraph]),
                 "has:note" => Term::HasNote,
+                "is:new" => Term::New,
                 _ if lower.starts_with("changed:") && parse_span(&lower[8..]).is_some() => Term::Changed(parse_span(&lower[8..]).unwrap()),
                 _ if lower.starts_with("date:") && lower.len() > 5 => Term::DatePrefix(resolve_date(&lower[5..])),
                 _ if lower.starts_with("before:") && lower.len() > 7 => Term::Before(resolve_date(&lower[7..])),
@@ -109,7 +114,12 @@ impl Query {
             };
             terms.push((neg, term));
         }
-        Query { terms, raw: input.to_string() }
+        Query { terms, raw: input.to_string(), new: Default::default() }
+    }
+
+    /// The bullets `is:new` matches.
+    pub fn set_new(&mut self, ids: std::collections::HashSet<crate::tree::NodeId>) {
+        self.new = ids;
     }
 
     pub fn is_empty(&self) -> bool {
@@ -148,6 +158,7 @@ impl Query {
                 Term::Done(d) => node.completed == *d,
                 Term::Kinds(k) => k.contains(&node.kind),
                 Term::HasNote => !node.note.trim().is_empty(),
+                Term::New => self.new.contains(&node.id),
                 Term::Changed(ms) => now - node.modified <= *ms,
                 Term::DatePrefix(p) => dates().iter().any(|d| d.starts_with(p.as_str())),
                 Term::Before(b) => dates().iter().any(|d| *d < b.as_str()),

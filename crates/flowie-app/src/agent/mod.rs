@@ -16,7 +16,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;
 
 use flowie_core::short_id::Lookup;
-use flowie_core::{io, markup, search::today, BlockKind, NodeId, Query, ROOT};
+use flowie_core::{io, markup, search::today, BlockKind, NodeId, ROOT};
 use futures::StreamExt;
 use gpui::{App, Context, WindowHandle};
 use interprocess::local_socket::prelude::*;
@@ -50,14 +50,18 @@ type Job = (Request, std::sync::mpsc::Sender<Result<String, String>>);
 /// The app's own requests, which work whatever the agent mode: a second
 /// launch sends `app.activate` to bring this window forward.
 const APP_ACTIVATE: &str = "app.activate";
+/// `app.open {path}`: a second launch hands over a share package to open.
+const APP_OPEN: &str = "app.open";
 
 /// Hand over to the instance that already has the database open: bring its
 /// window forward unless this launch was a background one.
-pub fn hand_off(running: LocalSocketStream, background: bool) {
-    if background {
-        return;
-    }
-    if let Err(e) = ipc::call(&running, APP_ACTIVATE, json!({})) {
+pub fn hand_off(running: LocalSocketStream, background: bool, open: Option<&std::path::Path>) {
+    let result = match open {
+        Some(path) => ipc::call(&running, APP_OPEN, json!({ "path": path })),
+        None if background => return,
+        None => ipc::call(&running, APP_ACTIVATE, json!({})),
+    };
+    if let Err(e) = result {
         eprintln!("flowie: the running Flowie did not come forward: {e}");
     }
 }
@@ -82,9 +86,13 @@ pub fn start(listener: Listener, window: WindowHandle<Outline>, cx: &mut App) {
         while let Some((req, reply)) = rx.next().await {
             let result = window
                 .update(cx, |o, window, cx| {
-                    if req.method == APP_ACTIVATE {
+                    if req.method == APP_ACTIVATE || req.method == APP_OPEN {
                         cx.activate(true);
                         window.activate_window();
+                        // Only opens the import dialog: nothing changes until the user says so.
+                        if let Some(path) = s(&req.params, "path").map(std::path::Path::new).filter(|p| crate::share::is_package(p)) {
+                            o.open_package_file(path, cx);
+                        }
                         Ok("ok".to_string())
                     } else {
                         o.handle_agent(&req.method, &req.params, cx)
@@ -369,7 +377,7 @@ impl Outline {
     fn agent_search(&mut self, p: &Value) -> Result<String, String> {
         let q = s(p, "query").unwrap_or("").to_string();
         let limit = n(p, "limit").unwrap_or(50).clamp(1, 500) as usize;
-        let query = Query::parse(&q);
+        let query = self.parse_query(&q);
         if query.is_empty() {
             return Err("empty query".into());
         }

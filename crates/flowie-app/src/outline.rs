@@ -282,6 +282,10 @@ pub struct Outline {
     pub app_menu_scroll: gpui::ScrollHandle,
     /// The open export dialog.
     pub package_export: Option<crate::share::PackageExport>,
+    /// The open import dialog.
+    pub package_import: Option<crate::share::PackageImport>,
+    /// Roots imported from share packages, by root id.
+    pub imports: std::collections::HashMap<NodeId, flowie_core::store::ImportRecord>,
 }
 
 pub const INDENT: f32 = 24.0;
@@ -293,6 +297,7 @@ impl Outline {
         writer: Option<Writer>,
         db_path: Option<std::path::PathBuf>,
         meta: Vec<(String, String)>,
+        imports: Vec<flowie_core::store::ImportRecord>,
         config: crate::settings::Config,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -358,6 +363,8 @@ impl Outline {
             app_menu: None,
             app_menu_scroll: gpui::ScrollHandle::new(),
             package_export: None,
+            package_import: None,
+            imports: imports.into_iter().map(|r| (r.root, r)).collect(),
             kill_buffer: String::new(),
             mouse_block: false,
             ghosts: Default::default(),
@@ -407,8 +414,17 @@ impl Outline {
 
     // ---------------------------------------------------------------- rows
 
+    /// A search query, with what `is:new` means here.
+    pub fn parse_query(&self, text: &str) -> Query {
+        let mut q = Query::parse(text);
+        if text.contains("is:new") {
+            q.set_new(self.unread_roots());
+        }
+        q
+    }
+
     pub fn view_options(&self) -> ViewOptions {
-        let q = Query::parse(&self.query);
+        let q = self.parse_query(&self.query);
         ViewOptions { hide_completed: self.hide_completed, query: (!q.is_empty()).then_some(q) }
     }
 
@@ -593,6 +609,7 @@ impl Outline {
     }
 
     fn commit_typing(&mut self, id: NodeId, before: Option<Caret>, cx: &mut Context<Self>) {
+        self.see_around(id);
         let after = self.caret();
         self.history.commit(&mut self.tree, HistoryKind::Typing(id), before, after);
         self.persist();
@@ -732,9 +749,10 @@ impl Outline {
         cx.notify();
     }
 
-    /// Settings or a dialog is open: the outline's own shortcuts are off.
+    /// Settings or a dialog is open: the outline's own shortcuts are off
+    /// (except under a palette opened from the dialog, which needs them).
     pub fn modal_open(&self) -> bool {
-        self.settings.is_some() || self.package_export.is_some()
+        self.settings.is_some() || ((self.package_export.is_some() || self.package_import.is_some()) && self.palette.is_none())
     }
 
     pub fn editing_node(&self) -> Option<NodeId> {
@@ -1489,6 +1507,7 @@ impl Outline {
         self.remember_scroll();
         let came_from = self.zoom;
         self.zoom = id;
+        self.see_around(id);
         self.block = None;
         self.history.seal();
         self.anims.clear();

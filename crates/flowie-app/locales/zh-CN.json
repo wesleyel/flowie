@@ -34,7 +34,8 @@
     "copied": "已拷贝 {count} 个条目",
     "link_copied": "已拷贝 {count} 个链接，可粘贴到任意条目",
     "duplicated": "已创建 {count} 个副本",
-    "mirrored": "已在“{target}”下创建 {count} 个镜像"
+    "mirrored": "已在“{target}”下创建 {count} 个镜像",
+    "package_imported": "已从「{title}」导入 {count} 个条目"
   },
   "import": {
     "prompt": "导入"
@@ -45,7 +46,8 @@
       "move": "移动到",
       "link": "链接到条目",
       "mirror": "镜像条目",
-      "mirror_to": "镜像到"
+      "mirror_to": "镜像到",
+      "import_to": "放到"
     },
     "placeholder": "输入以搜索条目…",
     "saved_search": "已保存的搜索",
@@ -437,7 +439,8 @@
     "modified": "修改于 {ago}",
     "descendants": "{count} 个子项",
     "links": "{count} 处链接",
-    "mirrors": "{count} 处镜像"
+    "mirrors": "{count} 处镜像",
+    "mark_seen": "标为已读"
   },
   "package": {
     "size_kb": "{n} KB",
@@ -454,6 +457,23 @@
       "change_author": "修改",
       "cancel": "取消",
       "export": "导出…"
+    },
+    "unread": "来自 {name} · {date} 导入",
+    "import": {
+      "heading": "导入分享包",
+      "from": "来自 {name} · {date} 导出",
+      "more": "还有 {count} 个条目",
+      "put_in": "放到",
+      "change": "更改…",
+      "keep_completion": "保留已完成状态",
+      "already": "你之前导入过这个分享包。再次导入会添加一份使用新 ID 的副本。",
+      "import": "导入",
+      "import_copy": "导入副本",
+      "not_a_package": "这不是 Flowie 分享包",
+      "newer": "这个分享包来自更新版本的 Flowie，请更新 Flowie 后再打开。",
+      "too_large": "分享包太大，无法导入",
+      "damaged": "分享包已损坏，无法导入",
+      "unreadable": "无法读取 {path}：{error}"
     }
   }
 }

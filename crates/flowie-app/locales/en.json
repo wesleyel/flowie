@@ -52,6 +52,10 @@
     "mirrored": {
       "one": "Mirrored {count} bullet in “{target}”",
       "other": "Mirrored {count} bullets in “{target}”"
+    },
+    "package_imported": {
+      "one": "Imported {count} bullet from “{title}”",
+      "other": "Imported {count} bullets from “{title}”"
     }
   },
   "import": {
@@ -63,7 +67,8 @@
       "move": "Move to",
       "link": "Link to bullet",
       "mirror": "Mirror bullet",
-      "mirror_to": "Mirror to"
+      "mirror_to": "Mirror to",
+      "import_to": "Put in"
     },
     "placeholder": "Type to search bullets…",
     "saved_search": "Saved search",
@@ -479,7 +484,8 @@
     "mirrors": {
       "one": "{count} mirror",
       "other": "{count} mirrors"
-    }
+    },
+    "mark_seen": "Mark as Seen"
   },
   "package": {
     "size_kb": "{n} KB",
@@ -499,6 +505,26 @@
       "change_author": "Change",
       "cancel": "Cancel",
       "export": "Export…"
+    },
+    "unread": "From {name} · imported {date}",
+    "import": {
+      "heading": "Import Package",
+      "from": "From {name} · exported {date}",
+      "more": {
+        "one": "and {count} more bullet",
+        "other": "and {count} more bullets"
+      },
+      "put_in": "Put in",
+      "change": "Change…",
+      "keep_completion": "Keep completed bullets completed",
+      "already": "You imported this package before. Importing it again adds a copy with new IDs.",
+      "import": "Import",
+      "import_copy": "Import a Copy",
+      "not_a_package": "That file isn't a Flowie package",
+      "newer": "This package was made by a newer Flowie. Update Flowie to open it.",
+      "too_large": "That package is too large to import",
+      "damaged": "That package is damaged and can't be imported",
+      "unreadable": "Couldn't read {path}: {error}"
     }
   }
 }

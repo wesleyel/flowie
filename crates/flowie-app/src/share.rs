@@ -1,7 +1,12 @@
-//! Share packages (`.flowie`) in the app: the export dialog. The format
-//! itself is `flowie_core::package`.
+//! Share packages (`.flowie`) in the app: the export and import dialogs,
+//! and the unread dot on imported roots. The format itself is
+//! `flowie_core::package`.
 
-use flowie_core::package::{ExportMeta, ExportOptions, Package, Person, EXTENSION};
+use std::collections::HashSet;
+use std::path::Path;
+
+use flowie_core::package::{ExportMeta, ExportOptions, ImportOptions, Package, PackageError, Person, EXTENSION};
+use flowie_core::store::ImportRecord;
 use flowie_core::{NodeId, ROOT};
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, KeyDownEvent, MouseButton, SharedString, Window};
 
@@ -301,6 +306,358 @@ impl Outline {
     }
 }
 
+/// Largest package file Flowie opens.
+const MAX_FILE: u64 = 512 << 20;
+
+/// Whether `path` names a share package (by its extension).
+pub fn is_package(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case(EXTENSION))
+}
+
+/// A path from a `file://` URL (what macOS hands over on a double-click).
+pub fn path_from_url(url: &str) -> Option<std::path::PathBuf> {
+    let rest = url.strip_prefix("file://")?;
+    let rest = rest.strip_prefix("localhost").unwrap_or(rest);
+    let bytes = rest.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(b) = u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).ok()?, 16) {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    Some(String::from_utf8(out).ok()?.into())
+}
+
+/// The open import dialog.
+pub struct PackageImport {
+    package: Package,
+    /// Where the roots go (at the end).
+    pub parent: NodeId,
+    keep_completion: bool,
+    has_completed: bool,
+    /// Its bullets are here or in Trash already: it was imported before.
+    already: bool,
+    bytes: usize,
+    /// The first levels, as (depth, plain text).
+    preview: Vec<(usize, String)>,
+    /// Bullets the preview leaves out.
+    more: usize,
+    return_to: Option<(Target, usize)>,
+}
+
+/// Lines of the import preview.
+const PREVIEW_LINES: usize = 8;
+
+impl Outline {
+    /// Open a package file: the import dialog, or a message saying why not.
+    pub fn open_package_file(&mut self, path: &Path, cx: &mut Context<Self>) {
+        let read = std::fs::metadata(path).and_then(|m| {
+            if m.len() > MAX_FILE {
+                Err(std::io::Error::other("too large"))
+            } else {
+                std::fs::read(path)
+            }
+        });
+        let bytes = match read {
+            Ok(b) => b,
+            Err(e) if e.to_string() == "too large" => {
+                self.toast(t!("package.import.too_large"));
+                return cx.notify();
+            }
+            Err(e) => {
+                self.toast(t!("package.import.unreadable", path = path.display(), error = e));
+                return cx.notify();
+            }
+        };
+        match Package::read(&bytes) {
+            Ok(package) => self.open_package_import(package, bytes.len(), cx),
+            Err(e) => {
+                eprintln!("flowie: {}: {e}", path.display());
+                self.toast(match e {
+                    PackageError::NotAPackage => t!("package.import.not_a_package").to_string(),
+                    PackageError::Newer(_) => t!("package.import.newer").to_string(),
+                    PackageError::TooLarge => t!("package.import.too_large").to_string(),
+                    PackageError::Damaged(_) => t!("package.import.damaged").to_string(),
+                });
+                cx.notify();
+            }
+        }
+    }
+
+    pub fn open_package_import(&mut self, package: Package, bytes: usize, cx: &mut Context<Self>) {
+        self.shut_popups();
+        self.package_export = None;
+        let in_trash = self
+            .db_path
+            .as_ref()
+            .and_then(|p| flowie_core::store::open(p).ok())
+            .is_some_and(|c| package.outline.roots.iter().any(|&r| flowie_core::store::in_trash(&c, r).unwrap_or(false)));
+        let already = in_trash || !package.present_in(&self.tree).is_empty();
+        let has_completed = package.outline.nodes.iter().any(|n| n.completed);
+        // Breadth-limited preview: the roots and their children.
+        let mut preview = Vec::new();
+        fn walk(items: &[flowie_core::Item], depth: usize, out: &mut Vec<(usize, String)>) {
+            for it in items {
+                if out.len() >= PREVIEW_LINES {
+                    return;
+                }
+                out.push((depth, flowie_core::markup::plain_text(&it.text)));
+                if depth < 1 {
+                    walk(&it.children, depth + 1, out);
+                }
+            }
+        }
+        walk(&package.items(), 0, &mut preview);
+        let more = package.outline.nodes.len().saturating_sub(preview.len());
+        let return_to = self.edit.take().map(|e| (e.target, e.caret()));
+        self.package_import =
+            Some(PackageImport { package, parent: ROOT, keep_completion: true, has_completed, already, bytes, preview, more, return_to });
+        cx.notify();
+    }
+
+    /// Close the palette, menus and popovers a dialog would sit on.
+    fn shut_popups(&mut self) {
+        self.palette = None;
+        self.inline = None;
+        self.calendar = None;
+        self.menu = None;
+        self.popover.close();
+    }
+
+    /// The "Put in" picker chose `target`.
+    pub fn import_put_in(&mut self, target: NodeId, cx: &mut Context<Self>) {
+        if let Some(p) = self.package_import.as_mut() {
+            p.parent = if self.tree.contains(target) { self.tree.source(target) } else { ROOT };
+        }
+        self.edit = None;
+        cx.notify();
+    }
+
+    pub fn close_package_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(p) = self.package_import.take() else { return };
+        window.focus(&self.focus, cx);
+        self.edit = None;
+        if let Some((target, offset)) =
+            p.return_to.filter(|(t, _)| matches!(t, Target::Text(id) | Target::Note(id) if self.tree.contains(*id)))
+        {
+            self.start_edit(target, offset, cx);
+        }
+        cx.notify();
+    }
+
+    /// Import: one undo step; then show the new roots where they landed.
+    fn finish_package_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+        self.import_package_now(cx);
+    }
+
+    /// Import what the open dialog shows, as it is set.
+    pub fn import_package_now(&mut self, cx: &mut Context<Self>) {
+        let Some(p) = self.package_import.take() else { return };
+        let parent = if self.tree.contains(p.parent) { p.parent } else { ROOT };
+        let index = self.tree.children(parent).len();
+        let opts = ImportOptions { fresh_ids: p.already, keep_completion: p.keep_completion };
+        let roots = p.package.insert_into(&mut self.tree, parent, index, opts);
+        self.tree.set_collapsed(parent, false);
+        self.edit = None;
+        self.block = None;
+        self.commit_structure(None, cx);
+        let m = &p.package.manifest;
+        let now = flowie_core::tree::now_millis();
+        for &root in &roots {
+            let record = ImportRecord {
+                root,
+                package_id: m.package_id.clone(),
+                title: m.title.clone(),
+                author_id: m.exported_by.id.clone(),
+                author_name: m.exported_by.name.clone(),
+                exported_at: m.exported_at_millis(),
+                imported_at: now,
+                seen_at: None,
+            };
+            if let Some(w) = &self.writer {
+                w.import(record.clone());
+            }
+            self.imports.insert(root, record);
+        }
+        // Show them in place, not zoomed into: zooming in marks a root seen.
+        if self.zoom != parent && !self.tree.is_ancestor(self.zoom, parent) {
+            self.zoom_to(parent, cx);
+        }
+        self.refresh(false);
+        for &root in &roots {
+            self.anims.start(root, crate::anim::Channel::Flash, crate::anim::FLASH);
+        }
+        if let Some(ix) = roots.first().and_then(|r| self.display_index(*r)) {
+            self.list.scroll_to_reveal_item(ix);
+        }
+        self.toast(t!("toast.package_imported", count = p.package.outline.nodes.len(), title = m.title));
+        cx.notify();
+    }
+
+    pub fn package_import_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let ks = &ev.keystroke;
+        if ks.modifiers.modified() {
+            return;
+        }
+        match ks.key.as_str() {
+            "escape" => self.close_package_import(window, cx),
+            "enter" => self.finish_package_import(window, cx),
+            _ => return,
+        }
+        cx.stop_propagation();
+    }
+
+    pub fn render_package_import(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let p = self.package_import.as_ref()?;
+        let theme = self.theme;
+        let m = &p.package.manifest;
+        let title = if m.title.trim().is_empty() { t!("common.untitled").to_string() } else { m.title.clone() };
+        let from = t!(
+            "package.import.from",
+            name = if m.exported_by.name.is_empty() { "?" } else { &m.exported_by.name },
+            date = crate::menu::date_time(m.exported_at_millis())
+        );
+        let summary = t!("package.export.summary", count = p.package.outline.nodes.len(), size = size_label(p.bytes));
+        let parent_label = if p.parent == ROOT { t!("common.home").to_string() } else { node_label(self, p.parent) };
+        let (keep, has_completed, already) = (p.keep_completion, p.has_completed, p.already);
+        let lines = p.preview.iter().map(|(depth, text)| {
+            div()
+                .flex()
+                .items_start()
+                .gap_2()
+                .pl(px(*depth as f32 * 16.))
+                .child(div().flex_none().mt(px(9.)).size(px(4.)).rounded_full().bg(theme.faint))
+                .child(div().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(text.clone()))
+        });
+        let more = (p.more > 0).then(|| div().pl(px(12.)).text_color(theme.muted).child(t!("package.import.more", count = p.more)));
+        let preview = div()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .p_3()
+            .rounded(px(crate::theme::R_MD))
+            .bg(theme.input_bg)
+            .border_1()
+            .border_color(theme.border)
+            .children(lines)
+            .children(more);
+        let description = (!m.description.trim().is_empty()).then(|| div().text_color(theme.text).child(m.description.clone()));
+        let put_in = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(div().text_color(theme.muted).child(t!("package.import.put_in")))
+            .child(div().font_weight(FontWeight::MEDIUM).child(parent_label))
+            .child(
+                button(theme, "package-put-in", Variant::Link)
+                    .child(t!("package.import.change"))
+                    .on_click(cx.listener(|this, _, _, cx| this.open_palette(crate::palette::Mode::ImportTo, cx))),
+            );
+        let completed = has_completed.then(|| {
+            div()
+                .id("package-keep-completion")
+                .flex()
+                .items_center()
+                .gap_2()
+                .cursor_pointer()
+                .child(crate::ui::controls::checkbox(theme, keep))
+                .child(t!("package.import.keep_completion"))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(p) = this.package_import.as_mut() {
+                        p.keep_completion = !keep;
+                    }
+                    cx.notify();
+                }))
+        });
+        let note = already.then(|| div().text_size(px(12.)).text_color(theme.muted).child(t!("package.import.already")));
+        let buttons = div()
+            .flex()
+            .justify_end()
+            .gap_2()
+            .child(
+                button(theme, "package-import-cancel", Variant::Secondary)
+                    .child(t!("package.export.cancel"))
+                    .on_click(cx.listener(|this, _, window, cx| this.close_package_import(window, cx))),
+            )
+            .child(
+                button(theme, "package-import", Variant::Primary)
+                    .child(if already { t!("package.import.import_copy") } else { t!("package.import.import") })
+                    .on_click(cx.listener(|this, _, window, cx| this.finish_package_import(window, cx))),
+            );
+        let card = crate::ui::surface::sheet(theme, "package-import-card")
+            .w(px(460.))
+            .max_w(gpui::relative(0.9))
+            .p_5()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(crate::ui::text::overline(theme, t!("package.import.heading")))
+            .child(crate::ui::text::page_title(theme, title, Some(format!("{from} · {summary}").into())))
+            .children(description)
+            .child(preview)
+            .child(put_in)
+            .children(completed)
+            .children(note)
+            .child(buttons);
+        Some(
+            crate::ui::surface::scrim(theme)
+                .items_center()
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.close_package_import(window, cx)))
+                .child(card)
+                .into_any_element(),
+        )
+    }
+
+    // ------------------------------------------------------ unread dot
+
+    /// The import record of `id` while it shows the unread dot.
+    pub fn unread(&self, id: NodeId) -> Option<&ImportRecord> {
+        self.imports.get(&id).filter(|r| r.seen_at.is_none() && self.tree.contains(id))
+    }
+
+    /// Imported roots not seen yet (`is:new`).
+    pub fn unread_roots(&self) -> HashSet<NodeId> {
+        self.imports.values().filter(|r| r.seen_at.is_none()).map(|r| r.root).collect()
+    }
+
+    pub fn mark_seen(&mut self, id: NodeId) {
+        let Some(r) = self.imports.get_mut(&id).filter(|r| r.seen_at.is_none()) else { return };
+        let now = flowie_core::tree::now_millis();
+        r.seen_at = Some(now);
+        if let Some(w) = &self.writer {
+            w.seen(id, now);
+        }
+    }
+
+    /// Zooming into or editing inside an imported root counts as seeing it.
+    pub fn see_around(&mut self, id: NodeId) {
+        if !self.imports.values().any(|r| r.seen_at.is_none()) {
+            return;
+        }
+        let id = self.tree.resolve(id);
+        let mut path = self.tree.ancestors(id);
+        path.push(id);
+        for n in path {
+            self.mark_seen(n);
+        }
+    }
+
+    /// "From Ann · imported 2026-11-24 10:00" for the dot's popover.
+    pub fn unread_label(&self, id: NodeId) -> Option<String> {
+        let r = self.imports.get(&id)?;
+        let name = if r.author_name.is_empty() { "?" } else { r.author_name.as_str() };
+        Some(t!("package.unread", name = name, date = crate::menu::date_time(r.imported_at)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,5 +667,14 @@ mod tests {
         assert_eq!(file_name("Reading: notes/2026"), "Reading- notes-2026.flowie");
         assert_eq!(file_name("  ..  "), "Flowie.flowie");
         assert_eq!(file_name(&"x".repeat(100)), format!("{}.flowie", "x".repeat(60)));
+    }
+
+    #[test]
+    fn file_urls_become_paths() {
+        assert_eq!(path_from_url("file:///Users/a/My%20Notes.flowie"), Some("/Users/a/My Notes.flowie".into()));
+        assert_eq!(path_from_url("file:///tmp/%E7%AC%94%E8%AE%B0.flowie"), Some("/tmp/笔记.flowie".into()));
+        assert_eq!(path_from_url("https://x.org/a.flowie"), None);
+        assert!(is_package(Path::new("/a/b.FLOWIE")));
+        assert!(!is_package(Path::new("/a/b.md")));
     }
 }

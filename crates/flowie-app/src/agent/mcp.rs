@@ -208,7 +208,9 @@ pub fn run(db: &Path) {
             "tools/call" => {
                 let name = params.get("name").and_then(Value::as_str).unwrap_or("").to_string();
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
-                match link.call(&name, args) {
+                // `app.*` requests are the app's own (a second launch), not tools.
+                let called = if name.starts_with("app.") { Err(format!("unknown tool {name}")) } else { link.call(&name, args) };
+                match called {
                     Ok(text) => Ok(json!({"content": [{"type": "text", "text": text}], "isError": false})),
                     Err(e) => Ok(json!({"content": [{"type": "text", "text": e}], "isError": true})),
                 }

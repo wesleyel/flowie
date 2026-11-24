@@ -273,7 +273,8 @@ release notes built into the app.
 1. ~~UUID node ids and short ids~~ (done).
 2. ~~Identity: author id and name in settings, device id, Settings → Author name~~ (done).
 3. ~~Package export (without images)~~ (done).
-4. Package import: file type, hand-off to the running instance, import dialog, unread dot.
+4. ~~Package import: file type, hand-off to the running instance, import dialog, unread dot~~ (done;
+   Windows and Linux take the path as an argument, but no installer registers the file type yet).
 5. Images, then images in packages.
 6. Re-importing a package: first the "already imported" note, then the three-way update.
 7. Change history with authors, and the agent co-authoring setting.

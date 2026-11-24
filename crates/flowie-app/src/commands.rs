@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use flowie_core::{io, markup, search::today, store, BlockKind, NodeId, Query, ROOT};
+use flowie_core::{io, markup, search::today, store, BlockKind, NodeId, ROOT};
 use gpui::{ClipboardItem, Context, PathPromptOptions, Window};
 
 use crate::anim::{self, Channel};
@@ -331,6 +331,12 @@ impl Outline {
         });
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
+            // A share package opens the import dialog instead.
+            let (packages, paths): (Vec<_>, Vec<_>) = paths.into_iter().partition(|p| crate::share::is_package(p));
+            if let Some(p) = packages.into_iter().next() {
+                this.update(cx, |this, cx| this.open_package_file(&p, cx)).ok();
+                return;
+            }
             let mut items = Vec::new();
             for p in paths {
                 if let Ok(content) = std::fs::read_to_string(&p) {
@@ -473,7 +479,7 @@ impl Outline {
     }
 
     fn jump_match(&mut self, dir: isize, cx: &mut Context<Self>) {
-        let q = Query::parse(&self.query);
+        let q = self.parse_query(&self.query);
         if q.is_empty() {
             return;
         }

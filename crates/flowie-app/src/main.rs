@@ -84,6 +84,8 @@ fn main() {
         return;
     }
     let background = args.iter().any(|a| a == "--background");
+    // A share package to open, passed by a file association (Windows, Linux) or by hand.
+    let open_path = args.iter().skip(1).map(PathBuf::from).find(|p| share::is_package(p)).map(|p| std::path::absolute(&p).unwrap_or(p));
     let stress = args.iter().position(|a| a == "--stress").and_then(|i| args.get(i + 1)).and_then(|n| n.parse::<usize>().ok());
 
     // One instance per database: a second launch brings the first one forward.
@@ -92,7 +94,7 @@ fn main() {
         None => match agent::claim(&data_path()) {
             agent::Claim::Owner(listener) => Some(listener),
             agent::Claim::Running(running) => {
-                agent::hand_off(running, background);
+                agent::hand_off(running, background, open_path.as_deref());
                 return;
             }
             agent::Claim::Unresponsive => {
@@ -106,16 +108,18 @@ fn main() {
         },
     };
 
-    let (tree, writer, db_path, meta) = match stress {
-        Some(n) => (stress_tree(n), None, None, Vec::new()),
+    let (tree, writer, db_path, meta, imports) = match stress {
+        Some(n) => (stress_tree(n), None, None, Vec::new(), Vec::new()),
         None => {
             let path = data_path();
-            let loaded = store::open(&path).and_then(|c| store::load(&c));
+            let loaded = store::open(&path).and_then(|c| Ok((store::load(&c)?, store::load_imports(&c)?)));
             match loaded {
-                Ok((nodes, meta)) => (Tree::from_nodes(nodes), Some(store::Writer::spawn(path.clone())), Some(path), meta),
+                Ok(((nodes, meta), imports)) => {
+                    (Tree::from_nodes(nodes), Some(store::Writer::spawn(path.clone())), Some(path), meta, imports)
+                }
                 Err(e) => {
                     eprintln!("flowie: could not load {}: {e}", path.display());
-                    (Tree::new(), None, None, Vec::new())
+                    (Tree::new(), None, None, Vec::new(), Vec::new())
                 }
             }
         }
@@ -145,7 +149,19 @@ fn main() {
     }
     let loaded_at = t0.elapsed();
 
-    gpui::application().with_assets(Assets).run(move |cx: &mut App| {
+    // Files macOS asks to open (a double-click on a package), before or after launch.
+    let (open_tx, mut open_rx) = futures::channel::mpsc::unbounded::<PathBuf>();
+    if let Some(p) = open_path {
+        let _ = open_tx.unbounded_send(p);
+    }
+    let app = gpui::application().with_assets(Assets);
+    let url_tx = open_tx.clone();
+    app.on_open_urls(move |urls| {
+        for p in urls.iter().filter_map(|u| share::path_from_url(u)).filter(|p| share::is_package(p)) {
+            let _ = url_tx.unbounded_send(p);
+        }
+    });
+    app.run(move |cx: &mut App| {
         flowie_math::load_fonts(cx);
         keymap::install(cx, &keys);
         cx.on_action(|_: &Quit, cx| cx.quit());
@@ -181,7 +197,7 @@ fn main() {
                     focus: !background,
                     ..Default::default()
                 },
-                |window, cx| cx.new(|cx| Outline::new(tree, writer, db_path, meta, config, window, cx)),
+                |window, cx| cx.new(|cx| Outline::new(tree, writer, db_path, meta, imports, config, window, cx)),
             )
             .expect("open window");
         let view = window.update(cx, |_, _, cx| cx.entity()).unwrap();
@@ -196,6 +212,20 @@ fn main() {
         if let Some(listener) = listener {
             agent::start(listener, window, cx);
         }
+        cx.spawn(async move |cx| {
+            use futures::StreamExt;
+            while let Some(path) = open_rx.next().await {
+                window
+                    .update(cx, |o, window, cx| {
+                        cx.activate(true);
+                        window.activate_window();
+                        o.open_package_file(&path, cx);
+                    })
+                    .ok();
+            }
+        })
+        .detach();
+        drop(open_tx);
 
         // Flush pending writes before quitting.
         let v = view.clone();

@@ -168,6 +168,20 @@ impl Outline {
                 }
                 Ok("package export".into())
             }
+            // Open a package file (the import dialog), then `package_import` presses Import.
+            "package_open" => {
+                self.shot_close_ui();
+                self.open_package_file(std::path::Path::new(s(p, "path").ok_or("missing `path`")?), cx);
+                Ok(if self.package_import.is_some() {
+                    "dialog".into()
+                } else {
+                    self.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default()
+                })
+            }
+            "package_import" => {
+                self.import_package_now(cx);
+                Ok("imported".into())
+            }
             // Write what the open export dialog's Export button would save.
             "package_write" => {
                 let path = s(p, "path").ok_or("missing `path`")?;
@@ -188,6 +202,7 @@ impl Outline {
         self.settings = None;
         self.settings_return = None;
         self.package_export = None;
+        self.package_import = None;
         self.trash = None;
         self.toast = None;
         // A fresh scroll position for the next popup (palette, `/` menu, `[[` menu).

@@ -34,6 +34,16 @@ CREATE TABLE IF NOT EXISTS trash (
     label      TEXT    NOT NULL,
     payload    TEXT    NOT NULL
 );
+CREATE TABLE IF NOT EXISTS imports (
+    root        BLOB    PRIMARY KEY,
+    package_id  TEXT    NOT NULL,
+    title       TEXT    NOT NULL,
+    author_id   TEXT    NOT NULL,
+    author_name TEXT    NOT NULL,
+    exported_at INTEGER NOT NULL,
+    imported_at INTEGER NOT NULL,
+    seen_at     INTEGER
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -157,6 +167,45 @@ pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], 
     tx.commit()
 }
 
+/// A root imported from a share package (one row per root). The bullet
+/// shows an unread dot until `seen_at` is set.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportRecord {
+    pub root: NodeId,
+    pub package_id: String,
+    pub title: String,
+    pub author_id: String,
+    pub author_name: String,
+    pub exported_at: i64,
+    pub imported_at: i64,
+    pub seen_at: Option<i64>,
+}
+
+pub fn load_imports(conn: &Connection) -> rusqlite::Result<Vec<ImportRecord>> {
+    let mut stmt =
+        conn.prepare("SELECT root, package_id, title, author_id, author_name, exported_at, imported_at, seen_at FROM imports")?;
+    let rows = stmt.query_map([], |r| {
+        Ok(ImportRecord {
+            root: r.get(0)?,
+            package_id: r.get(1)?,
+            title: r.get(2)?,
+            author_id: r.get(3)?,
+            author_name: r.get(4)?,
+            exported_at: r.get(5)?,
+            imported_at: r.get(6)?,
+            seen_at: r.get(7)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Whether a bullet with this id sits in the trash (inside any deleted subtree).
+pub fn in_trash(conn: &Connection, id: NodeId) -> rusqlite::Result<bool> {
+    // Payloads are JSON with ids as hex strings.
+    let needle = format!("%\"{id}\"%");
+    conn.query_row("SELECT EXISTS (SELECT 1 FROM trash WHERE payload LIKE ?1)", params![needle], |r| r.get(0))
+}
+
 /// A deleted subtree kept for restoring.
 #[derive(Debug, Clone)]
 pub struct TrashEntry {
@@ -191,6 +240,8 @@ enum Msg {
     Trash { root: NodeId, label: String, nodes: Vec<Node> },
     Untrash(i64),
     Meta(String, String),
+    Import(ImportRecord),
+    Seen { root: NodeId, at: i64 },
     Flush(Sender<()>),
 }
 
@@ -234,6 +285,20 @@ impl Writer {
     pub fn set_meta(&self, key: &str, value: &str) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(Msg::Meta(key.to_string(), value.to_string()));
+        }
+    }
+
+    /// Record an imported root.
+    pub fn import(&self, record: ImportRecord) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::Import(record));
+        }
+    }
+
+    /// The user has looked at an imported root.
+    pub fn seen(&self, root: NodeId, at: i64) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::Seen { root, at });
         }
     }
 
@@ -310,6 +375,18 @@ fn writer_loop(path: PathBuf, rx: Receiver<Msg>) {
             }
             Some(Msg::Untrash(seq)) => {
                 let _ = conn.execute("DELETE FROM trash WHERE seq = ?1", params![seq]);
+            }
+            Some(Msg::Import(r)) => {
+                if let Err(e) = conn.execute(
+                    "INSERT OR REPLACE INTO imports (root, package_id, title, author_id, author_name, exported_at, imported_at, seen_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![r.root, r.package_id, r.title, r.author_id, r.author_name, r.exported_at, r.imported_at, r.seen_at],
+                ) {
+                    eprintln!("flowie: import record write failed: {e}");
+                }
+            }
+            Some(Msg::Seen { root, at }) => {
+                let _ = conn.execute("UPDATE imports SET seen_at = ?2 WHERE root = ?1", params![root, at]);
             }
             Some(Msg::Meta(k, v)) => {
                 pending_meta.retain(|(key, _)| *key != k);

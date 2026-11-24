@@ -545,6 +545,17 @@ impl Outline {
                 .child(div().size(px(6.)).rounded_full().bg(if completed { theme.faint } else { theme.bullet }))
                 .into_any_element(),
         };
+        // An imported root not looked at yet: an unread dot, like mail.
+        let base = match self.unread(id).is_some() {
+            true => self.popover_anchor(
+                base.relative()
+                    .child(div().absolute().top(px(line_h / 2. - 9.)).right(px(-3.)).size(px(7.)).rounded_full().bg(theme.accent)),
+                crate::popover::PopoverKind::Import(id),
+                false,
+                cx,
+            ),
+            false => base,
+        };
         base.child(inner)
             .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(id, cx)))
             .on_mouse_down(
@@ -1109,6 +1120,7 @@ impl Render for Outline {
         let app_menu_bar = self.render_app_menu_bar(window, cx);
         let palette = self.render_palette(window, cx);
         let package_export = self.render_package_export(window, cx);
+        let package_import = self.render_package_import(window, cx);
         let settings = self.render_settings(window, cx);
         let inline = self.render_inline(cx);
         let calendar = self.render_calendar(cx);
@@ -1244,8 +1256,12 @@ impl Render for Outline {
             .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
                 if this.settings.is_some() {
                     this.settings_key(ev, window, cx);
+                } else if this.palette.is_some() {
+                    // A picker opened from a dialog ("Put in"): its keys are the outline's.
                 } else if this.package_export.is_some() {
                     this.package_export_key(ev, window, cx);
+                } else if this.package_import.is_some() {
+                    this.package_import_key(ev, window, cx);
                 }
             }))
             .on_mouse_down(
@@ -1292,8 +1308,9 @@ impl Render for Outline {
             .children(calendar)
             .children(popover)
             .children(menu)
-            .children(palette)
             .children(package_export)
+            .children(package_import)
+            .children(palette)
             .children(settings)
             .children(toast)
     }

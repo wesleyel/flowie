@@ -2,49 +2,55 @@
 
 Designs agreed on but not built yet. Each section says what is decided; open questions are marked.
 
-## Authors and global node ids
+## Global node ids
 
-The base for share packages, and later for collaboration and diff.
+Node ids become random UUIDs (v4) everywhere: in memory, in the database, in `flowie:` links, over
+MCP and in share packages. There is no separate local id. Not compatible with existing databases
+(nothing has shipped yet).
 
-### Global ids
+- `NodeId` becomes a `Copy` newtype over `u128`, shown as 32 lowercase hex digits; `ROOT` is the
+  nil UUID. JSON carries ids as strings (integers above 2^53 lose precision in JS clients).
+- v4, not v7: v7 starts with a 48-bit millisecond timestamp, so nodes made within a few hours share
+  their first six hex digits and short ids would grow to a dozen characters. Creation order is in
+  `created` already.
+- `alloc_id` / `next_id` go away. Mirror rows' virtual ids, marked today by `VIRTUAL_BIT`, are
+  marked by a reserved UUID version instead. UI element ids hash the id instead of `id as usize`.
+  The database stores ids as 16-byte blobs.
 
-Local `NodeId`s are database row numbers and mean nothing outside this database. Every node gets
-a `uid` (UUIDv7, time-ordered); the local id stays the internal key, so most code is unchanged.
+### Short ids, like git
 
-### Authors: one per person, plus a device id
+- Shown as the shortest prefix no other node shares, at least 6 hex digits. Computed by sorting all
+  ids and comparing each with its two neighbours; cached and updated as nodes come and go. About 6
+  digits at 10,000 nodes, 6 to 8 at 100,000.
+- MCP prints short ids (`[id:3f9a1c]`) and accepts any unique prefix of at least 4 digits; an
+  ambiguous prefix is an error that lists the candidates.
+- Everything stored uses the full id: links in text, the database, packages. A prefix unique today
+  may not be tomorrow.
 
-```sql
-CREATE TABLE authors (
-    id    TEXT PRIMARY KEY,  -- uuid
-    kind  TEXT NOT NULL,     -- 'person' | 'agent'
-    name  TEXT NOT NULL,     -- last name seen
-    seen  INTEGER NOT NULL
-);
--- meta: self_author = <uuid>, self_device = <uuid>
-```
+## Identity: author and device
 
-- An author is identified by id, never by name: renaming rewrites no history, and two people with
-  the same name stay apart.
-- One author per person, not per database: the same person on a Mac and a Windows PC is one
-  author on two devices. The author id can be exported and imported in Settings (later: carried
-  by sync). The device id tells "me on my other machine" from "someone else" in a diff.
+Only what share packages need. Nodes carry no author fields: in a one-person outline they would all
+say the same thing, and where authorship matters (what an agent changed, diff, collaboration) the
+last modifier per node is not enough; that needs the change history below.
+
+- Author: `{ id: uuid, name }`, one per person, kept in settings. The id can be exported and
+  imported in Settings, for a new or second device. An author is identified by id, never by name:
+  renaming rewrites nothing, and two people with the same name stay apart.
 - The default name comes from the OS (macOS `NSFullUserName()`, Windows
   `GetUserNameEx(NameDisplay)`, Linux GECOS, else the login name). It can be changed in Settings →
   General → Author name.
+- Device: `device_id` in the database's meta, one per device.
 
-### Authorship of nodes
+## Change history (later)
 
-`nodes` gains `created_by` and `modified_by`. Both hold a list of author ids, primary author first,
-like a git commit with co-authors. Upgrading an existing database attributes every node to
-`self_author`.
+Persist the undo history's `Change` records (node before / after) with time, device and authors.
+This is the base for "what did Claude change today", undoing only an agent's edits, blame, diff
+and collaboration.
 
-### Agent edits: co-authored, like git
-
-- Each MCP client is an author of kind `agent`, named from the MCP `initialize` request's
-  `clientInfo` (e.g. "Claude Code"), and recorded the first time it writes.
-- By default an agent edit is attributed to **both** the user and the agent (user first, agent as
-  co-author), the way a commit carries `Co-authored-by`.
-- Configurable in Settings → Agent: *me and the agent* (default) / *the agent only* / *me only*.
+- Authors are a list, like a git commit with co-authors. Each MCP client is an agent author, named
+  from the MCP `initialize` request's `clientInfo` (e.g. "Claude Code").
+- By default an agent edit is attributed to both the user and the agent (user first). Configurable
+  in Settings → Agent: *me and the agent* (default) / *the agent only* / *me only*.
 
 ## Share packages (`.flowie`)
 
@@ -79,13 +85,13 @@ preview.md         optional: for Quick Look and people without Flowie
 {
   "format": "flowie.package",
   "version": 1,
-  "package_id": "0193…",
+  "package_id": "c41d…",
   "title": "Reading notes",
   "description": "One line from the sender",
-  "exported_at": "2026-11-23T10:00:00Z",
+  "exported_at": "2026-11-24T10:00:00Z",
   "exported_by": { "id": "a1…", "name": "Wesley", "device": "d7…" },
   "app": "Flowie 1.1.0",
-  "roots": ["0192…"],
+  "roots": ["3f9a1c…"],
   "stats": { "nodes": 128, "images": 3, "bytes": 2048000 },
   "outline_sha256": "…"
 }
@@ -96,18 +102,17 @@ and deep outlines would fail to parse (or overflow the stack without that limit)
 
 ```json
 {
-  "authors": [{ "id": "a1…", "kind": "person", "name": "Wesley" }],
-  "roots": ["0192…"],
+  "roots": ["3f9a1c…"],
   "nodes": [
-    { "uid": "0192…", "parent": null,     "text": "…" },
-    { "uid": "0193…", "parent": "0192…", "text": "…" }
+    { "id": "3f9a1c…", "parent": null,      "text": "…" },
+    { "id": "b70e42…", "parent": "3f9a1c…", "text": "…" }
   ]
 }
 ```
 
-- `authors` lists every author the nodes mention.
-- Each node has `uid`, `parent` (null for a root), `text`, `note`, `kind`, `completed`,
-  `collapsed`, `created`, `modified`, `created_by`, `modified_by`, `image` and `mirror_of`.
+- Each node has `id` (its full UUID), `parent` (null for a root), `text`, `note`, `kind`,
+  `completed`, `collapsed`, `created`, `modified`, `image` and `mirror_of`. No authors: who made
+  the package is in the manifest.
 - Siblings keep the order they have in the array; the internal `rank` floats are not exported.
   A reader builds parent → children in one pass, at any depth.
 
@@ -115,8 +120,10 @@ Rules:
 
 - `version` is the major version: a reader refuses a newer one (and says to update Flowie) and
   ignores unknown fields.
-- Mirrors whose source is in the export keep the link (`mirror_of` = a uid in the package); others
+- Mirrors whose source is in the export keep the link (`mirror_of` = an id in the package); others
   are exported as plain copies marked `"was_mirror": true`.
+- `flowie:` links to nodes in the export are kept; links to nodes outside it become plain text
+  (their label), since the receiver doesn't have those nodes.
 - Not exported: Trash, stars, saved searches, window and scroll state.
 - Reading is defensive: only the entry names above, a cap on unpacked size, image hashes checked,
   text treated as data only.
@@ -125,7 +132,7 @@ Rules:
   that runs, and keys (devices, loss, revocation) cost a lot of UI. It becomes necessary only if
   collaboration goes local-first without a server, and then for the operation log, not just
   packages. Readers ignore unknown entries, so a `signature.json` can be added later, and an
-  author's key can be bound to their existing uuid the first time it signs.
+  author's key can be bound to their existing id the first time it signs.
 
 ### Export
 
@@ -148,32 +155,49 @@ Rules:
   one-instance-per-database rule stays as it is.
 - The import dialog shows: title, author, export time, app version, counts and size, the
   description, a read-only preview of the first levels, **Put in:** (the move-to picker as a new
-  `Mode::ImportTo`, **default Home, at the end**), "keep original authors" and "keep completion",
-  and a note if this package was imported before.
+  `Mode::ImportTo`, **default Home, at the end**), "keep completion", and a note if this package
+  was imported before.
 - Import is one undo step, then Flowie zooms to and flashes the imported root.
-- Imported nodes get new local uids (importing twice never collides). Their source is recorded in
-  `origins` (below). "Keep original authors" off attributes everything to me.
+- Imported nodes keep the ids they have in the package: ids are global, so the same node is the
+  same id in both outlines, and a later version of the package matches up without any mapping.
+- If a root's id already exists here (in the outline or in Trash), the package was imported
+  before. The dialog offers **Update** (the three-way merge below; at first only the note) or
+  **Import a copy**, which gives every node a new id and rewrites the package's own links and
+  mirrors to match.
 
-### Prepared for diff and collaboration
+### Newly imported roots
 
-Recorded from version 1, so later work needs no second database upgrade:
+An imported root is marked until the user has looked at it; no other node shows where it came
+from.
+
+- An unread dot (accent color) on the root's bullet, like an unread mail. Hovering it shows "From
+  Wesley · imported Nov 24".
+- The dot goes away when the user zooms into the root or edits inside it, or with Mark as Seen in
+  the bullet's menu.
+- `is:new` finds imported roots not seen yet.
+
+### Import records
 
 ```sql
-CREATE TABLE origins (
-    uid         TEXT PRIMARY KEY,  -- local node uid
+CREATE TABLE imports (           -- one row per imported root
+    root         BLOB PRIMARY KEY,
+    package_id   TEXT NOT NULL,   -- shared by a package's roots, and by a copy imported later
+    title        TEXT NOT NULL,
+    author_id    TEXT NOT NULL,
+    author_name  TEXT NOT NULL,
+    exported_at  INTEGER NOT NULL,
+    imported_at  INTEGER NOT NULL,
+    seen_at      INTEGER          -- NULL while the root shows the unread dot
+);
+CREATE TABLE import_bases (      -- the base of a three-way merge
+    node        BLOB PRIMARY KEY,
     package_id  TEXT NOT NULL,
-    source_uid  TEXT NOT NULL,     -- uid in the package
-    base_hash   TEXT NOT NULL,     -- hash of the node's content when imported
-    imported_at INTEGER NOT NULL
+    base_hash   TEXT NOT NULL     -- hash of the node's content when imported
 );
 ```
 
-When a newer version of the same package arrives, `source_uid` matches nodes and `base_hash` is
-the common base of a three-way merge: changed only there → update, only here → keep, both →
-conflict for the user to pick. Authors and times label who changed what.
-
-Live collaboration later needs a persistent operation log with author and device per change. The
-undo history's `Change` (node before / after) is already that shape.
+When a newer version of the same package arrives, ids match nodes directly and `base_hash` is the
+common base: changed only there → update, only here → keep, both → conflict for the user to pick.
 
 ## Images
 
@@ -195,9 +219,11 @@ undo history's `Change` (node before / after) is already that shape.
 
 ## Order
 
-1. Authors and uids: database upgrade, Settings → Author name, agent co-authoring setting.
-2. Package export (without images).
-3. Package import: file type, hand-off to the running instance, import dialog.
-4. Images, then images in packages.
-5. Re-importing a package: first a "already imported" note, then the three-way update.
-6. Signing, only if collaboration ends up local-first without a server.
+1. UUID node ids and short ids (no compatibility with older databases).
+2. Identity: author id and name in settings, device id, Settings → Author name.
+3. Package export (without images).
+4. Package import: file type, hand-off to the running instance, import dialog, unread dot.
+5. Images, then images in packages.
+6. Re-importing a package: first the "already imported" note, then the three-way update.
+7. Change history with authors, and the agent co-authoring setting.
+8. Signing, only if collaboration ends up local-first without a server.

@@ -1,6 +1,7 @@
 // - Record the git commit for the About panel.
 // - Embed every SVG in assets/icons (Lucide, ISC license) as `icons/<name>.svg`.
 // - Embed every locales/<code>.json (English first: the source and fallback).
+// - Embed every locales/whats-new/<code>.md (translated release notes).
 use std::fmt::Write;
 
 fn main() {
@@ -48,6 +49,23 @@ fn main() {
     }
     src.push_str("];\n");
     let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("locales.rs");
+    std::fs::write(out, src).unwrap();
+
+    // What's New translations: locales/whats-new/<code>.md (CHANGELOG.md is the English source).
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("locales/whats-new");
+    println!("cargo:rerun-if-changed={}", dir.display());
+    println!("cargo:rerun-if-changed=../../CHANGELOG.md");
+    let mut codes: Vec<String> = std::fs::read_dir(&dir)
+        .map(|d| d.filter_map(|e| e.ok()).filter_map(|e| e.file_name().to_string_lossy().strip_suffix(".md").map(String::from)).collect())
+        .unwrap_or_default();
+    codes.sort();
+    let mut src = String::from("pub static WHATS_NEW: &[(&str, &str)] = &[\n");
+    for c in &codes {
+        let path = dir.join(format!("{c}.md"));
+        writeln!(src, "    (\"{c}\", include_str!({:?})),", path.to_string_lossy()).unwrap();
+    }
+    src.push_str("];\n");
+    let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("whats_new.rs");
     std::fs::write(out, src).unwrap();
 
     #[cfg(target_os = "windows")]

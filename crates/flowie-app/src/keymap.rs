@@ -361,6 +361,7 @@ fn menus_for(os: Os) -> Vec<AppMenu> {
     }
 
     let mut help_items = vec![
+        item::<WhatsNew>(t!("menu.help.whats_new"), None),
         item::<OpenTutorial>(t!("menu.help.tutorial"), None),
         item::<SendFeedback>(t!("menu.help.feedback"), None),
         AppMenuItem::Separator,
@@ -378,6 +379,7 @@ fn menus_for(os: Os) -> Vec<AppMenu> {
             name: "Flowie",
             items: vec![
                 item::<OpenAbout>(t!("menu.app.about"), None),
+                item::<WhatsNew>(t!("menu.app.whats_new"), None),
                 AppMenuItem::Separator,
                 item::<OpenSettings>(t!("menu.app.settings"), Some("settings")),
                 AppMenuItem::Separator,

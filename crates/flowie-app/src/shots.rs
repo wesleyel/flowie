@@ -5,7 +5,7 @@
 //! calendar, settings…) so App Store and website screenshots can be retaken
 //! from a script. Never part of a release build.
 
-use flowie_core::{BlockKind, ROOT};
+use flowie_core::{BlockKind, NodeId, ROOT};
 use gpui::{point, px, Context};
 use serde_json::Value;
 
@@ -181,6 +181,16 @@ impl Outline {
             "package_import" => {
                 self.import_package_now(cx);
                 Ok("imported".into())
+            }
+            // Update to the open package, taking the package's side of the conflicts in `take`.
+            "package_update" => {
+                let take: Vec<NodeId> =
+                    p.get("take").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_str()?.parse().ok()).collect();
+                let plan = self.package_import.as_mut().and_then(|i| i.update_mut()).ok_or("nothing to update")?;
+                plan.1.extend(take);
+                let summary = format!("{:?}", plan.0);
+                self.update_package_now(cx);
+                Ok(summary)
             }
             "image_preview" => {
                 let id = self.agent_node(p, "id")?;

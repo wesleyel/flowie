@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS imports (
     imported_at INTEGER NOT NULL,
     seen_at     INTEGER
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS import_bases (   -- each imported bullet as the package had it
+    node      BLOB PRIMARY KEY,
+    root      BLOB NOT NULL,                -- the imported root it came with
+    base_hash TEXT NOT NULL                 -- package::content_hash at the last import
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -210,6 +215,19 @@ pub fn load_imports(conn: &Connection) -> rusqlite::Result<Vec<ImportRecord>> {
     rows.collect()
 }
 
+/// The merge bases of everything imported with `roots`.
+pub fn load_bases(conn: &Connection, roots: &[NodeId]) -> rusqlite::Result<std::collections::HashMap<NodeId, String>> {
+    let mut out = std::collections::HashMap::new();
+    let mut stmt = conn.prepare("SELECT node, base_hash FROM import_bases WHERE root = ?1")?;
+    for root in roots {
+        for row in stmt.query_map(params![root], |r| Ok((r.get::<_, NodeId>(0)?, r.get::<_, String>(1)?)))? {
+            let (node, hash) = row?;
+            out.insert(node, hash);
+        }
+    }
+    Ok(out)
+}
+
 pub fn load_blobs(conn: &Connection) -> rusqlite::Result<Vec<crate::images::BlobInfo>> {
     let mut stmt = conn.prepare("SELECT name, mime, width, height, size FROM blobs")?;
     let rows = stmt.query_map([], |r| {
@@ -289,6 +307,7 @@ enum Msg {
     Meta(String, String),
     Import(ImportRecord),
     Blob(crate::images::BlobInfo),
+    Bases(Vec<(NodeId, NodeId, String)>),
     Seen { root: NodeId, at: i64 },
     Flush(Sender<()>),
 }
@@ -347,6 +366,13 @@ impl Writer {
     pub fn blob(&self, info: crate::images::BlobInfo) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(Msg::Blob(info));
+        }
+    }
+
+    /// Record merge bases: (bullet, its import root, content hash).
+    pub fn bases(&self, rows: Vec<(NodeId, NodeId, String)>) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::Bases(rows));
         }
     }
 
@@ -445,6 +471,18 @@ fn writer_loop(path: PathBuf, rx: Receiver<Msg>) {
                     "INSERT OR REPLACE INTO blobs (name, mime, width, height, size) VALUES (?1, ?2, ?3, ?4, ?5)",
                     params![b.name, b.mime, b.width, b.height, b.size as i64],
                 );
+            }
+            Some(Msg::Bases(rows)) => {
+                let tx = conn.transaction();
+                if let Ok(tx) = tx {
+                    for (node, root, hash) in rows {
+                        let _ = tx.execute(
+                            "INSERT OR REPLACE INTO import_bases (node, root, base_hash) VALUES (?1, ?2, ?3)",
+                            params![node, root, hash],
+                        );
+                    }
+                    let _ = tx.commit();
+                }
             }
             Some(Msg::Seen { root, at }) => {
                 let _ = conn.execute("UPDATE imports SET seen_at = ?2 WHERE root = ?1", params![root, at]);

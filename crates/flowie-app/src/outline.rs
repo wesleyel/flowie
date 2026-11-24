@@ -615,15 +615,51 @@ impl Outline {
 
     /// Finish a structural command: journal for undo, persist, re-flatten with animation.
     pub fn commit_structure(&mut self, before: Option<Caret>, cx: &mut Context<Self>) {
+        self.commit_with_imports(before, None, cx);
+    }
+
+    pub(crate) fn commit_with_imports(
+        &mut self,
+        before: Option<Caret>,
+        imports: Option<(flowie_core::store::ImportState, flowie_core::store::ImportState)>,
+        cx: &mut Context<Self>,
+    ) {
+        self.commit_with_imports_and_trash(before, imports, Vec::new(), cx);
+    }
+
+    pub(crate) fn commit_with_imports_and_trash(
+        &mut self,
+        before: Option<Caret>,
+        mut imports: Option<(flowie_core::store::ImportState, flowie_core::store::ImportState)>,
+        trash: Vec<(NodeId, String, Vec<flowie_core::Node>)>,
+        cx: &mut Context<Self>,
+    ) {
         for n in self.tree.journal_removed() {
             self.ghosts.insert(n.id, n);
         }
         let after = self.caret();
-        // Follow the caret only when the command moved it, or it was in view
-        // (folding elsewhere on the page must not jump to an off-screen caret).
         let follow = after != before || before.is_some_and(|c| self.row_on_screen(c.node));
-        self.history.commit(&mut self.tree, HistoryKind::Structure, before, after);
-        self.persist();
+        if let Some((previous, next)) = imports.as_mut() {
+            previous.trash_removed = trash.clone();
+            next.trash_added = trash.clone();
+        }
+        self.history.commit_with_imports(&mut self.tree, HistoryKind::Structure, before, after, imports.clone());
+        let (upserts, deletes) = self.tree.take_dirty();
+        if let Some((_, state)) = imports {
+            self.set_import_state(state.clone());
+            if let Some(writer) = &self.writer {
+                writer.import_batch(upserts, deletes, state);
+            }
+        } else {
+            if let Some(writer) = &self.writer {
+                writer.write(upserts, deletes);
+            }
+            if let Some(writer) = &self.writer {
+                for (root, label, nodes) in trash {
+                    writer.trash(root, &label, nodes);
+                }
+            }
+        }
         self.refresh(true);
         if follow {
             self.reveal_edit();
@@ -1647,19 +1683,29 @@ impl Outline {
         if self.leave_volatile_page(true, cx) {
             return;
         }
+        let imports = self.history.undo_imports().cloned();
         if let Some(caret) = self.history.undo(&mut self.tree) {
-            self.after_history(caret, cx);
+            self.after_history(caret, imports, cx);
         }
     }
 
     pub fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+        let imports = self.history.redo_imports().cloned();
         if let Some(caret) = self.history.redo(&mut self.tree) {
-            self.after_history(caret, cx);
+            self.after_history(caret, imports, cx);
         }
     }
 
-    fn after_history(&mut self, caret: Option<Caret>, cx: &mut Context<Self>) {
-        self.persist();
+    fn after_history(&mut self, caret: Option<Caret>, imports: Option<flowie_core::store::ImportState>, cx: &mut Context<Self>) {
+        if let Some(state) = imports {
+            self.set_import_state(state.clone());
+            let (upserts, deletes) = self.tree.take_dirty();
+            if let Some(writer) = &self.writer {
+                writer.import_batch(upserts, deletes, state);
+            }
+        } else {
+            self.persist();
+        }
         if !self.tree.contains(self.zoom) {
             self.zoom = ROOT;
         }

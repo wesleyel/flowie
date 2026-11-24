@@ -2,11 +2,11 @@
 //! and the unread dot on imported roots. The format itself is
 //! `flowie_core::package`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use flowie_core::package::{ExportMeta, ExportOptions, ImportOptions, Package, PackageError, Person, UpdatePlan, EXTENSION};
-use flowie_core::store::ImportRecord;
+use flowie_core::store::{ImportRecord, ImportState};
 use flowie_core::{NodeId, ROOT};
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, KeyDownEvent, MouseButton, SharedString, Window};
 
@@ -337,6 +337,8 @@ pub fn path_from_url(url: &str) -> Option<std::path::PathBuf> {
 
 /// The open import dialog.
 pub struct PackageImport {
+    before: ImportState,
+    scroll: gpui::ScrollHandle,
     package: Package,
     /// Where the roots go (at the end).
     pub parent: NodeId,
@@ -347,6 +349,7 @@ pub struct PackageImport {
     /// Imported before with its ids: what updating to this version does,
     /// and the conflicts where the user takes the package's version.
     update: Option<(UpdatePlan, HashSet<NodeId>)>,
+    copy_map: HashMap<NodeId, NodeId>,
     bytes: usize,
     /// The first levels, as (depth, plain text).
     preview: Vec<(usize, String)>,
@@ -408,20 +411,90 @@ impl Outline {
     pub fn open_package_import(&mut self, package: Package, bytes: usize, cx: &mut Context<Self>) {
         self.shut_popups();
         self.package_export = None;
-        let in_trash = self
-            .db_path
+        if let Some(writer) = &self.writer {
+            writer.flush();
+        }
+        let connection = match self.db_path.as_ref().map(|path| flowie_core::store::open(path)).transpose() {
+            Ok(connection) => connection,
+            Err(error) => {
+                self.toast(error.to_string());
+                return cx.notify();
+            }
+        };
+        let in_trash = match connection
             .as_ref()
-            .and_then(|p| flowie_core::store::open(p).ok())
-            .is_some_and(|c| package.outline.roots.iter().any(|&r| flowie_core::store::in_trash(&c, r).unwrap_or(false)));
+            .map(|conn| {
+                package.outline.roots.iter().try_fold(
+                    false,
+                    |found, root| {
+                        if found {
+                            Ok(true)
+                        } else {
+                            flowie_core::store::in_trash(conn, *root)
+                        }
+                    },
+                )
+            })
+            .transpose()
+        {
+            Ok(found) => found.unwrap_or(false),
+            Err(error) => {
+                self.toast(error.to_string());
+                return cx.notify();
+            }
+        };
         let present = package.present_in(&self.tree);
-        let already = in_trash || !present.is_empty();
+        let roots = package.outline.roots.clone();
+        let package_root_of = package.root_of();
+        let preview_items = package.preview_items(PREVIEW_LINES, 1);
+        let mut copy_map = HashMap::new();
+        if present.is_empty() && !in_trash {
+            let source_roots: HashSet<NodeId> = roots.iter().copied().collect();
+            let matching: Vec<_> = self.imports.values().filter(|record| record.package_id == package.manifest.package_id).collect();
+            for record in matching {
+                copy_map.extend(record.source_ids.iter().filter(|(source, _)| source_roots.contains(source)).copied());
+            }
+            if !source_roots.iter().all(|root| copy_map.contains_key(root)) {
+                copy_map.clear();
+            }
+        }
+        let already = in_trash || !present.is_empty() || !copy_map.is_empty();
+        let lookup_roots = if copy_map.is_empty() {
+            roots.clone()
+        } else {
+            copy_map.iter().filter(|(source, _)| roots.contains(&package_root_of[source])).map(|(_, copy)| *copy).collect()
+        };
+        let bases = match connection.as_ref().map(|conn| flowie_core::store::load_bases(conn, &lookup_roots)).transpose() {
+            Ok(rows) => rows.unwrap_or_default(),
+            Err(error) => {
+                self.toast(error.to_string());
+                return cx.notify();
+            }
+        };
+        let state_roots = if copy_map.is_empty() {
+            roots.clone()
+        } else {
+            copy_map.iter().filter(|(source, _)| roots.contains(&package_root_of[source])).map(|(_, copy)| *copy).collect()
+        };
+        let mut before_records = state_roots.iter().filter_map(|id| self.imports.get(id).cloned()).collect::<Vec<_>>();
+        if before_records.is_empty() && !copy_map.is_empty() {
+            before_records = self
+                .imports
+                .values()
+                .filter(|record| {
+                    record.package_id == package.manifest.package_id
+                        && record.source_ids.iter().any(|(source, _)| copy_map.get(source) == Some(&record.root))
+                })
+                .cloned()
+                .collect();
+        }
+        let before = ImportState { records: before_records, roots: state_roots, bases, ..Default::default() };
         // Imported before with these ids: offer to bring it up to date.
-        let update = (!present.is_empty() && package.outline.roots.iter().all(|r| self.tree.contains(*r)))
+        let update = ((!present.is_empty() && package.outline.roots.iter().all(|r| self.tree.contains(*r))) || !copy_map.is_empty())
             .then(|| {
-                let conn = flowie_core::store::open(self.db_path.as_ref()?).ok()?;
-                let bases = flowie_core::store::load_bases(&conn, &package.outline.roots).ok()?;
+                let bases: std::collections::HashMap<_, _> = before.bases.iter().map(|(node, _, hash)| (*node, hash.clone())).collect();
                 let known: HashSet<NodeId> = bases.keys().copied().collect();
-                (!bases.is_empty()).then(|| (package.plan_update(&self.tree, &bases, &known), HashSet::new()))
+                (!bases.is_empty()).then(|| (package.plan_update_mapped(&self.tree, &bases, &known, &copy_map), HashSet::new()))
             })
             .flatten();
         let has_completed = package.outline.nodes.iter().any(|n| n.completed);
@@ -438,16 +511,19 @@ impl Outline {
                 }
             }
         }
-        walk(&package.items(), 0, &mut preview);
+        walk(&preview_items, 0, &mut preview);
         let more = package.outline.nodes.len().saturating_sub(preview.len());
         let return_to = self.edit.take().map(|e| (e.target, e.caret()));
         self.package_import = Some(PackageImport {
+            before,
+            scroll: gpui::ScrollHandle::new(),
             package,
             parent: ROOT,
             keep_completion: true,
             has_completed,
             already,
             update,
+            copy_map,
             bytes,
             preview,
             more,
@@ -513,17 +589,16 @@ impl Outline {
         let index = self.tree.children(parent).len();
         let opts = ImportOptions { fresh_ids: p.already, keep_completion: p.keep_completion };
         self.store_package_images(&p.package);
-        let roots = p.package.insert_into(&mut self.tree, parent, index, opts);
-        if !p.already {
-            self.record_bases(&p.package);
-        }
+        let (roots, id_map) = p.package.insert_into_with_id_map(&mut self.tree, parent, index, opts, &p.copy_map);
         self.tree.set_collapsed(parent, false);
         self.edit = None;
         self.block = None;
-        self.commit_structure(None, cx);
         let m = &p.package.manifest;
         let now = flowie_core::tree::now_millis();
+        let mut records = Vec::new();
+        let root_of = p.package.root_of();
         for &root in &roots {
+            let source_root = p.package.outline.roots.iter().find(|source| id_map.get(source) == Some(&root)).copied();
             let record = ImportRecord {
                 root,
                 package_id: m.package_id.clone(),
@@ -533,12 +608,33 @@ impl Outline {
                 exported_at: m.exported_at_millis(),
                 imported_at: now,
                 seen_at: None,
+                source_ids: p
+                    .package
+                    .outline
+                    .nodes
+                    .iter()
+                    .filter(|node| Some(root_of[&node.id]) == source_root)
+                    .map(|node| (node.id, id_map[&node.id]))
+                    .collect(),
             };
-            if let Some(w) = &self.writer {
-                w.import(record.clone());
-            }
-            self.imports.insert(root, record);
+            records.push(record);
         }
+        let bases = if p.already {
+            let root_of = p.package.root_of();
+            p.package
+                .base_hashes_mapped(&id_map)
+                .into_iter()
+                .map(|(node, hash)| {
+                    let original = p.package.outline.nodes.iter().find(|package_node| id_map[&package_node.id] == node).unwrap().id;
+                    (node, id_map[&root_of[&original]], hash)
+                })
+                .collect()
+        } else {
+            Self::package_bases(&p.package)
+        };
+        let before = if p.already { ImportState { roots: roots.clone(), ..Default::default() } } else { p.before.clone() };
+        let after = ImportState { roots: roots.clone(), records, bases, ..Default::default() };
+        self.commit_with_imports(None, Some((before, after)), cx);
         // Show them in place, not zoomed into: zooming in marks a root seen.
         if self.zoom != parent && !self.tree.is_ancestor(self.zoom, parent) {
             self.zoom_to(parent, cx);
@@ -555,44 +651,74 @@ impl Outline {
     }
 
     /// Remember each bullet's content as this package has it, for the next update.
-    fn record_bases(&mut self, package: &Package) {
+    fn package_bases(package: &Package) -> Vec<(NodeId, NodeId, String)> {
         let root_of = package.root_of();
-        let rows = package.base_hashes().into_iter().map(|(id, hash)| (id, root_of[&id], hash)).collect();
-        if let Some(w) = &self.writer {
-            w.bases(rows);
+        package.base_hashes().into_iter().map(|(id, hash)| (id, root_of[&id], hash)).collect()
+    }
+
+    pub(crate) fn set_import_state(&mut self, state: ImportState) {
+        for root in &state.roots {
+            self.imports.remove(root);
         }
+        self.imports.extend(state.records.iter().map(|record| (record.root, record.clone())));
     }
 
     /// Bring an imported package up to date: one undo step.
     pub fn update_package_now(&mut self, cx: &mut Context<Self>) {
         let Some(p) = self.package_import.take() else { return };
         let Some((plan, take)) = p.update.as_ref() else { return };
+        let (plan, take) = (plan.clone(), take.clone());
         self.store_package_images(&p.package);
-        let mut touched = p.package.apply_update(&mut self.tree, plan, take);
+        let mut touched = p.package.apply_update_mapped(&mut self.tree, &plan, &take, &p.copy_map);
+        let mut trash = Vec::new();
         for &id in &plan.removed {
             if self.tree.contains(id) {
-                self.send_to_trash(id);
+                trash.push((id, node_label(self, id), self.tree.subtree_nodes(id)));
                 self.tree.delete(id);
             }
         }
         self.edit = None;
         self.block = None;
-        self.commit_structure(None, cx);
-        self.record_bases(&p.package);
+        let mut records = p.before.records.clone();
+        let root_of = p.package.root_of();
         let m = &p.package.manifest;
-        for &root in &p.package.outline.roots {
-            if let Some(r) = self.imports.get_mut(&root) {
-                r.title = m.title.clone();
-                r.package_id = m.package_id.clone();
-                r.exported_at = m.exported_at_millis();
-                r.imported_at = flowie_core::tree::now_millis();
-                // New content: unread again.
-                r.seen_at = None;
-                if let Some(w) = &self.writer {
-                    w.import(r.clone());
-                }
-            }
+        for r in &mut records {
+            let copy_root = r.root;
+            let source_root = p.copy_map.iter().find_map(|(source, copy)| (*copy == copy_root).then_some(root_of[source]));
+            r.source_ids = p
+                .package
+                .outline
+                .nodes
+                .iter()
+                .filter(|node| Some(root_of[&node.id]) == source_root)
+                .filter_map(|node| p.copy_map.get(&node.id).map(|&copy| (node.id, copy)))
+                .collect();
+            r.title = m.title.clone();
+            r.package_id = m.package_id.clone();
+            r.exported_at = m.exported_at_millis();
+            r.imported_at = flowie_core::tree::now_millis();
+            // New content: unread again.
+            r.seen_at = None;
         }
+        let root_of = p.package.root_of();
+        let after = ImportState {
+            roots: p.before.roots.clone(),
+            records,
+            bases: p
+                .package
+                .base_hashes_mapped(&p.copy_map)
+                .into_iter()
+                .map(|(node, hash)| {
+                    let original = p.copy_map.iter().find_map(|(source, copy)| (*copy == node).then_some(*source)).unwrap_or(node);
+                    let package_root = root_of[&original];
+                    let root = p.copy_map.get(&package_root).copied().unwrap_or(package_root);
+                    (node, root, hash)
+                })
+                .collect(),
+            trash_added: trash.clone(),
+            ..Default::default()
+        };
+        self.commit_with_imports_and_trash(None, Some((p.before, after)), trash, cx);
         self.refresh(false);
         touched.retain(|id| self.tree.contains(*id));
         for &id in &touched {
@@ -622,7 +748,7 @@ impl Outline {
         cx.stop_propagation();
     }
 
-    pub fn render_package_import(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub fn render_package_import(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let p = self.package_import.as_ref()?;
         let theme = self.theme;
         let m = &p.package.manifest;
@@ -789,10 +915,13 @@ impl Outline {
                     })
                     .on_click(cx.listener(|this, _, window, cx| this.finish_package_import(window, cx))),
             );
-        let card = crate::ui::surface::sheet(theme, "package-import-card")
-            .w(px(460.))
-            .max_w(gpui::relative(0.9))
-            .p_5()
+        let scroll = p.scroll.clone();
+        let content = div()
+            .id("package-import-content")
+            .track_scroll(&scroll)
+            .overflow_y_scroll()
+            .max_h((window.viewport_size().height - px(110.)).max(px(80.)))
+            .pr_2()
             .flex()
             .flex_col()
             .gap_3()
@@ -803,8 +932,16 @@ impl Outline {
             .child(put_in)
             .children(completed)
             .children(note)
-            .children(conflicts)
-            .child(buttons);
+            .children(conflicts);
+        let card = crate::ui::surface::sheet(theme, "package-import-card")
+            .w(px(460.))
+            .max_w(gpui::relative(0.9))
+            .p_5()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(crate::ui::scrollbar::area("package-import-scroll", &scroll, theme, content))
+            .child(buttons.flex_none());
         Some(
             crate::ui::surface::scrim(theme)
                 .items_center()

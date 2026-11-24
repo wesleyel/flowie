@@ -115,11 +115,12 @@ fn main() {
         Some(n) => (stress_tree(n), None, None, Vec::new(), Vec::new(), Vec::new()),
         None => {
             let path = data_path();
-            let loaded = store::open(&path).and_then(|c| Ok((store::load(&c)?, store::load_imports(&c)?, store::load_blobs(&c)?)));
+            let loaded =
+                store::open(&path).and_then(|conn| Ok((store::load(&conn)?, store::load_imports(&conn)?, store::load_blobs(&conn)?, conn)));
             match loaded {
-                Ok(((nodes, meta), imports, blobs)) => {
+                Ok(((nodes, meta), imports, blobs, conn)) => {
                     Outline::collect_images(&path);
-                    (Tree::from_nodes(nodes), Some(store::Writer::spawn(path.clone())), Some(path), meta, imports, blobs)
+                    (Tree::from_nodes(nodes), Some(store::Writer::spawn(conn)), Some(path), meta, imports, blobs)
                 }
                 Err(e) => {
                     eprintln!("flowie: could not load {}: {e}", path.display());

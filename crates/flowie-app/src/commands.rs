@@ -457,32 +457,24 @@ impl Outline {
     // ----------------------------------------------------------- trash
 
     pub fn show_trash(&mut self, _: &ShowTrash, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_whats_new(false, cx);
-        self.load_trash();
-        self.edit = None;
-        self.block = None;
-        cx.notify();
-    }
-
-    pub fn load_trash(&mut self) {
         if let Some(w) = &self.writer {
             w.flush();
         }
         let entries =
             self.db_path.as_ref().and_then(|p| store::open(p).ok()).and_then(|c| store::list_trash(&c, 30).ok()).unwrap_or_default();
         // Hide entries whose bullet came back (undo or restore).
-        self.page_scroll = gpui::ScrollHandle::new();
-        self.trash = Some(entries.into_iter().filter(|e| !self.tree.contains(e.root)).collect());
+        let entries = entries.into_iter().filter(|e| !self.tree.contains(e.root)).collect();
+        self.enter_volatile_page(crate::volatile_page::VolatilePage::Trash(entries), cx);
     }
 
     pub fn restore_trash(&mut self, seq: i64, cx: &mut Context<Self>) {
-        let Some(entry) = self.trash.as_ref().and_then(|t| t.iter().find(|e| e.seq == seq)).cloned() else { return };
+        let Some(entry) = self.trash_entries().and_then(|t| t.iter().find(|e| e.seq == seq)).cloned() else { return };
         if let Some(root) = self.tree.restore(&entry.nodes) {
             if let Some(w) = &self.writer {
                 w.untrash(seq);
             }
             self.toast(t!("toast.restored", name = entry.label));
-            self.trash = None;
+            self.leave_volatile_page(false, cx);
             let parent = self.tree.parent(root);
             self.commit_structure(None, cx);
             self.zoom_to(parent, cx);
@@ -495,7 +487,7 @@ impl Outline {
         if let Some(w) = &self.writer {
             w.untrash(seq);
         }
-        if let Some(t) = self.trash.as_mut() {
+        if let Some(crate::volatile_page::VolatilePage::Trash(t)) = self.page.as_mut().map(|session| &mut session.page) {
             t.retain(|e| e.seq != seq);
         }
         cx.notify();

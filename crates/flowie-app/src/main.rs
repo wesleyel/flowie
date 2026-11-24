@@ -27,6 +27,7 @@ mod theme;
 mod tutorial;
 mod ui;
 mod view;
+mod volatile_page;
 mod whats_new;
 mod window_place;
 

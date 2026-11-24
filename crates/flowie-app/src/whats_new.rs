@@ -9,7 +9,7 @@ use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight};
 use std::cmp::Ordering;
 
 use crate::i18n::{self, t};
-use crate::outline::{BlockSel, Outline, Target, WhatsNew as WhatsNewAction};
+use crate::outline::{Outline, Target, WhatsNew as WhatsNewAction};
 use crate::ui::button::{button, Variant};
 
 const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
@@ -140,9 +140,6 @@ pub struct WhatsNewPage {
     pub new_after: Option<String>,
     pub tree: Tree,
     locale: &'static str,
-    /// Where the user was: put back on close.
-    return_to: Option<(Target, usize)>,
-    block: Option<BlockSel>,
 }
 
 fn notes_tree(locale: &str, new_after: Option<&str>) -> Tree {
@@ -207,21 +204,12 @@ impl Outline {
 
     /// Show the page; versions after `new_after` are marked New.
     pub fn open_whats_new(&mut self, new_after: Option<String>, cx: &mut Context<Self>) {
-        if self.whats_new.is_some() {
+        if self.notes_page().is_some() {
             return;
         }
-        self.trash = None;
-        self.palette = None;
-        self.inline = None;
-        self.calendar = None;
-        self.menu = None;
-        self.popover.close();
-        let return_to = self.edit.take().map(|e| (e.target, e.caret()));
-        let block = self.block.take();
         let locale = i18n::active();
         let tree = notes_tree(locale, new_after.as_deref());
-        self.whats_new = Some(WhatsNewPage { new_after, locale, tree, return_to, block });
-        self.page_scroll = gpui::ScrollHandle::new();
+        self.enter_volatile_page(crate::volatile_page::VolatilePage::WhatsNew(Box::new(WhatsNewPage { new_after, locale, tree })), cx);
         // Written when shown, not when closed: a crash while it's open doesn't show it again.
         self.mark_whats_new_seen();
         cx.notify();
@@ -232,23 +220,6 @@ impl Outline {
             self.config.seen_version = Some(running_version().to_string());
             self.config.save(&self.config_path);
         }
-    }
-
-    /// Close the page; `restore` puts the caret back where it was (Esc, ←),
-    /// not when the user went somewhere else.
-    pub fn close_whats_new(&mut self, restore: bool, cx: &mut Context<Self>) -> bool {
-        let Some(p) = self.whats_new.take() else { return false };
-        if self.edit.as_ref().is_some_and(|e| matches!(e.target, Target::Field(crate::outline::Field::WhatsNew(_)))) {
-            self.edit = None;
-        }
-        if restore {
-            match p.return_to.filter(|(t, _)| matches!(t, Target::Text(id) | Target::Note(id) if self.tree.contains(*id))) {
-                Some((target, offset)) => self.start_edit(target, offset, cx),
-                None => self.block = p.block.filter(|b| self.tree.contains(b.anchor) && self.tree.contains(b.head)),
-            }
-        }
-        cx.notify();
-        true
     }
 
     /// At launch: open the page after an update, or just record the version.
@@ -276,20 +247,21 @@ impl Outline {
 
     pub fn render_whats_new(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let page = self.whats_new.as_mut().unwrap();
-        if page.locale != i18n::active() {
+        let scroll = self.page.as_ref().unwrap().scroll.clone();
+        if self.notes_page().unwrap().locale != i18n::active() {
+            let page = self.notes_page_mut().unwrap();
             page.locale = i18n::active();
             page.tree = notes_tree(page.locale, page.new_after.as_deref());
             if self.edit.as_ref().is_some_and(|edit| matches!(edit.target, Target::Field(crate::outline::Field::WhatsNew(_)))) {
                 self.edit = None;
             }
         }
-        let rows = flatten(&page.tree, ROOT, &Default::default());
+        let rows = flatten(&self.notes_page().unwrap().tree, ROOT, &Default::default());
         let content = div()
             .id("whats-new")
             .size_full()
             .overflow_y_scroll()
-            .track_scroll(&self.page_scroll)
+            .track_scroll(&scroll)
             .child(
                 div()
                     .px(px(crate::outline::PAD_X + 24.))
@@ -303,19 +275,27 @@ impl Outline {
                             .child(crate::icons::icon("arrow-left", crate::icons::SM, Variant::Plain.fg(theme)))
                             .child(t!("common.back"))
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.close_whats_new(true, cx);
+                                this.leave_volatile_page(true, cx);
                             })),
                     ),
             )
             .child(div().pb_8().children(rows.into_iter().map(|row| self.render_whats_new_row(row, window, cx))));
-        crate::ui::scrollbar::area("whats-new-bar", &self.page_scroll, theme, content).size_full().into_any_element()
+        crate::ui::scrollbar::area("whats-new-bar", &scroll, theme, content).size_full().into_any_element()
     }
 
     fn render_whats_new_row(&mut self, row: flowie_core::Row, window: &mut gpui::Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let id = row.id;
-        let tree = &self.whats_new.as_ref().unwrap().tree;
+        let tree = &self.notes_page().unwrap().tree;
         let collapsed = tree.node(id).collapsed;
+        let has_children = tree.has_children(id);
+        let toggle = move |this: &mut Outline, _: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut Context<Outline>| {
+            let Some(page) = this.notes_page_mut() else { return };
+            page.tree.set_collapsed(id, !collapsed);
+            page.tree.take_journal();
+            this.end_field_edit();
+            cx.notify();
+        };
         let marker = div()
             .id(("whats-new-marker", id.as_usize()))
             .w(px(18.))
@@ -325,18 +305,30 @@ impl Outline {
             .items_center()
             .justify_center()
             .child(crate::view::bullet_dot(theme, collapsed, false, false))
-            .when(tree.has_children(id), |marker| {
-                marker.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
-                    let Some(page) = this.whats_new.as_mut() else { return };
-                    page.tree.set_collapsed(id, !collapsed);
-                    page.tree.take_journal();
-                    this.end_field_edit();
-                    cx.notify();
-                }))
-            });
+            .when(has_children, |marker| marker.cursor_pointer().on_click(cx.listener(toggle)));
         let target = Target::Field(crate::outline::Field::WhatsNew(id));
         let editing = self.edit.as_ref().is_some_and(|edit| edit.target == target);
         crate::view::bullet_row(row.depth, 3.)
+            .group("notes-row")
+            .when(has_children, |row_el| {
+                row_el.child(
+                    div()
+                        .id(("notes-fold", id.as_usize()))
+                        .absolute()
+                        .left(px(crate::outline::PAD_X + row.depth as f32 * crate::outline::INDENT - 20.))
+                        .top(px(3.))
+                        .w(px(18.))
+                        .h(px(crate::view::LINE_H))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .opacity(if collapsed { 1. } else { 0. })
+                        .group_hover("notes-row", |style| style.opacity(1.))
+                        .child(crate::icons::icon(if collapsed { "chevron-right" } else { "chevron-down" }, 10., theme.muted))
+                        .on_click(cx.listener(toggle)),
+                )
+            })
             .children(crate::view::indent_guides(row.depth, theme))
             .when(editing, |row| row.bg(theme.row_selected.opacity(0.45)))
             .child(marker)

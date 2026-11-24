@@ -38,6 +38,7 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 - **OPML**: when duplicate IDs make a link or mirror ambiguous, import its text rather than pointing it at the wrong bullet.
 - **Editing**: moving the caret between bullets keeps its visible column even when a link hides its destination.
+- **Navigation**: closing Trash or What's New restores the previous outline selection; outline commands no longer act on the hidden page.
 - **Images**: store attachments in a separate folder per database so cleaning up one outline preserves the others' images.
 - **Dependencies**: update `url` to 2.5.9 for the stack overflow in deeply nested `blob:` URLs reported as RUSTSEC-2026-0592.
 - **Search**: restore the previous scroll position when clearing a search.

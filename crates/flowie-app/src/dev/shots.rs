@@ -219,7 +219,7 @@ impl Outline {
         self.package_export = None;
         self.package_import = None;
         self.image_preview = None;
-        if self.page.take().is_some() {
+        if self.volatile_page.take().is_some() | self.trash.take().is_some() {
             self.edit = None;
             self.block = None;
         }

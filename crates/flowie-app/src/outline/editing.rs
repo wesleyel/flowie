@@ -494,8 +494,7 @@ impl Outline {
             cx.notify();
             return;
         }
-        if self.leave_volatile_page(true, cx) {
-            cx.notify();
+        if self.close_auxiliary_page(true, cx) {
             return;
         }
         match self.edit_target() {

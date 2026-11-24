@@ -54,10 +54,10 @@ impl Outline {
         if self.modal_open() {
             return;
         }
-        // Back from What's New returns to where the user was; it's not a step in the history.
-        if self.page.is_some() {
+        // Back from Trash or What's New returns to where the user was.
+        if self.is_auxiliary_page_open() {
             if direction == gpui::NavigationDirection::Back {
-                self.leave_volatile_page(true, cx);
+                self.close_auxiliary_page(true, cx);
             }
             return;
         }
@@ -131,7 +131,7 @@ impl Outline {
         self.zoom = id;
         self.see_around(id);
         // Going anywhere closes What's New (and Trash) without putting the caret back.
-        self.leave_volatile_page(false, cx);
+        self.close_auxiliary_page(false, cx);
         self.block = None;
         self.history.seal();
         self.anims.clear();
@@ -228,6 +228,7 @@ impl Outline {
     }
 
     pub fn find(&mut self, _: &Find, _: &mut Window, cx: &mut Context<Self>) {
+        self.close_auxiliary_page(false, cx);
         let len = self.query.len();
         self.start_edit(Target::Search, len, cx);
         if let Some(e) = self.edit.as_mut() {
@@ -252,11 +253,13 @@ impl Outline {
 
     /// Clear the search and keep the caret in the (now empty) search box.
     pub fn clear_search(&mut self, cx: &mut Context<Self>) {
+        self.close_auxiliary_page(false, cx);
         self.set_query(String::new());
         self.start_edit(Target::Search, 0, cx);
     }
 
     pub fn search_for(&mut self, q: &str, cx: &mut Context<Self>) {
+        self.close_auxiliary_page(false, cx);
         self.set_query(q.to_string());
         self.start_edit(Target::Search, self.query.len(), cx);
     }
@@ -357,6 +360,7 @@ impl Outline {
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     if this.edit.as_ref().map(|e| e.target) != Some(Target::Search) {
+                        this.close_auxiliary_page(false, cx);
                         let len = this.query.len();
                         this.start_edit(Target::Search, len, cx);
                     }

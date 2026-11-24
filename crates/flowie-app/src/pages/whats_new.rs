@@ -1,17 +1,16 @@
-//! What's New: a temporary editable view, like Trash, built from the release notes
+//! What's New: a temporary editable view built from the release notes
 //! compiled into the app. `CHANGELOG.md` is the English source; translations
 //! live in the root `CHANGELOG.zh-CN.md` with the same `## [x.y.z] - date`
 //! sections. Each version shows in the UI language when translated, else in
 //! English.
 
 use flowie_core::{flatten, BlockKind, Item, Tree, ROOT};
-use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight};
+use gpui::{div, prelude::*, px, AnyElement, Context, ScrollHandle};
 use std::cmp::Ordering;
 
-use super::VolatilePage;
+use super::OutlineSelection;
 use crate::app::i18n::{self, t};
-use crate::outline::{Outline, Target, WhatsNew as WhatsNewAction};
-use crate::ui::button::{button, Variant};
+use crate::outline::{Outline, Target, WhatsNew as WhatsNewAction, PAD_X};
 
 const CHANGELOG: &str = include_str!("../../../../CHANGELOG.md");
 const CHANGELOG_ZH: &str = include_str!("../../../../CHANGELOG.zh-CN.md");
@@ -135,6 +134,12 @@ pub fn on_launch(seen: Option<&str>, running: &str) -> OnLaunch {
     }
 }
 
+pub(crate) struct VolatilePage {
+    notes: WhatsNewPage,
+    scroll: ScrollHandle,
+    selection: OutlineSelection,
+}
+
 /// The open What's New page.
 pub struct WhatsNewPage {
     /// Versions after this are marked New (the version seen before this update).
@@ -199,17 +204,11 @@ fn release_for(cargo: &str, changelog: &str) -> String {
 
 impl Outline {
     pub fn notes_page(&self) -> Option<&WhatsNewPage> {
-        match &self.page.as_ref()?.page {
-            VolatilePage::WhatsNew(notes) => Some(notes),
-            _ => None,
-        }
+        self.volatile_page.as_ref().map(|page| &page.notes)
     }
 
     pub fn notes_page_mut(&mut self) -> Option<&mut WhatsNewPage> {
-        match &mut self.page.as_mut()?.page {
-            VolatilePage::WhatsNew(notes) => Some(notes),
-            _ => None,
-        }
+        self.volatile_page.as_mut().map(|page| &mut page.notes)
     }
 
     pub fn whats_new(&mut self, _: &WhatsNewAction, _: &mut gpui::Window, cx: &mut Context<Self>) {
@@ -219,15 +218,23 @@ impl Outline {
 
     /// Show the page; versions after `new_after` are marked New.
     pub fn open_whats_new(&mut self, new_after: Option<String>, cx: &mut Context<Self>) {
-        if self.notes_page().is_some() {
+        if self.volatile_page.is_some() {
             return;
         }
+        self.close_trash(true, cx);
         let locale = i18n::active();
         let tree = notes_tree(locale, new_after.as_deref());
-        self.enter_volatile_page(VolatilePage::WhatsNew(Box::new(WhatsNewPage { new_after, locale, tree })), cx);
+        let selection = self.suspend_outline_selection();
+        self.volatile_page = Some(VolatilePage { notes: WhatsNewPage { new_after, locale, tree }, scroll: ScrollHandle::new(), selection });
         // Written when shown, not when closed: a crash while it's open doesn't show it again.
         self.mark_whats_new_seen();
         cx.notify();
+    }
+
+    pub(super) fn close_whats_new(&mut self, restore: bool, cx: &mut Context<Self>) -> bool {
+        let Some(page) = self.volatile_page.take() else { return false };
+        self.finish_auxiliary_page(page.selection, restore, cx);
+        true
     }
 
     pub fn mark_whats_new_seen(&mut self) {
@@ -260,42 +267,27 @@ impl Outline {
         }
     }
 
-    pub(super) fn render_whats_new(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_whats_new(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let theme = self.theme;
-        let scroll = self.page.as_ref().unwrap().scroll.clone();
-        if self.notes_page().unwrap().locale != i18n::active() {
-            let page = self.notes_page_mut().unwrap();
-            page.locale = i18n::active();
-            page.tree = notes_tree(page.locale, page.new_after.as_deref());
+        let page = self.volatile_page.as_mut()?;
+        let locale = i18n::active();
+        if page.notes.locale != locale {
+            page.notes.locale = locale;
+            page.notes.tree = notes_tree(locale, page.notes.new_after.as_deref());
             if self.edit.as_ref().is_some_and(|edit| matches!(edit.target, Target::Field(crate::outline::Field::WhatsNew(_)))) {
                 self.edit = None;
             }
         }
-        let rows = flatten(&self.notes_page().unwrap().tree, ROOT, &Default::default());
+        let scroll = page.scroll.clone();
+        let rows = flatten(&page.notes.tree, ROOT, &Default::default());
         let content = div()
             .id("whats-new")
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&scroll)
-            .child(
-                div()
-                    .px(px(crate::outline::PAD_X + 24.))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .pt_4()
-                    .child(div().text_size(px(crate::outline::TITLE_SIZE)).font_weight(FontWeight::BOLD).child(t!("whats_new.title")))
-                    .child(
-                        button(theme, "whats-new-back", Variant::Plain)
-                            .child(crate::ui::icons::icon("arrow-left", crate::ui::icons::SM, Variant::Plain.fg(theme)))
-                            .child(t!("common.back"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.leave_volatile_page(true, cx);
-                            })),
-                    ),
-            )
+            .child(div().px(px(PAD_X + 24.)).child(self.render_auxiliary_title(t!("whats_new.title"), "whats-new-back", cx)))
             .child(div().pb_8().children(rows.into_iter().map(|row| self.render_whats_new_row(row, window, cx))));
-        crate::ui::scrollbar::area("whats-new-bar", &scroll, theme, content).size_full().into_any_element()
+        Some(crate::ui::scrollbar::area("whats-new-bar", &scroll, theme, content).size_full().into_any_element())
     }
 
     fn render_whats_new_row(&mut self, row: flowie_core::Row, window: &mut gpui::Window, cx: &mut Context<Self>) -> AnyElement {

@@ -4,25 +4,26 @@ use flowie_core::{
     store::{self, TrashEntry},
     NodeId,
 };
-use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, Window};
+use gpui::{div, prelude::*, px, AnyElement, Context, ScrollHandle, Window};
 
-use super::VolatilePage;
+use super::OutlineSelection;
 use crate::app::i18n::t;
-use crate::outline::{Outline, ShowTrash, Target, PAD_X, TITLE_SIZE};
+use crate::outline::{Outline, ShowTrash, Target, PAD_X};
 use crate::overlays::palette::node_label;
 
-pub(super) struct TrashPage {
+pub(crate) struct TrashPage {
     entries: Vec<TrashEntry>,
+    scroll: ScrollHandle,
+    selection: OutlineSelection,
 }
 
 impl Outline {
-    pub(super) fn render_trash(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_trash(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         use crate::ui::button::{button, Variant};
         let theme = self.theme;
-        let entries = self.trash_entries().unwrap();
-        let scroll = self.page.as_ref().unwrap().scroll.clone();
+        let trash = self.trash.as_ref()?;
         let ago = crate::overlays::context_menu::ago;
-        let rows = entries.iter().map(|e| {
+        let rows = trash.entries.iter().map(|e| {
             let seq = e.seq;
             let count = e.nodes.len();
             div()
@@ -55,34 +56,17 @@ impl Outline {
                         .on_click(cx.listener(move |this, _, _, cx| this.purge_trash(seq, cx))),
                 )
         });
-        let empty = entries.is_empty();
         let page = div()
             .id("trash")
             .size_full()
             .overflow_y_scroll()
-            .track_scroll(&scroll)
+            .track_scroll(&trash.scroll)
             .px(px(PAD_X + 24.))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .pt_2()
-                    .pb_3()
-                    .child(div().text_size(px(TITLE_SIZE)).font_weight(FontWeight::BOLD).child(t!("trash.title")))
-                    .child(
-                        button(theme, "trash-back", Variant::Plain)
-                            .child(crate::ui::icons::icon("arrow-left", crate::ui::icons::SM, Variant::Plain.fg(theme)))
-                            .child(t!("common.back"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.leave_volatile_page(true, cx);
-                            })),
-                    ),
-            )
+            .child(self.render_auxiliary_title(t!("trash.title"), "trash-back", cx))
             .child(div().text_size(px(12.)).text_color(theme.muted).pb_2().child(t!("trash.retention")))
-            .when(empty, |d| d.child(div().py_4().text_color(theme.muted).child(t!("trash.empty"))))
+            .when(trash.entries.is_empty(), |d| d.child(div().py_4().text_color(theme.muted).child(t!("trash.empty"))))
             .children(rows);
-        crate::ui::scrollbar::area("trash-bar", &scroll, theme, page).size_full().into_any_element()
+        Some(crate::ui::scrollbar::area("trash-bar", &trash.scroll, theme, page).size_full().into_any_element())
     }
 
     pub fn send_to_trash(&mut self, id: NodeId) {
@@ -93,6 +77,7 @@ impl Outline {
     }
 
     pub fn show_trash(&mut self, _: &ShowTrash, _: &mut Window, cx: &mut Context<Self>) {
+        self.close_auxiliary_page(true, cx);
         if let Some(w) = &self.writer {
             w.flush();
         }
@@ -100,17 +85,25 @@ impl Outline {
             self.db_path.as_ref().and_then(|p| store::open(p).ok()).and_then(|c| store::list_trash(&c, 30).ok()).unwrap_or_default();
         // Hide entries whose bullet came back (undo or restore).
         let entries = entries.into_iter().filter(|e| !self.tree.contains(e.root)).collect();
-        self.enter_volatile_page(VolatilePage::Trash(TrashPage { entries }), cx);
+        let selection = self.suspend_outline_selection();
+        self.trash = Some(TrashPage { entries, scroll: ScrollHandle::new(), selection });
+        cx.notify();
+    }
+
+    pub(super) fn close_trash(&mut self, restore: bool, cx: &mut Context<Self>) -> bool {
+        let Some(trash) = self.trash.take() else { return false };
+        self.finish_auxiliary_page(trash.selection, restore, cx);
+        true
     }
 
     pub fn restore_trash(&mut self, seq: i64, cx: &mut Context<Self>) {
-        let Some(entry) = self.trash_entries().and_then(|t| t.iter().find(|e| e.seq == seq)).cloned() else { return };
+        let Some(entry) = self.trash.as_ref().and_then(|trash| trash.entries.iter().find(|e| e.seq == seq)).cloned() else { return };
         if let Some(root) = self.tree.restore(&entry.nodes) {
             if let Some(w) = &self.writer {
                 w.untrash(seq);
             }
             self.toast(t!("toast.restored", name = entry.label));
-            self.leave_volatile_page(false, cx);
+            self.close_trash(false, cx);
             let parent = self.tree.parent(root);
             self.commit_structure(None, cx);
             self.zoom_to(parent, cx);
@@ -123,16 +116,9 @@ impl Outline {
         if let Some(w) = &self.writer {
             w.untrash(seq);
         }
-        if let Some(VolatilePage::Trash(page)) = self.page.as_mut().map(|session| &mut session.page) {
+        if let Some(page) = self.trash.as_mut() {
             page.entries.retain(|e| e.seq != seq);
         }
         cx.notify();
-    }
-
-    fn trash_entries(&self) -> Option<&[TrashEntry]> {
-        match &self.page.as_ref()?.page {
-            VolatilePage::Trash(page) => Some(&page.entries),
-            _ => None,
-        }
     }
 }

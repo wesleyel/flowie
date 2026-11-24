@@ -158,7 +158,7 @@ impl Render for Outline {
 
         let mut kc = KeyContext::new_with_defaults(cx.platform_info().os);
         // While settings or a dialog are open, only global shortcuts apply (so keys can be recorded).
-        let overlay = self.page.is_some();
+        let overlay = self.is_auxiliary_page_open();
         if overlay && !self.modal_open() {
             kc.add("Outline");
         }
@@ -221,7 +221,7 @@ impl Render for Outline {
         let title_el = if overlay { None } else { self.render_title(window, cx) };
 
         let entity = cx.entity();
-        let body: AnyElement = if let Some(page) = self.render_page(window, cx) {
+        let body: AnyElement = if let Some(page) = self.render_whats_new(window, cx).or_else(|| self.render_trash(cx)) {
             page
         } else {
             // A popover sits at fixed window coordinates: scrolling the page
@@ -421,6 +421,8 @@ impl Render for Outline {
                 let page = page
                     .on_action(cx.listener(Self::escape))
                     .on_action(cx.listener(Self::page_back))
+                    .on_action(cx.listener(Self::find))
+                    .on_action(cx.listener(Self::show_calendar))
                     .on_action(cx.listener(Self::whats_new))
                     .on_action(cx.listener(Self::show_trash))
                     .on_action(cx.listener(|this, _: &Undo, window, cx| this.escape(&Escape, window, cx)));
@@ -443,7 +445,7 @@ impl Render for Outline {
                 if this.image_preview.is_some() {
                     this.image_preview_key(ev, cx);
                     if overlay && ev.keystroke.key == "escape" {
-                        this.leave_volatile_page(true, cx);
+                        this.close_auxiliary_page(true, cx);
                         cx.notify();
                     }
                 } else if !overlay
@@ -503,7 +505,7 @@ impl Render for Outline {
             )
             .relative()
             .children(app_menu_bar)
-            .when(!overlay, |page| page.child(header))
+            .child(header)
             .child(
                 div()
                     .id("page")
@@ -532,10 +534,7 @@ impl Render for Outline {
 }
 
 fn window_title(o: &Outline) -> String {
-    if let Some(page) = &o.page {
-        let title = page.title();
-        format!("{title} — Flowie")
-    } else if o.zoom == ROOT {
+    if o.zoom == ROOT {
         "Flowie".into()
     } else {
         let text = markup::plain_text(&o.tree.node(o.zoom).text);

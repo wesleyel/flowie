@@ -126,7 +126,7 @@ impl Outline {
             }))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
                 let dragging = this.edit.as_ref().is_some_and(|e| e.selecting_with_mouse);
-                let link = if dragging || this.page.is_some() { None } else { this.link_target_at_point(ev.position) };
+                let link = if dragging || this.is_auxiliary_page_open() { None } else { this.link_target_at_point(ev.position) };
                 this.popover_hover_at(link.map(PopoverKind::Link), ev.position, cx);
                 if dragging && ev.pressed_button == Some(MouseButton::Left) {
                     if let Some(ix) = this.index_for_point(ev.position) {

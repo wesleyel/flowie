@@ -50,7 +50,7 @@ impl Outline {
 
     pub fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else { return };
-        if self.page.is_some() || matches!(self.edit_target(), Some(Target::Field(_))) {
+        if self.is_auxiliary_page_open() || matches!(self.edit_target(), Some(Target::Field(_))) {
             if let Some(text) = item.text().filter(|_| matches!(self.edit_target(), Some(Target::Field(_)))) {
                 self.replace_edit_text(self.edit.as_ref().unwrap().sel.clone(), &text, false, cx);
             }

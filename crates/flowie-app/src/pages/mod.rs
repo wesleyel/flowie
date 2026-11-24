@@ -1,38 +1,29 @@
-//! Temporary pages that replace the outline and restore its selection on close.
+//! Trash, release notes, and their shared outline chrome.
 
-mod trash;
+pub(crate) mod trash;
 pub(crate) mod whats_new;
 
-use gpui::{AnyElement, Context, ScrollHandle, Window};
+use gpui::{div, prelude::*, px, Context, Div, FontWeight};
 
 use crate::app::i18n::t;
-use crate::outline::{BlockSel, Edit, Outline, Target};
-use trash::TrashPage;
-use whats_new::WhatsNewPage;
+use crate::outline::{BlockSel, Edit, Outline, Target, TITLE_SIZE};
+use crate::ui::button::{button, Variant};
 
-enum VolatilePage {
-    Trash(TrashPage),
-    WhatsNew(Box<WhatsNewPage>),
-}
-
-pub struct PageSession {
-    page: VolatilePage,
-    scroll: ScrollHandle,
-    return_edit: Option<Edit>,
-    return_block: Option<BlockSel>,
-}
-
-impl PageSession {
-    pub(crate) fn title(&self) -> &'static str {
-        match self.page {
-            VolatilePage::Trash(_) => t!("trash.title"),
-            VolatilePage::WhatsNew(_) => t!("whats_new.title"),
-        }
-    }
+struct OutlineSelection {
+    edit: Option<Edit>,
+    block: Option<BlockSel>,
 }
 
 impl Outline {
-    fn enter_volatile_page(&mut self, page: VolatilePage, cx: &mut Context<Self>) {
+    pub(crate) fn is_auxiliary_page_open(&self) -> bool {
+        self.trash.is_some() || self.volatile_page.is_some()
+    }
+
+    pub(crate) fn close_auxiliary_page(&mut self, restore: bool, cx: &mut Context<Self>) -> bool {
+        self.close_whats_new(restore, cx) || self.close_trash(restore, cx)
+    }
+
+    fn suspend_outline_selection(&mut self) -> OutlineSelection {
         self.palette = None;
         self.inline = None;
         self.calendar = None;
@@ -40,19 +31,14 @@ impl Outline {
         self.popover.close();
         self.drop = None;
         self.mouse_block = false;
-        let edit = self.edit.take();
-        let block = self.block.take();
-        let (return_edit, return_block) = self.page.take().map_or((edit, block), |session| (session.return_edit, session.return_block));
-        self.page = Some(PageSession { page, scroll: ScrollHandle::new(), return_edit, return_block });
-        cx.notify();
+        OutlineSelection { edit: self.edit.take(), block: self.block.take() }
     }
 
-    pub fn leave_volatile_page(&mut self, restore: bool, cx: &mut Context<Self>) -> bool {
-        let Some(session) = self.page.take() else { return false };
+    fn finish_auxiliary_page(&mut self, selection: OutlineSelection, restore: bool, cx: &mut Context<Self>) {
         self.edit = None;
         self.block = None;
         if restore {
-            if let Some(mut edit) = session.return_edit {
+            if let Some(mut edit) = selection.edit {
                 let text = match edit.target {
                     Target::Text(id) if self.tree.contains(id) => Some(self.tree.node(self.tree.source(id)).text.as_str()),
                     Target::Note(id) if self.tree.contains(id) => Some(self.tree.node(self.tree.source(id)).note.as_str()),
@@ -69,16 +55,27 @@ impl Outline {
                     self.edit = Some(edit);
                 }
             }
-            self.block = session.return_block.filter(|block| self.tree.contains(block.anchor) && self.tree.contains(block.head));
+            self.block = selection.block.filter(|block| self.tree.contains(block.anchor) && self.tree.contains(block.head));
         }
         cx.notify();
-        true
     }
 
-    pub(crate) fn render_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        Some(match self.page.as_ref()?.page {
-            VolatilePage::WhatsNew(_) => self.render_whats_new(window, cx),
-            VolatilePage::Trash(_) => self.render_trash(cx),
-        })
+    fn render_auxiliary_title(&self, title: &'static str, back_id: &'static str, cx: &Context<Self>) -> Div {
+        let theme = self.theme;
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .pt_2()
+            .pb_3()
+            .child(div().text_size(px(TITLE_SIZE)).font_weight(FontWeight::BOLD).child(title))
+            .child(
+                button(theme, back_id, Variant::Plain)
+                    .child(crate::ui::icons::icon("arrow-left", crate::ui::icons::SM, Variant::Plain.fg(theme)))
+                    .child(t!("common.back"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.close_auxiliary_page(true, cx);
+                    })),
+            )
     }
 }

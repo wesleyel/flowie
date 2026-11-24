@@ -100,8 +100,8 @@ impl Outline {
     }
 
     pub fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
-        // ⌘Z first closes What's New, then undoes in the outline.
-        if self.leave_volatile_page(true, cx) {
+        // Close Trash or What's New before undoing in the outline.
+        if self.close_auxiliary_page(true, cx) {
             return;
         }
         let imports = self.history.undo_imports().cloned();

@@ -119,8 +119,9 @@ impl Outline {
 
     /// Mouse handling for the active editor: click to place the caret,
     /// drag / shift-click to select, double-click a word, triple-click all.
-    pub fn editor_mouse(&self, cx: &mut Context<Self>) -> gpui::Div {
+    pub fn editor_mouse(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         div()
+            .id("editor-text")
             .w_full()
             .cursor_text()
             .on_mouse_down(
@@ -170,8 +171,15 @@ impl Outline {
                     cx.notify();
                 }),
             )
+            .on_hover(cx.listener(|this, hovered: &bool, window, cx| {
+                if !*hovered {
+                    this.popover_hover_at(None, window.mouse_position(), cx);
+                }
+            }))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
                 let dragging = this.edit.as_ref().is_some_and(|e| e.selecting_with_mouse);
+                let link = if dragging { None } else { this.link_target_at_point(ev.position) };
+                this.popover_hover_at(link.map(PopoverKind::Link), ev.position, cx);
                 if dragging && ev.pressed_button == Some(MouseButton::Left) {
                     if let Some(ix) = this.index_for_point(ev.position) {
                         let e = this.edit.as_mut().unwrap();
@@ -279,9 +287,23 @@ impl Outline {
             };
             let styled = StyledText::new(text).with_runs(runs);
             let layout = styled.layout().clone();
+            let hover = (layout.clone(), clicks.clone());
             return div()
+                .id((if note { "note-text" } else { "row-text" }, id.as_usize()))
                 .w_full()
                 .cursor_text()
+                .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
+                    let link = match hover.0.index_for_position(ev.position) {
+                        Ok(d) => link_target(&hover.1, d),
+                        Err(_) => None,
+                    };
+                    this.popover_hover_at(link.map(PopoverKind::Link), ev.position, cx);
+                }))
+                .on_hover(cx.listener(|this, hovered: &bool, window, cx| {
+                    if !*hovered {
+                        this.popover_hover_at(None, window.mouse_position(), cx);
+                    }
+                }))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
@@ -321,9 +343,23 @@ impl Outline {
                         let styled = StyledText::new(t).with_runs(r);
                         let layout = styled.layout().clone();
                         let (map, clicks) = (map.clone(), clicks.clone());
+                        let hover = (layout.clone(), clicks.clone());
                         children.push(
                             div()
+                                .id((if note { "note-token" } else { "row-token" }, id.as_usize() ^ start))
                                 .h(px(LINE_H))
+                                .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
+                                    let link = match hover.0.index_for_position(ev.position) {
+                                        Ok(i) => link_target(&hover.1, start + i),
+                                        Err(_) => None,
+                                    };
+                                    this.popover_hover_at(link.map(PopoverKind::Link), ev.position, cx);
+                                }))
+                                .on_hover(cx.listener(|this, hovered: &bool, window, cx| {
+                                    if !*hovered {
+                                        this.popover_hover_at(None, window.mouse_position(), cx);
+                                    }
+                                }))
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
@@ -924,6 +960,14 @@ impl Outline {
                 .into_any_element(),
         )
     }
+}
+
+/// The bullet a link at display offset `d` points to.
+fn link_target(clicks: &[(std::ops::Range<usize>, Click)], d: usize) -> Option<NodeId> {
+    clicks.iter().find_map(|(r, c)| match c {
+        Click::Node(n) if r.contains(&d) => Some(*n),
+        _ => None,
+    })
 }
 
 fn word_range(text: &str, ix: usize) -> std::ops::Range<usize> {

@@ -23,6 +23,8 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 - While editing, a link to another bullet shows only its label, not its id, and the caret steps
   over it as one character: ← and → skip it, Backspace and Delete remove it whole, and a
   double-click selects it. Links to web pages still show their address.
+- Hovering a link to another bullet, while editing or not, shows a preview of that bullet: its
+  path, text, note and first children. Clicking the preview opens the bullet.
 
 ### Fixed
 

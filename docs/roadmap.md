@@ -229,8 +229,14 @@ release notes built into the app.
 - Versions newer than the last one the user saw are marked **New**; older ones are folded and
   open on a click. Each version links to its GitHub release.
 - Shown with Flowie's own markup renderer (bold, code, links); links open in the browser.
-- Open question: language. The changelog is English; either show it as is, or keep translated notes
-  in `locales/whats-new/<locale>.md` with English as the fallback.
+- Translated, with English as the fallback, per version:
+  - `CHANGELOG.md` stays the English source (and the GitHub release notes).
+  - Translations live in `crates/flowie-app/locales/whats-new/<code>.md`, in the same
+    `## [x.y.z] - date` sections, embedded at build time next to the UI locales.
+  - Each version shows in the UI language when that file has its section, otherwise in English;
+    a page can mix the two.
+  - The i18n coverage test lists released versions missing from each translation (a report, not a
+    failure). Translating a version's notes joins the release steps, before tagging.
 
 ### Opening
 

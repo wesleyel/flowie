@@ -277,7 +277,8 @@ release notes built into the app.
    Windows and Linux take the path as an argument, but no installer registers the file type yet).
 5. ~~Images, then images in packages~~ (done; display thumbnails are not cached on disk yet:
    GPUI decodes and caches each image in memory).
-6. Re-importing a package: first the "already imported" note, then the three-way update.
+6. ~~Re-importing a package: first the "already imported" note, then the three-way update~~ (done;
+   bases are keyed by imported root, since each export has its own `package_id`).
 7. Change history with authors, and the agent co-authoring setting.
 8. What's New page.
 9. Signing, only if collaboration ends up local-first without a server.

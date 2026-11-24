@@ -27,6 +27,10 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
   links between them still work. A package imported before comes in as a copy with new IDs.
 - Imported bullets show an unread dot until you open them, edit inside them or choose Mark as Seen;
   hovering the dot says who sent it and when. `is:new` finds them.
+- Opening a newer version of a package you imported offers Update: bullets changed only in the
+  package are updated, new ones added, removed ones moved to Trash, and your own changes kept.
+  Bullets changed on both sides are listed to keep yours or take the package's. Import a Copy is
+  still there.
 - Images: one per bullet, with the bullet's text as its caption. Paste one, drop image files on a
   row, or use Insert Image… (File menu, `/image`, ⌘⌥I). Space or a double-click shows it full size,
   ⌘C copies the picture, and `has:image` finds image bullets. PNG, JPEG, GIF and WebP up to 50 MB;

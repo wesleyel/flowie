@@ -522,6 +522,132 @@ impl Package {
         roots
     }
 
+    /// Each bullet's content hash as this package has it: the base the next
+    /// version is merged against (`plan_update`).
+    pub fn base_hashes(&self) -> Vec<(NodeId, String)> {
+        self.outline.nodes.iter().map(|n| (n.id, package_hash(n))).collect()
+    }
+
+    /// Each bullet's root in this package.
+    pub fn root_of(&self) -> HashMap<NodeId, NodeId> {
+        let parent: HashMap<NodeId, Option<NodeId>> = self.outline.nodes.iter().map(|n| (n.id, n.parent)).collect();
+        let mut out = HashMap::new();
+        for n in &self.outline.nodes {
+            let mut cur = n.id;
+            // Validated: every chain ends at a root.
+            while let Some(Some(p)) = parent.get(&cur) {
+                cur = *p;
+            }
+            out.insert(n.id, cur);
+        }
+        out
+    }
+
+    /// The content hash of `id` as `tree` has it now (`None` if it's gone).
+    fn local_hash(&self, tree: &Tree, id: NodeId) -> Option<String> {
+        let n = tree.get(id)?;
+        let parent = (!self.outline.roots.contains(&id)).then_some(n.parent);
+        let mirror = (n.mirror != ROOT).then_some(n.mirror);
+        let image = (!n.image.is_empty()).then_some(n.image.as_str());
+        Some(content_hash(&n.text, &n.note, n.kind, n.completed, image, parent, mirror))
+    }
+
+    /// Compare this (newer) version of a package with what `tree` has, given
+    /// each bullet's content when it was last imported (`bases`) and the ids
+    /// imported from earlier versions of it (`known`). Changed only in the
+    /// package: take it; only here: keep it; on both sides: a conflict.
+    pub fn plan_update(&self, tree: &Tree, bases: &HashMap<NodeId, String>, known: &HashSet<NodeId>) -> UpdatePlan {
+        let mut plan = UpdatePlan::default();
+        let ids: HashSet<NodeId> = self.outline.nodes.iter().map(|n| n.id).collect();
+        for n in &self.outline.nodes {
+            let theirs = package_hash(n);
+            match (self.local_hash(tree, n.id), bases.get(&n.id)) {
+                // The same on both sides.
+                (Some(mine), _) if mine == theirs => {}
+                // Unchanged in the package (changed here, or nowhere): keep.
+                (Some(_), Some(base)) if *base == theirs => {}
+                (Some(mine), Some(base)) if mine == *base => plan.changed.push(n.id),
+                // Changed on both sides, or no base to tell.
+                (Some(_), _) => plan.conflicts.push(n.id),
+                (None, Some(_)) => plan.deleted_here += 1,
+                (None, None) => plan.added.push(n.id),
+            }
+        }
+        // Gone from the package and unchanged here: remove (only the top of a removed subtree).
+        let mut gone: Vec<NodeId> = known
+            .iter()
+            .copied()
+            .filter(|id| !ids.contains(id) && tree.contains(*id))
+            .filter(|id| bases.get(id).is_some_and(|b| self.local_hash(tree, *id).as_ref() == Some(b)))
+            .collect();
+        let set: HashSet<NodeId> = gone.iter().copied().collect();
+        gone.retain(|id| !tree.ancestors(*id).iter().any(|a| set.contains(a)));
+        // Nor anything holding bullets the package still has, or new ones of the user's.
+        gone.retain(|id| tree.descendants(*id).iter().all(|d| set.contains(d)));
+        plan.removed = gone;
+        plan
+    }
+
+    /// Apply the package side of `plan` to `tree`: changed bullets, new
+    /// ones, and the conflicts listed in `take_theirs`. Removals are left to
+    /// the caller (they go to the Trash). Returns the bullets touched.
+    pub fn apply_update(&self, tree: &mut Tree, plan: &UpdatePlan, take_theirs: &HashSet<NodeId>) -> Vec<NodeId> {
+        let by_id: HashMap<NodeId, &PackageNode> = self.outline.nodes.iter().map(|n| (n.id, n)).collect();
+        let kids = self.children();
+        let take: HashSet<NodeId> = plan.changed.iter().chain(plan.conflicts.iter().filter(|c| take_theirs.contains(c))).copied().collect();
+        let added: HashSet<NodeId> = plan.added.iter().copied().collect();
+        // Where a bullet goes under `parent`: after its nearest earlier sibling in the package that is here.
+        let slot = |tree: &Tree, parent: NodeId, id: NodeId| -> usize {
+            let sibs = kids.get(&parent).map(Vec::as_slice).unwrap_or(&[]);
+            let at = sibs.iter().position(|s| *s == id).unwrap_or(0);
+            sibs[..at].iter().rev().find(|s| tree.contains(**s) && tree.parent(**s) == parent).map_or(0, |s| tree.index_in_parent(*s) + 1)
+        };
+        let mut touched = Vec::new();
+        // Parents before children, in package order.
+        let mut stack: Vec<NodeId> = self.outline.roots.iter().rev().copied().collect();
+        while let Some(id) = stack.pop() {
+            if let Some(c) = kids.get(&id) {
+                stack.extend(c.iter().rev());
+            }
+            let n = by_id[&id];
+            if added.contains(&id) {
+                let Some(parent) = n.parent.filter(|p| tree.contains(*p)) else { continue };
+                let index = slot(tree, parent, id);
+                let rank = tree.rank_at(parent, index);
+                tree.put(crate::tree::Node {
+                    id,
+                    parent,
+                    rank,
+                    text: n.text.clone(),
+                    note: n.note.clone(),
+                    completed: n.completed,
+                    collapsed: n.collapsed,
+                    created: n.created,
+                    modified: n.modified,
+                    kind: n.kind,
+                    mirror: n.mirror_of.filter(|m| tree.contains(*m)).unwrap_or(ROOT),
+                    image: n.image.clone().unwrap_or_default(),
+                });
+                touched.push(id);
+            } else if take.contains(&id) && tree.contains(id) {
+                let mut node = tree.node(id).clone();
+                node.text = n.text.clone();
+                node.note = n.note.clone();
+                node.kind = n.kind;
+                node.completed = n.completed;
+                node.image = n.image.clone().unwrap_or_default();
+                node.mirror = n.mirror_of.filter(|m| tree.contains(*m)).unwrap_or(ROOT);
+                tree.put(node);
+                if let Some(parent) = n.parent.filter(|p| tree.contains(*p) && tree.parent(id) != *p) {
+                    let index = slot(tree, parent, id);
+                    tree.move_to(id, parent, index);
+                }
+                touched.push(id);
+            }
+        }
+        touched
+    }
+
     /// Each node's children in order, keyed by parent (`ROOT` for the roots).
     pub fn children(&self) -> HashMap<NodeId, Vec<NodeId>> {
         let mut out: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
@@ -530,6 +656,47 @@ impl Package {
         }
         out
     }
+}
+
+/// What updating to a newer version of a package does.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UpdatePlan {
+    /// Changed in the package only: taken.
+    pub changed: Vec<NodeId>,
+    /// New in the package: added (under their parent, if it's here).
+    pub added: Vec<NodeId>,
+    /// Removed from the package and unchanged here: to the Trash.
+    pub removed: Vec<NodeId>,
+    /// Changed on both sides: the user picks.
+    pub conflicts: Vec<NodeId>,
+    /// Bullets the user deleted, still in the package: left deleted.
+    pub deleted_here: usize,
+}
+
+impl UpdatePlan {
+    pub fn is_empty(&self) -> bool {
+        self.changed.is_empty() && self.added.is_empty() && self.removed.is_empty() && self.conflicts.is_empty()
+    }
+}
+
+/// A bullet's content for merging: what it says and where it hangs (`parent`
+/// is `None` for a package's roots, which the receiver places), not its
+/// order among siblings or its folding.
+pub fn content_hash(
+    text: &str,
+    note: &str,
+    kind: BlockKind,
+    completed: bool,
+    image: Option<&str>,
+    parent: Option<NodeId>,
+    mirror: Option<NodeId>,
+) -> String {
+    let json = serde_json::json!([text, note, kind.name(), completed, image, parent, mirror]);
+    hex(&Sha256::digest(json.to_string().as_bytes()))
+}
+
+fn package_hash(n: &PackageNode) -> String {
+    content_hash(&n.text, &n.note, n.kind, n.completed, n.image.as_deref(), n.parent, n.mirror_of)
 }
 
 fn outline_json(outline: &Outline) -> Vec<u8> {
@@ -1037,5 +1204,53 @@ mod tests {
         let n = other.node(other.children(roots[0])[0]);
         assert_eq!((n.kind, n.image.as_str()), (BlockKind::Image, name.as_str()));
         std::fs::remove_dir_all(dir.root()).unwrap();
+    }
+
+    #[test]
+    fn updates_merge_three_ways() {
+        // Version 1, imported.
+        let mut sender = Tree::new();
+        let a = sender.create_at(ROOT, 0, "a");
+        let b = sender.create_at(a, 0, "b");
+        let c = sender.create_after(b, "c");
+        let d = sender.create_after(c, "d");
+        let e = sender.create_after(d, "e");
+        let v1 = Package::export(&sender, &[a], ExportOptions::default(), meta(), None);
+        let mut me = Tree::new();
+        let home = me.create_at(ROOT, 0, "home");
+        v1.insert_into(&mut me, home, 0, ImportOptions { fresh_ids: false, keep_completion: true });
+        let bases: HashMap<NodeId, String> = v1.base_hashes().into_iter().collect();
+        let known: HashSet<NodeId> = bases.keys().copied().collect();
+
+        // Both sides edit: b only there, c only here, d on both sides; e removed there; f added there.
+        for (id, text) in [(b, "b2"), (d, "d-theirs")] {
+            sender.set_text(id, text);
+        }
+        sender.delete(e);
+        let f = sender.create_after(b, "f");
+        me.set_text(c, "c-mine");
+        me.set_text(d, "d-mine");
+        let v2 = Package::export(&sender, &[a], ExportOptions::default(), meta(), None);
+
+        let plan = v2.plan_update(&me, &bases, &known);
+        assert_eq!(plan.changed, [b]);
+        assert_eq!(plan.added, [f]);
+        assert_eq!(plan.conflicts, [d]);
+        assert_eq!(plan.removed, [e]);
+
+        let touched = v2.apply_update(&mut me, &plan, &[d].into_iter().collect());
+        assert_eq!(touched.len(), 3);
+        for id in &plan.removed {
+            me.delete(*id);
+        }
+        let texts: Vec<String> = me.children(a).iter().map(|id| me.node(*id).text.clone()).collect();
+        assert_eq!(texts, ["b2", "f", "c-mine", "d-theirs"]);
+        assert_eq!(me.parent(a), home);
+
+        // Updating again with the new bases finds nothing to do.
+        let bases: HashMap<NodeId, String> = v2.base_hashes().into_iter().collect();
+        let known: HashSet<NodeId> = bases.keys().copied().collect();
+        let again = v2.plan_update(&me, &bases, &known);
+        assert!(again.is_empty(), "{again:?}");
     }
 }

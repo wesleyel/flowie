@@ -477,6 +477,18 @@
       "too_large": "分享包太大，无法导入",
       "damaged": "分享包已损坏，无法导入",
       "unreadable": "无法读取 {path}：{error}"
+    },
+    "update": {
+      "nothing": "你之前导入过这个分享包，内容没有变化。再次导入会添加一份使用新 ID 的副本。",
+      "summary": "你之前导入过这个分享包。更新后：{changed} 处修改，{added} 个新增，{removed} 个删除（移到废纸篓），{conflicts} 处两边都改过。",
+      "conflicts_heading": "你和分享包都改过的条目",
+      "mine": "你的",
+      "theirs": "分享包",
+      "keep_mine": "保留你的",
+      "take_theirs": "采用分享包的",
+      "more_conflicts": "还有 {count} 处，保留你的版本",
+      "update": "更新",
+      "done": "已更新「{title}」：{changed} 处修改，{added} 个新增，{removed} 个删除"
     }
   },
   "image": {

@@ -528,6 +528,21 @@
       "too_large": "That package is too large to import",
       "damaged": "That package is damaged and can't be imported",
       "unreadable": "Couldn't read {path}: {error}"
+    },
+    "update": {
+      "nothing": "You imported this package before, and nothing in it has changed. Importing it again adds a copy with new IDs.",
+      "summary": "You imported this package before. Updating it: {changed} changed, {added} new, {removed} removed (to Trash), {conflicts} changed on both sides.",
+      "conflicts_heading": "Changed here and in the package",
+      "mine": "Yours",
+      "theirs": "Package",
+      "keep_mine": "Keep yours",
+      "take_theirs": "Take the package's",
+      "more_conflicts": {
+        "one": "and {count} more, kept as yours",
+        "other": "and {count} more, kept as yours"
+      },
+      "update": "Update",
+      "done": "Updated “{title}”: {changed} changed, {added} new, {removed} removed"
     }
   },
   "image": {

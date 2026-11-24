@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use flowie_core::package::{ExportMeta, ExportOptions, ImportOptions, Package, PackageError, Person, EXTENSION};
+use flowie_core::package::{ExportMeta, ExportOptions, ImportOptions, Package, PackageError, Person, UpdatePlan, EXTENSION};
 use flowie_core::store::ImportRecord;
 use flowie_core::{NodeId, ROOT};
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, KeyDownEvent, MouseButton, SharedString, Window};
@@ -344,6 +344,9 @@ pub struct PackageImport {
     has_completed: bool,
     /// Its bullets are here or in Trash already: it was imported before.
     already: bool,
+    /// Imported before with its ids: what updating to this version does,
+    /// and the conflicts where the user takes the package's version.
+    update: Option<(UpdatePlan, HashSet<NodeId>)>,
     bytes: usize,
     /// The first levels, as (depth, plain text).
     preview: Vec<(usize, String)>,
@@ -351,6 +354,17 @@ pub struct PackageImport {
     more: usize,
     return_to: Option<(Target, usize)>,
 }
+
+#[cfg(feature = "screenshots")]
+impl PackageImport {
+    /// The update plan and the conflicts taken from the package (`shot.package_update`).
+    pub fn update_mut(&mut self) -> Option<&mut (UpdatePlan, HashSet<NodeId>)> {
+        self.update.as_mut()
+    }
+}
+
+/// Conflicts the update dialog lists (the rest keep the user's version).
+const CONFLICTS_SHOWN: usize = 6;
 
 /// Lines of the import preview.
 const PREVIEW_LINES: usize = 8;
@@ -399,7 +413,17 @@ impl Outline {
             .as_ref()
             .and_then(|p| flowie_core::store::open(p).ok())
             .is_some_and(|c| package.outline.roots.iter().any(|&r| flowie_core::store::in_trash(&c, r).unwrap_or(false)));
-        let already = in_trash || !package.present_in(&self.tree).is_empty();
+        let present = package.present_in(&self.tree);
+        let already = in_trash || !present.is_empty();
+        // Imported before with these ids: offer to bring it up to date.
+        let update = (!present.is_empty() && package.outline.roots.iter().all(|r| self.tree.contains(*r)))
+            .then(|| {
+                let conn = flowie_core::store::open(self.db_path.as_ref()?).ok()?;
+                let bases = flowie_core::store::load_bases(&conn, &package.outline.roots).ok()?;
+                let known: HashSet<NodeId> = bases.keys().copied().collect();
+                (!bases.is_empty()).then(|| (package.plan_update(&self.tree, &bases, &known), HashSet::new()))
+            })
+            .flatten();
         let has_completed = package.outline.nodes.iter().any(|n| n.completed);
         // Breadth-limited preview: the roots and their children.
         let mut preview = Vec::new();
@@ -417,8 +441,18 @@ impl Outline {
         walk(&package.items(), 0, &mut preview);
         let more = package.outline.nodes.len().saturating_sub(preview.len());
         let return_to = self.edit.take().map(|e| (e.target, e.caret()));
-        self.package_import =
-            Some(PackageImport { package, parent: ROOT, keep_completion: true, has_completed, already, bytes, preview, more, return_to });
+        self.package_import = Some(PackageImport {
+            package,
+            parent: ROOT,
+            keep_completion: true,
+            has_completed,
+            already,
+            update,
+            bytes,
+            preview,
+            more,
+            return_to,
+        });
         cx.notify();
     }
 
@@ -452,25 +486,37 @@ impl Outline {
         cx.notify();
     }
 
-    /// Import: one undo step; then show the new roots where they landed.
+    /// The dialog's main button: Update when it can, else Import (a Copy).
     fn finish_package_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
-        self.import_package_now(cx);
+        let update = self.package_import.as_ref().and_then(|p| p.update.as_ref()).is_some_and(|(plan, _)| !plan.is_empty());
+        if update {
+            self.update_package_now(cx);
+        } else {
+            self.import_package_now(cx);
+        }
     }
 
-    /// Import what the open dialog shows, as it is set.
+    /// Image files first: bullets must only refer to files already stored.
+    fn store_package_images(&mut self, package: &Package) {
+        for bytes in package.images.values() {
+            if let Err(e) = self.store_image(bytes) {
+                self.toast(e);
+            }
+        }
+    }
+
+    /// Import what the open dialog shows, as it is set (a copy if it was imported before).
     pub fn import_package_now(&mut self, cx: &mut Context<Self>) {
         let Some(p) = self.package_import.take() else { return };
         let parent = if self.tree.contains(p.parent) { p.parent } else { ROOT };
         let index = self.tree.children(parent).len();
         let opts = ImportOptions { fresh_ids: p.already, keep_completion: p.keep_completion };
-        // Image files first: bullets must only refer to files already stored.
-        for bytes in p.package.images.values() {
-            if let Err(e) = self.store_image(bytes) {
-                self.toast(e);
-            }
-        }
+        self.store_package_images(&p.package);
         let roots = p.package.insert_into(&mut self.tree, parent, index, opts);
+        if !p.already {
+            self.record_bases(&p.package);
+        }
         self.tree.set_collapsed(parent, false);
         self.edit = None;
         self.block = None;
@@ -508,6 +554,61 @@ impl Outline {
         cx.notify();
     }
 
+    /// Remember each bullet's content as this package has it, for the next update.
+    fn record_bases(&mut self, package: &Package) {
+        let root_of = package.root_of();
+        let rows = package.base_hashes().into_iter().map(|(id, hash)| (id, root_of[&id], hash)).collect();
+        if let Some(w) = &self.writer {
+            w.bases(rows);
+        }
+    }
+
+    /// Bring an imported package up to date: one undo step.
+    pub fn update_package_now(&mut self, cx: &mut Context<Self>) {
+        let Some(p) = self.package_import.take() else { return };
+        let Some((plan, take)) = p.update.as_ref() else { return };
+        self.store_package_images(&p.package);
+        let mut touched = p.package.apply_update(&mut self.tree, plan, take);
+        for &id in &plan.removed {
+            if self.tree.contains(id) {
+                self.send_to_trash(id);
+                self.tree.delete(id);
+            }
+        }
+        self.edit = None;
+        self.block = None;
+        self.commit_structure(None, cx);
+        self.record_bases(&p.package);
+        let m = &p.package.manifest;
+        for &root in &p.package.outline.roots {
+            if let Some(r) = self.imports.get_mut(&root) {
+                r.title = m.title.clone();
+                r.package_id = m.package_id.clone();
+                r.exported_at = m.exported_at_millis();
+                r.imported_at = flowie_core::tree::now_millis();
+                // New content: unread again.
+                r.seen_at = None;
+                if let Some(w) = &self.writer {
+                    w.import(r.clone());
+                }
+            }
+        }
+        self.refresh(false);
+        touched.retain(|id| self.tree.contains(*id));
+        for &id in &touched {
+            self.anims.start(id, crate::anim::Channel::Flash, crate::anim::FLASH);
+        }
+        let taken = plan.conflicts.iter().filter(|c| take.contains(c)).count();
+        self.toast(t!(
+            "package.update.done",
+            title = m.title,
+            changed = plan.changed.len() + taken,
+            added = plan.added.len(),
+            removed = plan.removed.len()
+        ));
+        cx.notify();
+    }
+
     pub fn package_import_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let ks = &ev.keystroke;
         if ks.modifiers.modified() {
@@ -534,6 +635,7 @@ impl Outline {
         let summary = t!("package.export.summary", count = p.package.outline.nodes.len(), size = size_label(p.bytes));
         let parent_label = if p.parent == ROOT { t!("common.home").to_string() } else { node_label(self, p.parent) };
         let (keep, has_completed, already) = (p.keep_completion, p.has_completed, p.already);
+        let update = p.update.clone();
         let lines = p.preview.iter().map(|(depth, text)| {
             div()
                 .flex()
@@ -583,7 +685,82 @@ impl Outline {
                     cx.notify();
                 }))
         });
-        let note = already.then(|| div().text_size(px(12.)).text_color(theme.muted).child(t!("package.import.already")));
+        let can_update = update.as_ref().is_some_and(|(plan, _)| !plan.is_empty());
+        let note = already.then(|| {
+            let text = match &update {
+                Some((plan, _)) if plan.is_empty() => t!("package.update.nothing").to_string(),
+                Some((plan, _)) => t!(
+                    "package.update.summary",
+                    changed = plan.changed.len(),
+                    added = plan.added.len(),
+                    removed = plan.removed.len(),
+                    conflicts = plan.conflicts.len()
+                ),
+                None => t!("package.import.already").to_string(),
+            };
+            div().text_size(px(12.)).text_color(theme.muted).child(text)
+        });
+        let conflicts = update.as_ref().filter(|(plan, _)| !plan.conflicts.is_empty()).map(|(plan, take)| {
+            let by_id: std::collections::HashMap<NodeId, &flowie_core::package::PackageNode> =
+                p.package.outline.nodes.iter().map(|n| (n.id, n)).collect();
+            let rows =
+                plan.conflicts.iter().take(CONFLICTS_SHOWN).map(|&id| {
+                    let mine = flowie_core::markup::plain_text(&self.tree.node(id).text);
+                    let theirs = by_id.get(&id).map(|n| flowie_core::markup::plain_text(&n.text)).unwrap_or_default();
+                    let theirs_on = take.contains(&id);
+                    let choice = |label: &'static str, on: bool, pick_theirs: bool| {
+                        crate::ui::segmented::segment(theme, SharedString::from(format!("conflict-{id}-{pick_theirs}")), on)
+                            .child(label)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some((_, take)) = this.package_import.as_mut().and_then(|p| p.update.as_mut()) {
+                                    if pick_theirs {
+                                        take.insert(id);
+                                    } else {
+                                        take.remove(&id);
+                                    }
+                                }
+                                cx.notify();
+                            }))
+                    };
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .py_1()
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(div().w(px(56.)).flex_none().text_color(theme.muted).child(t!("package.update.mine")))
+                                .child(div().min_w_0().child(mine)),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(div().w(px(56.)).flex_none().text_color(theme.muted).child(t!("package.update.theirs")))
+                                .child(div().min_w_0().child(theirs)),
+                        )
+                        .child(
+                            crate::ui::segmented::track(theme)
+                                .child(choice(t!("package.update.keep_mine"), !theirs_on, false))
+                                .child(choice(t!("package.update.take_theirs"), theirs_on, true)),
+                        )
+                });
+            let more = plan.conflicts.len().saturating_sub(CONFLICTS_SHOWN);
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .p_3()
+                .rounded(px(crate::theme::R_MD))
+                .border_1()
+                .border_color(theme.border)
+                .text_size(px(12.))
+                .child(div().font_weight(FontWeight::MEDIUM).text_color(theme.text).child(t!("package.update.conflicts_heading")))
+                .children(rows)
+                .children((more > 0).then(|| div().text_color(theme.muted).child(t!("package.update.more_conflicts", count = more))))
+        });
         let buttons = div()
             .flex()
             .justify_end()
@@ -593,9 +770,23 @@ impl Outline {
                     .child(t!("package.export.cancel"))
                     .on_click(cx.listener(|this, _, window, cx| this.close_package_import(window, cx))),
             )
+            .when(can_update, |d| {
+                d.child(button(theme, "package-import-copy", Variant::Secondary).child(t!("package.import.import_copy")).on_click(
+                    cx.listener(|this, _, window, cx| {
+                        window.focus(&this.focus, cx);
+                        this.import_package_now(cx);
+                    }),
+                ))
+            })
             .child(
                 button(theme, "package-import", Variant::Primary)
-                    .child(if already { t!("package.import.import_copy") } else { t!("package.import.import") })
+                    .child(if can_update {
+                        t!("package.update.update")
+                    } else if already {
+                        t!("package.import.import_copy")
+                    } else {
+                        t!("package.import.import")
+                    })
                     .on_click(cx.listener(|this, _, window, cx| this.finish_package_import(window, cx))),
             );
         let card = crate::ui::surface::sheet(theme, "package-import-card")
@@ -612,6 +803,7 @@ impl Outline {
             .child(put_in)
             .children(completed)
             .children(note)
+            .children(conflicts)
             .child(buttons);
         Some(
             crate::ui::surface::scrim(theme)

@@ -112,8 +112,12 @@ You can build Flowie on macOS, Windows or Linux. [Build guide](docs/building.md)
 - [Translating Flowie](docs/translations.md)
 - [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Issues](https://github.com/wesleyel/flowie/issues) · [Privacy policy](https://wesleyel.github.io/flowie/privacy.html)
 
+## Credits
+
+Flowie builds on [GPUI](https://gpui.rs), [RaTeX](https://github.com/erweixin/RaTeX), KaTeX fonts and [Lucide](https://lucide.dev) icons.
+
+Thanks to the [LINUX DO](https://linux.do) community for feedback and support.
+
 ## License
 
-© 2026 Wesley Yang. Flowie is licensed under the [GNU General Public License v3.0 or later](LICENSE).
-It builds on [GPUI](https://gpui.rs), [RaTeX](https://github.com/erweixin/RaTeX), KaTeX fonts and
-[Lucide](https://lucide.dev) icons; the app bundle lists every third-party license.
+© 2026 Wesley Yang. Flowie is licensed under the [GNU General Public License v3.0 or later](LICENSE); the app bundle lists every third-party license.

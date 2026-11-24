@@ -112,7 +112,12 @@ macOS、Windows 和 Linux 都可以从源码构建。[编译指南](docs/buildin
 - [参与翻译](docs/translations.md)
 - [更新日志](CHANGELOG.zh-CN.md) · [参与贡献](CONTRIBUTING.md) · [安全问题](SECURITY.md) · [问题反馈](https://github.com/wesleyel/flowie/issues) · [隐私政策](https://wesleyel.github.io/flowie/privacy.html)
 
+## 致谢
+
+Flowie 基于 [GPUI](https://gpui.rs)、[RaTeX](https://github.com/erweixin/RaTeX)、KaTeX 字体和 [Lucide](https://lucide.dev) 图标构建。
+
+感谢 [LINUX DO](https://linux.do) 社区的反馈与支持。
+
 ## 许可证
 
-© 2026 Wesley Yang。Flowie 以 [GNU 通用公共许可证 v3.0 或更高版本](LICENSE) 授权。
-它基于 [GPUI](https://gpui.rs)、[RaTeX](https://github.com/erweixin/RaTeX)、KaTeX 字体和 [Lucide](https://lucide.dev) 图标构建；应用包内附有全部第三方许可证。
+© 2026 Wesley Yang。Flowie 以 [GNU 通用公共许可证 v3.0 或更高版本](LICENSE) 授权；应用包内附有全部第三方许可证。

@@ -19,6 +19,7 @@ mod popover;
 mod rich;
 mod selectable;
 mod settings;
+mod share;
 #[cfg(feature = "screenshots")]
 mod shots;
 mod theme;

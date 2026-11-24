@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::i18n::{self, t};
 use crate::keymap;
-use crate::outline::{OpenAbout, OpenPrivacyPolicy, OpenSettings, OpenTerms, Outline, SendFeedback, Target};
+use crate::outline::{Field, OpenAbout, OpenPrivacyPolicy, OpenSettings, OpenTerms, Outline, SendFeedback, Target};
 use crate::theme::{Theme, ACCENTS};
 
 const ABOUT_BOX_W: f32 = 500.0;
@@ -189,20 +189,45 @@ impl Outline {
         self.save_config();
     }
 
-    /// Stop editing a settings field.
-    fn end_settings_edit(&mut self) -> bool {
-        if self.edit.as_ref().is_some_and(|e| e.target == Target::AuthorName) {
+    /// The text of a field outside the outline.
+    pub fn field_text(&self, f: Field) -> &str {
+        match f {
+            Field::AuthorName => &self.config.author.name,
+            Field::PackageTitle => self.package_export.as_ref().map_or("", |p| p.title.as_str()),
+            Field::PackageDescription => self.package_export.as_ref().map_or("", |p| p.description.as_str()),
+        }
+    }
+
+    pub fn set_field_text(&mut self, f: Field, text: String) {
+        match f {
+            Field::AuthorName => self.set_author_name(text),
+            Field::PackageTitle => {
+                if let Some(p) = self.package_export.as_mut() {
+                    p.title = text;
+                }
+            }
+            Field::PackageDescription => {
+                if let Some(p) = self.package_export.as_mut() {
+                    p.description = text;
+                }
+            }
+        }
+    }
+
+    /// Stop editing a field in Settings or a dialog.
+    pub fn end_field_edit(&mut self) -> bool {
+        if self.edit.as_ref().is_some_and(|e| matches!(e.target, Target::Field(_))) {
             self.edit = None;
             return true;
         }
         false
     }
 
-    /// Keys for the text field being edited inside Settings, where the
-    /// outline's own bindings are off. True if the key was used.
-    fn settings_field_key(&mut self, ks: &gpui::Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    /// Keys for the text field being edited in Settings or a dialog, where
+    /// the outline's own bindings are off. True if the key was used.
+    pub fn field_key(&mut self, ks: &gpui::Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
         use crate::outline::*;
-        if self.edit.as_ref().map(|e| e.target) != Some(Target::AuthorName) {
+        if !self.edit.as_ref().is_some_and(|e| matches!(e.target, Target::Field(_))) {
             return false;
         }
         let m = &ks.modifiers;
@@ -211,7 +236,7 @@ impl Outline {
         let primary = if mac { m.platform } else { m.control };
         match ks.key.as_str() {
             "escape" | "enter" | "tab" => {
-                self.end_settings_edit();
+                self.end_field_edit();
             }
             "backspace" => self.backspace(&Backspace, window, cx),
             "delete" => self.delete(&Delete, window, cx),
@@ -326,7 +351,7 @@ impl Outline {
                 cx.stop_propagation();
             }
             None => {
-                if self.settings_field_key(ks, window, cx) {
+                if self.field_key(ks, window, cx) {
                     cx.stop_propagation();
                 } else if ks.key == "escape" && !ks.modifiers.modified() {
                     self.close_settings(window, cx);
@@ -427,7 +452,7 @@ impl Outline {
                     .child(crate::icons::slot(icon, crate::icons::MD, if on { theme.on_accent } else { theme.accent }))
                     .child(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.end_settings_edit();
+                        this.end_field_edit();
                         if let Some(s) = this.settings.as_mut() {
                             s.tab = t;
                             s.recording = None;
@@ -774,7 +799,7 @@ impl Outline {
     fn render_general(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let scroll = self.settings.as_ref().map(|s| s.scroll.clone()).unwrap_or_default();
         let theme = self.theme;
-        let editing = self.edit.as_ref().is_some_and(|e| e.target == Target::AuthorName);
+        let editing = self.edit.as_ref().is_some_and(|e| e.target == Target::Field(Field::AuthorName));
         let name = self.config.author.name.clone();
         let inner = if editing {
             let (font, _) = self.base_style(window, false);
@@ -794,9 +819,9 @@ impl Outline {
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     cx.stop_propagation();
-                    if this.edit.as_ref().map(|e| e.target) != Some(Target::AuthorName) {
+                    if this.edit.as_ref().map(|e| e.target) != Some(Target::Field(Field::AuthorName)) {
                         let len = this.config.author.name.len();
-                        this.start_edit(Target::AuthorName, len, cx);
+                        this.start_edit(Target::Field(Field::AuthorName), len, cx);
                     }
                 }),
             );
@@ -858,7 +883,7 @@ impl Outline {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
-                    if this.end_settings_edit() {
+                    if this.end_field_edit() {
                         cx.notify();
                     }
                 }),

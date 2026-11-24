@@ -1498,9 +1498,12 @@ name = "flowie-core"
 version = "1.0.0"
 dependencies = [
  "chrono",
+ "crc32fast",
+ "flate2",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "uuid",
 ]
 

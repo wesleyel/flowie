@@ -18,6 +18,7 @@
     "page_created": "Created page “{name}” on Home",
     "mirror_into_self": "Can't mirror a bullet inside itself",
     "nothing_to_import": "Nothing to import",
+    "nothing_to_export": "Nothing to export",
     "bullet_deleted": "That bullet was deleted (see Trash)",
     "cut_kept_in_trash": "Cut — also kept in Trash",
     "moved": {
@@ -232,6 +233,7 @@
     "file": {
       "title": "File",
       "import": "Import…",
+      "export_package": "Export as Package…",
       "export_markdown": "Export as Markdown…",
       "export_opml": "Export as OPML…",
       "export_text": "Export as Plain Text…",
@@ -392,6 +394,7 @@
     "escape": "Escape / select bullet",
     "import": "Import…",
     "export-md": "Export Markdown…",
+    "export-package": "Export as Package…",
     "trash": "Trash",
     "settings": "Settings",
     "quit": "Quit"
@@ -424,6 +427,7 @@
     "link": "Link to bullet",
     "mirror": "Mirror",
     "move": "Move to…",
+    "export_package": "Export as package",
     "complete": "Complete",
     "note": "Add note"
   },
@@ -475,6 +479,26 @@
     "mirrors": {
       "one": "{count} mirror",
       "other": "{count} mirrors"
+    }
+  },
+  "package": {
+    "size_kb": "{n} KB",
+    "size_mb": "{n} MB",
+    "export": {
+      "heading": "Export as Package",
+      "summary": {
+        "one": "{count} bullet · {size}",
+        "other": "{count} bullets · {size}"
+      },
+      "title": "Title",
+      "title_placeholder": "What the package is called",
+      "description": "Description",
+      "description_placeholder": "Optional: a line for whoever opens it",
+      "include_completed": "Include completed bullets",
+      "author": "The package includes the author name: {name}",
+      "change_author": "Change",
+      "cancel": "Cancel",
+      "export": "Export…"
     }
   }
 }

@@ -986,8 +986,8 @@ impl Render for Outline {
         let theme = self.theme;
 
         let mut kc = KeyContext::new_with_defaults(cx.platform_info().os);
-        // While settings are open, only global shortcuts apply (so keys can be recorded).
-        if self.settings.is_none() {
+        // While settings or a dialog are open, only global shortcuts apply (so keys can be recorded).
+        if !self.modal_open() {
             kc.add("Outline");
             if self.edit.is_some() {
                 kc.add("editing");
@@ -1108,6 +1108,7 @@ impl Render for Outline {
         };
         let app_menu_bar = self.render_app_menu_bar(window, cx);
         let palette = self.render_palette(window, cx);
+        let package_export = self.render_package_export(window, cx);
         let settings = self.render_settings(window, cx);
         let inline = self.render_inline(cx);
         let calendar = self.render_calendar(cx);
@@ -1207,6 +1208,7 @@ impl Render for Outline {
             .on_action(cx.listener(Self::import))
             .on_action(cx.listener(Self::export_opml))
             .on_action(cx.listener(Self::export_markdown))
+            .on_action(cx.listener(Self::export_package))
             .on_action(cx.listener(Self::export_text))
             .on_action(cx.listener(Self::show_trash))
             .on_action(cx.listener(Self::save_search))
@@ -1242,6 +1244,8 @@ impl Render for Outline {
             .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
                 if this.settings.is_some() {
                     this.settings_key(ev, window, cx);
+                } else if this.package_export.is_some() {
+                    this.package_export_key(ev, window, cx);
                 }
             }))
             .on_mouse_down(
@@ -1289,6 +1293,7 @@ impl Render for Outline {
             .children(popover)
             .children(menu)
             .children(palette)
+            .children(package_export)
             .children(settings)
             .children(toast)
     }

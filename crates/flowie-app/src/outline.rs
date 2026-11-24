@@ -78,6 +78,7 @@ actions!(
         ExportOpml,
         ExportMarkdown,
         ExportText,
+        ExportPackage,
         ShowTrash,
         SaveSearch,
         Highlight,
@@ -118,8 +119,18 @@ pub enum Target {
     Note(NodeId),
     Search,
     Palette,
-    /// The author name field in Settings → General.
+    /// A one-line text field in a dialog or in Settings.
+    Field(Field),
+}
+
+/// The text fields outside the outline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    /// Settings → General → Author name.
     AuthorName,
+    /// The export dialog's title and description.
+    PackageTitle,
+    PackageDescription,
 }
 
 pub struct Edit {
@@ -269,6 +280,8 @@ pub struct Outline {
     /// The open menu of the in-window menu bar (see `app_menu`).
     pub app_menu: Option<usize>,
     pub app_menu_scroll: gpui::ScrollHandle,
+    /// The open export dialog.
+    pub package_export: Option<crate::share::PackageExport>,
 }
 
 pub const INDENT: f32 = 24.0;
@@ -344,6 +357,7 @@ impl Outline {
             menu: None,
             app_menu: None,
             app_menu_scroll: gpui::ScrollHandle::new(),
+            package_export: None,
             kill_buffer: String::new(),
             mouse_block: false,
             ghosts: Default::default(),
@@ -545,7 +559,7 @@ impl Outline {
     fn caret(&self) -> Option<Caret> {
         match self.edit.as_ref()?.target {
             Target::Text(id) | Target::Note(id) => Some(Caret { node: id, offset: self.edit.as_ref()?.caret() }),
-            Target::Search | Target::Palette | Target::AuthorName => None,
+            Target::Search | Target::Palette | Target::Field(_) => None,
         }
     }
 
@@ -624,7 +638,7 @@ impl Outline {
             Some(Target::Note(id)) => self.tree.get(self.tree.source(id)).map(|n| n.note.as_str()).unwrap_or(""),
             Some(Target::Search) => &self.query,
             Some(Target::Palette) => self.palette.as_ref().map(|p| p.query.as_str()).unwrap_or(""),
-            Some(Target::AuthorName) => &self.config.author.name,
+            Some(Target::Field(f)) => self.field_text(f),
             None => "",
         }
     }
@@ -683,8 +697,8 @@ impl Outline {
                 self.set_query(text);
                 cx.notify();
             }
-            Target::AuthorName => {
-                self.set_author_name(text);
+            Target::Field(f) => {
+                self.set_field_text(f, text);
                 cx.notify();
             }
         }
@@ -709,7 +723,7 @@ impl Outline {
             Target::Note(id) => self.tree.get(self.tree.source(id)).map_or(0, |n| n.note.len()),
             Target::Search => self.query.len(),
             Target::Palette => self.palette.as_ref().map_or(0, |p| p.query.len()),
-            Target::AuthorName => self.config.author.name.len(),
+            Target::Field(f) => self.field_text(f).len(),
         };
         self.edit = Some(Edit::new(target, offset.min(len)));
         if reveal {
@@ -718,10 +732,15 @@ impl Outline {
         cx.notify();
     }
 
+    /// Settings or a dialog is open: the outline's own shortcuts are off.
+    pub fn modal_open(&self) -> bool {
+        self.settings.is_some() || self.package_export.is_some()
+    }
+
     pub fn editing_node(&self) -> Option<NodeId> {
         match self.edit.as_ref()?.target {
             Target::Text(id) | Target::Note(id) => Some(id),
-            Target::Search | Target::Palette | Target::AuthorName => None,
+            Target::Search | Target::Palette | Target::Field(_) => None,
         }
     }
 
@@ -843,7 +862,7 @@ impl Outline {
                     self.start_edit(Target::Text(first), len, cx);
                 }
             }
-            Some(Target::Palette | Target::AuthorName) => {}
+            Some(Target::Palette | Target::Field(_)) => {}
             None => self.enter_from_idle(cx),
         }
     }
@@ -1142,14 +1161,8 @@ impl Outline {
     }
 
     pub fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+        let len = self.edit_text().len();
         if let Some(e) = self.edit.as_mut() {
-            let len = match e.target {
-                Target::Text(id) => self.tree.node(self.tree.source(id)).text.len(),
-                Target::Note(id) => self.tree.node(self.tree.source(id)).note.len(),
-                Target::Search => self.query.len(),
-                Target::Palette => self.palette.as_ref().map_or(0, |p| p.query.len()),
-                Target::AuthorName => self.config.author.name.len(),
-            };
             if e.sel == (0..len) && matches!(e.target, Target::Text(_)) {
                 // Second ⌘A selects every visible bullet.
                 if let (Some(first), Some(last)) = (self.rows.first(), self.rows.last()) {
@@ -1253,7 +1266,7 @@ impl Outline {
                     self.start_edit(Target::Text(first), 0, cx);
                 }
             }
-            Some(Target::Palette | Target::AuthorName) => {}
+            Some(Target::Palette | Target::Field(_)) => {}
             None => self.enter_from_idle(cx),
         }
     }
@@ -1404,7 +1417,7 @@ impl Outline {
     }
 
     pub fn navigate_page(&mut self, direction: gpui::NavigationDirection, cx: &mut Context<Self>) {
-        if self.settings.is_some() {
+        if self.modal_open() {
             return;
         }
         let pages = match direction {
@@ -1689,7 +1702,7 @@ impl Outline {
     /// Wrap the selection in `open`/`close`, or insert the pair around the caret.
     pub(crate) fn wrap(&mut self, open: &str, close: &str, cx: &mut Context<Self>) {
         let Some(e) = self.edit.as_ref() else { return };
-        if matches!(e.target, Target::Search | Target::Palette | Target::AuthorName) {
+        if matches!(e.target, Target::Search | Target::Palette | Target::Field(_)) {
             return;
         }
         let r = e.sel.clone();
@@ -1823,7 +1836,7 @@ impl Outline {
                     self.set_query(String::new());
                 }
             }
-            Some(Target::Palette | Target::AuthorName) => {}
+            Some(Target::Palette | Target::Field(_)) => {}
             None => {
                 if self.block.take().is_none() && !self.query.is_empty() {
                     self.set_query(String::new());

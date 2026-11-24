@@ -155,6 +155,26 @@ impl Outline {
                 self.menu_scroll = gpui::ScrollHandle::new();
                 Ok("menu".into())
             }
+            // The export dialog for `id`; `description` fills that field.
+            "package_export" => {
+                let id = self.agent_node(p, "id")?;
+                self.shot_close_ui();
+                self.open_package_export(vec![id], cx);
+                if let Some(d) = s(p, "description") {
+                    self.set_field_text(crate::outline::Field::PackageDescription, d.to_string());
+                }
+                if p.get("include_completed").and_then(Value::as_bool) == Some(false) {
+                    self.set_include_completed(false, cx);
+                }
+                Ok("package export".into())
+            }
+            // Write what the open export dialog's Export button would save.
+            "package_write" => {
+                let path = s(p, "path").ok_or("missing `path`")?;
+                let (title, bytes) = self.package_file().ok_or("no export dialog")?;
+                std::fs::write(path, bytes).map_err(|e| e.to_string())?;
+                Ok(title)
+            }
             _ => Err(format!("unknown method shot.{method}")),
         }
     }
@@ -167,6 +187,7 @@ impl Outline {
         self.calendar = None;
         self.settings = None;
         self.settings_return = None;
+        self.package_export = None;
         self.trash = None;
         self.toast = None;
         // A fresh scroll position for the next popup (palette, `/` menu, `[[` menu).

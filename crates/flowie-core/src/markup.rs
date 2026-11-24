@@ -431,3 +431,49 @@ fn find_link(s: &str) -> Option<(usize, usize)> {
 pub fn plain_text(s: &str) -> String {
     parse(s).into_iter().filter(|r| r.kind != Kind::Marker).map(|r| &s[r.range]).collect()
 }
+
+/// What `rewrite_links` does with one `[label](url)` link.
+pub enum LinkEdit {
+    Keep,
+    /// Replace the link with its label (markup inside the label stays).
+    Unlink,
+    /// Point it somewhere else.
+    Url(String),
+}
+
+/// `s` with each `[label](url)` link passed through `f` (bare web addresses
+/// are left alone).
+pub fn rewrite_links(s: &str, mut f: impl FnMut(&str) -> LinkEdit) -> String {
+    if !s.contains("](") {
+        return s.to_string();
+    }
+    let runs = parse(s);
+    let mut out = String::with_capacity(s.len());
+    let mut copied = 0;
+    for (k, run) in runs.iter().enumerate() {
+        let Kind::Link { url } = &run.kind else { continue };
+        // `[` marker, the label, then the `](url)` marker.
+        let open = run.range.start.checked_sub(1).filter(|&o| k > 0 && runs[k - 1].range == (o..run.range.start));
+        let close =
+            runs.get(k + 1).filter(|r| r.kind == Kind::Marker && r.range.start == run.range.end && s[r.range.clone()].starts_with("]("));
+        let (Some(open), Some(close)) = (open, close) else { continue };
+        match f(url) {
+            LinkEdit::Keep => continue,
+            LinkEdit::Unlink => {
+                out.push_str(&s[copied..open]);
+                out.push_str(&s[run.range.clone()]);
+            }
+            LinkEdit::Url(new) => {
+                out.push_str(&s[copied..open]);
+                out.push('[');
+                out.push_str(&s[run.range.clone()]);
+                out.push_str("](");
+                out.push_str(&new);
+                out.push(')');
+            }
+        }
+        copied = close.range.end;
+    }
+    out.push_str(&s[copied..]);
+    out
+}

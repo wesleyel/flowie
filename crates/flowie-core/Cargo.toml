@@ -17,5 +17,9 @@ flate2 = "1"
 crc32fast = "1"
 sha2 = "0.10"
 
+[dev-dependencies]
+rusqlite = { version = "0.43", features = ["backup"] }
+tempfile = "3"
+
 [lints]
 workspace = true

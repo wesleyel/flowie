@@ -58,6 +58,29 @@ source in the imported document first, then in the destination outline. If the s
 the snapshot becomes a regular item. On an ID collision, Flowie gives the imported item a fresh ID
 and redirects its document's internal links and mirrors to the imported copy.
 
+## Database migration from RC3 to RC4
+
+The one-time migration tool supports only Flowie `1.0.0-rc.3` → `1.0.0-rc.4`.
+The legacy database has no release marker, so use a database from RC3.
+From the RC4 source checkout, migrate to a new file with:
+
+```sh
+cargo run --locked -p flowie-core --example migrate-rc3-to-rc4 -- \
+  "/path/to/rc3/flowie.sqlite" "/path/to/rc4/flowie.sqlite"
+```
+
+For an in-place upgrade, quit Flowie and run:
+
+```sh
+cargo run --locked -p flowie-core --example migrate-rc3-to-rc4 -- \
+  --replace "/path/to/flowie.sqlite"
+```
+
+`--replace` takes an exclusive database lock and saves a standalone snapshot beside the
+original as `flowie.sqlite.rc3-backup-<timestamp>`. The backup includes committed WAL changes.
+After the command succeeds, open RC4 normally to use the migrated database at the same path.
+Keep the backup until you've verified your outline in RC4.
+
 ## Search
 
 Search terms: words, `"phrases"`, `-exclude`, `#tag`, `@person`, `is:done`, `is:open`, `is:todo`, `is:heading`, `is:quote`, `is:code`, `has:note`, `changed:7d` (`m`/`h`/`d`/`w`), `date:2026-11`, `date:today`, `before:2026-12-01`, `after:today`. Save a search from the header to run it later from ⌘P.

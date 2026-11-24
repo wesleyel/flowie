@@ -242,7 +242,8 @@
       "export_markdown": "Export as Markdown…",
       "export_opml": "Export as OPML…",
       "export_text": "Export as Plain Text…",
-      "trash": "Trash"
+      "trash": "Trash",
+      "insert_image": "Insert Image…"
     },
     "edit": {
       "title": "Edit",
@@ -402,7 +403,8 @@
     "export-package": "Export as Package…",
     "trash": "Trash",
     "settings": "Settings",
-    "quit": "Quit"
+    "quit": "Quit",
+    "insert-image": "Insert image…"
   },
   "slash": {
     "bullet": "Bullet",
@@ -434,7 +436,8 @@
     "move": "Move to…",
     "export_package": "Export as package",
     "complete": "Complete",
-    "note": "Add note"
+    "note": "Add note",
+    "image": "Image"
   },
   "group": {
     "editing": "Editing",
@@ -526,5 +529,14 @@
       "damaged": "That package is damaged and can't be imported",
       "unreadable": "Couldn't read {path}: {error}"
     }
+  },
+  "image": {
+    "prompt": "Insert",
+    "no_folder": "Images need a saved outline",
+    "unsupported": "Flowie shows PNG, JPEG, GIF and WebP images",
+    "too_large": "That image is larger than 50 MB",
+    "missing": "Image file missing",
+    "preview_hint": "Esc or click to close",
+    "export_images_failed": "Exported the text, but not its images: {error}"
   }
 }

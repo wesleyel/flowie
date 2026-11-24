@@ -79,6 +79,7 @@ actions!(
         ExportMarkdown,
         ExportText,
         ExportPackage,
+        InsertImage,
         ShowTrash,
         SaveSearch,
         Highlight,
@@ -284,6 +285,12 @@ pub struct Outline {
     pub package_export: Option<crate::share::PackageExport>,
     /// The open import dialog.
     pub package_import: Option<crate::share::PackageImport>,
+    /// Image files, beside the database (none without one).
+    pub image_dir: Option<flowie_core::images::ImageDir>,
+    /// What is known about each image file, by name.
+    pub blobs: std::collections::HashMap<String, flowie_core::images::BlobInfo>,
+    /// The image shown full-window (Space on an image bullet).
+    pub image_preview: Option<NodeId>,
     /// Roots imported from share packages, by root id.
     pub imports: std::collections::HashMap<NodeId, flowie_core::store::ImportRecord>,
 }
@@ -298,11 +305,13 @@ impl Outline {
         db_path: Option<std::path::PathBuf>,
         meta: Vec<(String, String)>,
         imports: Vec<flowie_core::store::ImportRecord>,
+        blobs: Vec<flowie_core::images::BlobInfo>,
         config: crate::settings::Config,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let db_path_for_config = db_path.clone();
+        let db_path_for_images = db_path.clone();
         let mut zoom = ROOT;
         let mut hide_completed = false;
         let mut starred = Vec::new();
@@ -364,6 +373,9 @@ impl Outline {
             app_menu_scroll: gpui::ScrollHandle::new(),
             package_export: None,
             package_import: None,
+            image_dir: db_path_for_images.as_deref().map(flowie_core::images::ImageDir::beside),
+            blobs: blobs.into_iter().map(|b| (b.name.clone(), b)).collect(),
+            image_preview: None,
             imports: imports.into_iter().map(|r| (r.root, r)).collect(),
             kill_buffer: String::new(),
             mouse_block: false,
@@ -752,7 +764,9 @@ impl Outline {
     /// Settings or a dialog is open: the outline's own shortcuts are off
     /// (except under a palette opened from the dialog, which needs them).
     pub fn modal_open(&self) -> bool {
-        self.settings.is_some() || ((self.package_export.is_some() || self.package_import.is_some()) && self.palette.is_none())
+        self.settings.is_some()
+            || self.image_preview.is_some()
+            || ((self.package_export.is_some() || self.package_import.is_some()) && self.palette.is_none())
     }
 
     pub fn editing_node(&self) -> Option<NodeId> {
@@ -1646,6 +1660,9 @@ impl Outline {
     }
 
     pub fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
+        if self.copy_selected_image(cx) {
+            return;
+        }
         if let Some(roots) = self.block_roots() {
             self.copy_items(&roots, cx);
         } else if let Some(e) = &self.edit {
@@ -1670,9 +1687,12 @@ impl Outline {
 
     pub fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else { return };
+        if self.paste_images(&item, cx) {
+            return;
+        }
         let Some(text) = item.text() else { return };
         // Bullets copied from Flowie carry their full structure as metadata.
-        let items: Vec<flowie_core::Item> = item
+        let mut items: Vec<flowie_core::Item> = item
             .entries()
             .iter()
             .find_map(|e| match e {
@@ -1680,6 +1700,7 @@ impl Outline {
                 _ => None,
             })
             .unwrap_or_else(|| if text.trim_end_matches('\n').contains('\n') { flowie_core::io::parse_any(&text) } else { Vec::new() });
+        self.resolve_item_images(&mut items, None);
         let multiline = !items.is_empty();
         match self.edit_target() {
             Some(Target::Text(id)) if multiline && id != self.zoom => {

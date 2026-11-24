@@ -337,13 +337,21 @@ impl Outline {
                 this.update(cx, |this, cx| this.open_package_file(&p, cx)).ok();
                 return;
             }
-            let mut items = Vec::new();
+            let mut files = Vec::new();
             for p in paths {
                 if let Ok(content) = std::fs::read_to_string(&p) {
-                    items.extend(io::parse_any(&content));
+                    files.push((io::parse_any(&content), p.parent().map(|d| d.to_path_buf())));
                 }
             }
-            this.update(cx, |this, cx| this.import_items(items, cx)).ok();
+            this.update(cx, |this, cx| {
+                let mut items = Vec::new();
+                for (mut found, dir) in files {
+                    this.resolve_item_images(&mut found, dir.as_deref());
+                    items.extend(found);
+                }
+                this.import_items(items, cx)
+            })
+            .ok();
         })
         .detach();
     }
@@ -379,10 +387,37 @@ impl Outline {
         let safe: String = title.chars().map(|c| if "/\\:*?\"<>|".contains(c) { '-' } else { c }).take(60).collect();
         let dir = dirs::desktop_dir().unwrap_or_else(|| PathBuf::from("."));
         let rx = cx.prompt_for_new_path(&dir, Some(&format!("{safe}.{ext}")));
+        // Markdown refers to its images as `images/<name>` beside the file.
+        let mut images = Vec::new();
+        if ext == "md" {
+            fn walk(items: &[io::Item], out: &mut Vec<String>) {
+                for it in items {
+                    if it.kind == flowie_core::BlockKind::Image && !it.image.is_empty() && !out.contains(&it.image) {
+                        out.push(it.image.clone());
+                    }
+                    walk(&it.children, out);
+                }
+            }
+            let mut names = Vec::new();
+            walk(&items, &mut names);
+            images = names.into_iter().filter_map(|n| Some((self.image_dir.as_ref()?.path(&n)?, n))).collect();
+        }
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(path))) = rx.await else { return };
-            let msg = match std::fs::write(&path, content) {
-                Ok(()) => t!("toast.exported", path = path.display()),
+            let copy_images = || -> std::io::Result<()> {
+                if images.is_empty() {
+                    return Ok(());
+                }
+                let dir = path.parent().unwrap_or(std::path::Path::new(".")).join("images");
+                std::fs::create_dir_all(&dir)?;
+                for (from, name) in &images {
+                    std::fs::copy(from, dir.join(name))?;
+                }
+                Ok(())
+            };
+            let msg = match std::fs::write(&path, content).map(|()| copy_images()) {
+                Ok(Ok(())) => t!("toast.exported", path = path.display()),
+                Ok(Err(e)) => t!("image.export_images_failed", error = e),
                 Err(e) => t!("toast.export_failed", error = e),
             };
             this.update(cx, |this, cx| {

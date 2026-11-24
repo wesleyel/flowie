@@ -27,13 +27,21 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
   links between them still work. A package imported before comes in as a copy with new IDs.
 - Imported bullets show an unread dot until you open them, edit inside them or choose Mark as Seen;
   hovering the dot says who sent it and when. `is:new` finds them.
+- Images: one per bullet, with the bullet's text as its caption. Paste one, drop image files on a
+  row, or use Insert Image… (File menu, `/image`, ⌘⌥I). Space or a double-click shows it full size,
+  ⌘C copies the picture, and `has:image` finds image bullets. PNG, JPEG, GIF and WebP up to 50 MB;
+  files are kept once each in an `Images` folder beside the outline, and ones nothing uses any more
+  are removed. Agents add images with the new MCP tool `attach_image`.
+- Markdown export writes images to an `images` folder beside the file as `![caption](images/…)`;
+  Markdown import reads such images back. Share packages carry their images.
 
 ### Changed
 
 - Bullets now have random UUIDs as ids, the same in every outline a bullet reaches, ready for
   sharing outlines later. An outline database from an earlier version is not converted: Flowie
   renames it to `flowie.sqlite.old-<time>` beside the new one and starts afresh. Export to OPML
-  first to keep its contents.
+  first to keep its contents. Outlines saved by an earlier build of this release candidate are set
+  aside the same way, since bullets now carry images.
 - The MCP server shows bullets with short ids, like git's abbreviated commits: at least 6 hex
   digits, more when another bullet starts the same way. Tools accept any unique prefix of 4 or more
   digits, and links agents write with a short id are saved with the full one.

@@ -3,6 +3,7 @@
 
 pub mod flatten;
 pub mod history;
+pub mod images;
 pub mod io;
 pub mod markup;
 mod ops;

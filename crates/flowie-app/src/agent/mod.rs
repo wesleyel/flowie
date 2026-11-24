@@ -153,7 +153,7 @@ fn n(p: &Value, k: &str) -> Option<u64> {
     p.get(k).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
 }
 
-const WRITES: [&str; 6] = ["create", "update", "move", "delete", "journal", "complete"];
+const WRITES: [&str; 7] = ["create", "update", "move", "delete", "journal", "complete", "attach_image"];
 
 impl Outline {
     pub fn handle_agent(&mut self, method: &str, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
@@ -181,6 +181,7 @@ impl Outline {
             "move" => self.agent_move(p, cx),
             "delete" => self.agent_delete(p, cx),
             "journal" => self.agent_journal(p, cx),
+            "attach_image" => self.agent_attach_image(p, cx),
             _ => Err(format!("unknown method {method}")),
         };
         cx.notify();
@@ -434,9 +435,40 @@ impl Outline {
         self.history.seal();
     }
 
+    /// A new image bullet from base64 data, under `parent` (default Home) or after `after`.
+    fn agent_attach_image(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
+        let data = s(p, "data").ok_or("missing `data` (base64 image bytes)")?;
+        let data = data.split_once("base64,").map_or(data, |(_, d)| d);
+        let bytes = crate::image::decode_base64(data).ok_or("`data` is not base64")?;
+        let name = self.store_image(&bytes)?;
+        let (parent, index) = if p.get("after").is_some() {
+            let after = self.agent_node(p, "after")?;
+            (self.tree.parent(after), self.tree.index_in_parent(after) + 1)
+        } else {
+            let parent = if p.get("parent").is_some() { self.agent_node(p, "parent")? } else { ROOT };
+            let parent = self.tree.source(parent);
+            let len = self.tree.children(parent).len();
+            (parent, n(p, "index").map(|i| (i as usize).min(len)).unwrap_or(len))
+        };
+        let caption = self.expand_links(s(p, "caption").unwrap_or(""))?;
+        let id = self.tree.create_at(parent, index, &caption.replace('\n', " "));
+        let mut node = self.tree.node(id).clone();
+        node.kind = BlockKind::Image;
+        node.image = name;
+        self.tree.put(node);
+        if parent != ROOT && self.tree.node(parent).collapsed {
+            self.tree.set_collapsed(parent, false);
+        }
+        self.agent_commit(&[id], cx);
+        let info = self.blobs.get(&self.tree.node(id).image);
+        Ok(format!("Added image [id:{}] ({}×{})", self.sid(id), info.map_or(0, |b| b.width), info.map_or(0, |b| b.height)))
+    }
+
     fn agent_create(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
         let markdown = self.expand_links(s(p, "markdown").ok_or("missing `markdown`")?)?;
-        let items = io::parse_any(&markdown);
+        let mut items = io::parse_any(&markdown);
+        // The sandboxed `flowie mcp` can't read the agent's files: images come through `attach_image`.
+        self.resolve_item_images(&mut items, None);
         if items.is_empty() {
             return Err("`markdown` contained no bullets".into());
         }
@@ -493,6 +525,9 @@ impl Outline {
             ),
             None => None,
         };
+        if kind == Some(BlockKind::Image) && self.tree.node(self.tree.source(id)).image.is_empty() {
+            return Err("only a bullet with an image can be kind image; add images with attach_image".into());
+        }
         let text = s(p, "text").map(|t| self.expand_links(&t.replace('\n', " "))).transpose()?;
         let note = s(p, "note").map(|n| self.expand_links(n)).transpose()?;
         let src = self.tree.source(id);

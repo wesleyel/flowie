@@ -66,7 +66,7 @@ mail, chat or cloud drives.
 mimetype           first entry, stored uncompressed: application/x-flowie-package
 manifest.json      who, when, what
 outline.json       the node tree
-images/<sha256>    image files (once images exist)
+images/<sha256>.<ext>  image files, checked against the hash in their name
 preview.md         optional: for Quick Look and people without Flowie
 ```
 
@@ -275,7 +275,8 @@ release notes built into the app.
 3. ~~Package export (without images)~~ (done).
 4. ~~Package import: file type, hand-off to the running instance, import dialog, unread dot~~ (done;
    Windows and Linux take the path as an argument, but no installer registers the file type yet).
-5. Images, then images in packages.
+5. ~~Images, then images in packages~~ (done; display thumbnails are not cached on disk yet:
+   GPUI decodes and caches each image in memory).
 6. Re-importing a package: first the "already imported" note, then the three-way update.
 7. Change history with authors, and the agent co-authoring setting.
 8. What's New page.

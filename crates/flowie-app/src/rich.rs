@@ -13,7 +13,7 @@ use crate::theme::Theme;
 pub enum Click {
     Tag(String),
     Link(String),
-    Node(u64),
+    Node(flowie_core::NodeId),
     Date(String),
 }
 
@@ -188,7 +188,7 @@ pub fn build(raw: &str, edit: bool, style: &Style) -> Vec<Piece> {
             }
             Kind::Link { url } => {
                 t.color = theme.link;
-                let internal = url.strip_prefix("flowie:").and_then(|id| id.parse::<u64>().ok());
+                let internal = url.strip_prefix("flowie:").and_then(|id| id.parse::<flowie_core::NodeId>().ok());
                 t.underline = Some(UnderlineStyle {
                     thickness: gpui::px(1.),
                     color: Some(theme.link.opacity(if internal.is_some() { 0.0 } else { 0.4 })),

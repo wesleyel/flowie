@@ -15,6 +15,7 @@ pub use ipc::{claim, Claim, Listener};
 use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;
 
+use flowie_core::short_id::Lookup;
 use flowie_core::{io, markup, search::today, BlockKind, NodeId, Query, ROOT};
 use futures::StreamExt;
 use gpui::{App, Context, WindowHandle};
@@ -141,7 +142,7 @@ fn s<'a>(p: &'a Value, k: &str) -> Option<&'a str> {
 }
 
 fn n(p: &Value, k: &str) -> Option<u64> {
-    p.get(k).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim_start_matches("id:").parse().ok())))
+    p.get(k).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
 }
 
 const WRITES: [&str; 6] = ["create", "update", "move", "delete", "journal", "complete"];
@@ -178,18 +179,100 @@ impl Outline {
         result
     }
 
-    /// Resolve "home", "today", "id:12" or 12 to a real node id.
-    fn agent_node(&mut self, p: &Value, key: &str) -> Result<NodeId, String> {
+    /// Agents write links with the short ids they were shown:
+    /// `[label](flowie:3f9a1c)` is stored with the full id, which stays valid
+    /// however many nodes are added later.
+    fn expand_links(&self, text: &str) -> Result<String, String> {
+        const MARK: &str = "](flowie:";
+        if !text.contains(MARK) {
+            return Ok(text.to_string());
+        }
+        let mut short = self.short_ids.borrow_mut();
+        short.update(&self.tree);
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(i) = rest.find(MARK) {
+            let start = i + MARK.len();
+            out.push_str(&rest[..start]);
+            rest = &rest[start..];
+            let len = rest.find(|c: char| !(c.is_ascii_hexdigit() || c == '-')).unwrap_or(rest.len());
+            let (target, after) = rest.split_at(len);
+            if target.parse::<NodeId>().is_ok() {
+                out.push_str(target);
+            } else {
+                let id = short.resolve(target).map_err(|e| match e {
+                    Lookup::Ambiguous(_) => format!("link target flowie:{target} is ambiguous; use more digits"),
+                    _ => format!("link target flowie:{target} is not a bullet id"),
+                })?;
+                out.push_str(&id.to_string());
+            }
+            rest = after;
+        }
+        out.push_str(rest);
+        Ok(out)
+    }
+
+    /// `flowie:` links as agents see them: with short ids (`expand_links` undoes this).
+    fn shorten_links(&self, text: &str) -> String {
+        const MARK: &str = "](flowie:";
+        if !text.contains(MARK) {
+            return text.to_string();
+        }
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(i) = rest.find(MARK) {
+            let start = i + MARK.len();
+            out.push_str(&rest[..start]);
+            rest = &rest[start..];
+            let len = rest.find(|c: char| !c.is_ascii_hexdigit()).unwrap_or(rest.len());
+            let (target, after) = rest.split_at(len);
+            match target.parse::<NodeId>() {
+                Ok(id) => out.push_str(&self.sid(id)),
+                Err(()) => out.push_str(target),
+            }
+            rest = after;
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// The id shown to agents: the shortest unambiguous prefix, like git.
+    fn sid(&self, id: NodeId) -> String {
+        let mut short = self.short_ids.borrow_mut();
+        short.update(&self.tree);
+        short.short(id)
+    }
+
+    /// Resolve "home", "today", a YYYY-MM-DD day, or a bullet id (full, or a
+    /// unique prefix of at least 4 hex digits, optionally after "id:") to a real node id.
+    pub(crate) fn agent_node(&mut self, p: &Value, key: &str) -> Result<NodeId, String> {
         let v = p.get(key).ok_or_else(|| format!("missing `{key}`"))?;
-        let id = match v.as_str() {
+        let bad = || format!("`{key}` must be a bullet id (from read/search), \"home\", \"today\" or a YYYY-MM-DD day");
+        let id = match v.as_str().map(|s| s.trim().trim_start_matches("id:")) {
             Some("home") | Some("root") => ROOT,
             Some("today") => self.ensure_day(&today(), false),
             Some(s) if s.len() == 10 && markup::date_len(s) == Some(10) => self.ensure_day(s, false),
-            _ => n(p, key).ok_or_else(|| format!("`{key}` must be a bullet id, \"home\" or \"today\""))?,
+            Some(s) => match s.parse::<NodeId>() {
+                Ok(id) => id,
+                Err(()) => {
+                    let mut short = self.short_ids.borrow_mut();
+                    short.update(&self.tree);
+                    match short.resolve(s) {
+                        Ok(id) => id,
+                        Err(Lookup::Invalid) => return Err(bad()),
+                        Err(Lookup::NotFound) => return Err(format!("no bullet with id {s}")),
+                        Err(Lookup::Ambiguous(ids)) => {
+                            let list: Vec<String> = ids.iter().map(|id| short.short(*id)).collect();
+                            return Err(format!("id {s} is ambiguous; it could be {}", list.join(", ")));
+                        }
+                    }
+                }
+            },
+            None => return Err(bad()),
         };
         let id = self.tree.resolve(id);
         if id != ROOT && !self.tree.contains(id) {
-            return Err(format!("no bullet with id {id}"));
+            return Err(format!("no bullet with id {}", self.sid(id)));
         }
         Ok(id)
     }
@@ -205,7 +288,7 @@ impl Outline {
     fn line_for(&self, id: NodeId) -> String {
         let node = self.tree.node(id);
         let src = self.tree.node(self.tree.source(id));
-        let text = &src.text;
+        let text = &self.shorten_links(&src.text);
         let body = match node.kind {
             BlockKind::H1 => format!("# {text}"),
             BlockKind::H2 => format!("## {text}"),
@@ -216,9 +299,9 @@ impl Outline {
             _ if src.completed => format!("~~{text}~~"),
             _ => text.clone(),
         };
-        let mut tags = vec![format!("id:{id}")];
+        let mut tags = vec![format!("id:{}", self.sid(id))];
         if node.mirror != ROOT {
-            tags.push(format!("mirror of id:{}", node.mirror));
+            tags.push(format!("mirror of id:{}", self.sid(node.mirror)));
         }
         if !matches!(
             node.kind,
@@ -234,7 +317,7 @@ impl Outline {
         out.push_str(&format!("{pad}- {}\n", self.line_for(id)));
         let src = self.tree.source(id);
         let note = &self.tree.node(src).note;
-        for l in note.lines() {
+        for l in self.shorten_links(note).lines() {
             out.push_str(&format!("{pad}  > {l}\n"));
         }
         let kids = self.tree.children(src);
@@ -242,7 +325,7 @@ impl Outline {
             return;
         }
         if depth + 1 >= max {
-            out.push_str(&format!("{pad}  - … {} more (read id:{id} to expand)\n", self.tree.descendants(src).len()));
+            out.push_str(&format!("{pad}  - … {} more (read id:{} to expand)\n", self.tree.descendants(src).len(), self.sid(id)));
             return;
         }
         for &k in kids {
@@ -263,7 +346,7 @@ impl Outline {
             out.push_str(&format!("Path: {}\n", self.path_of(id)));
             let src = self.tree.source(id);
             out.push_str(&format!("# {}\n", self.line_for(id)));
-            for l in self.tree.node(src).note.lines() {
+            for l in self.shorten_links(&self.tree.node(src).note).lines() {
                 out.push_str(&format!("> {l}\n"));
             }
             for &k in self.tree.children(src) {
@@ -271,7 +354,10 @@ impl Outline {
             }
             let links = self.tree.backlinks(src);
             if !links.is_empty() {
-                out.push_str(&format!("\nLinked from: {}\n", links.iter().map(|l| format!("id:{l}")).collect::<Vec<_>>().join(", ")));
+                out.push_str(&format!(
+                    "\nLinked from: {}\n",
+                    links.iter().map(|l| format!("id:{}", self.sid(*l))).collect::<Vec<_>>().join(", ")
+                ));
             }
         }
         if self.tree.children(self.tree.source(id)).is_empty() && id == ROOT {
@@ -322,7 +408,7 @@ impl Outline {
     fn agent_open(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
         let id = self.agent_node(p, "id")?;
         self.zoom_to(id, cx);
-        Ok(format!("Showing {} in Flowie", if id == ROOT { "Home".into() } else { format!("id:{id}") }))
+        Ok(format!("Showing {} in Flowie", if id == ROOT { "Home".into() } else { format!("id:{}", self.sid(id)) }))
     }
 
     /// Finish an agent edit: one undo step, persist, and flash the touched rows.
@@ -341,8 +427,8 @@ impl Outline {
     }
 
     fn agent_create(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
-        let markdown = s(p, "markdown").ok_or("missing `markdown`")?;
-        let items = io::parse_any(markdown);
+        let markdown = self.expand_links(s(p, "markdown").ok_or("missing `markdown`")?)?;
+        let items = io::parse_any(&markdown);
         if items.is_empty() {
             return Err("`markdown` contained no bullets".into());
         }
@@ -378,7 +464,7 @@ impl Outline {
             "Created {} bullet{} under {}:\n",
             all.len(),
             if all.len() == 1 { "" } else { "s" },
-            if parent == ROOT { "Home".to_string() } else { format!("id:{parent}") }
+            if parent == ROOT { "Home".to_string() } else { format!("id:{}", self.sid(parent)) }
         );
         for &t in &top {
             self.write_tree(t, 0, 20, &mut out);
@@ -399,12 +485,14 @@ impl Outline {
             ),
             None => None,
         };
+        let text = s(p, "text").map(|t| self.expand_links(&t.replace('\n', " "))).transpose()?;
+        let note = s(p, "note").map(|n| self.expand_links(n)).transpose()?;
         let src = self.tree.source(id);
-        if let Some(t) = s(p, "text") {
-            self.tree.set_text(src, &t.replace('\n', " "));
+        if let Some(t) = text {
+            self.tree.set_text(src, &t);
         }
-        if let Some(note) = s(p, "note") {
-            self.tree.set_note(src, note);
+        if let Some(note) = note {
+            self.tree.set_note(src, &note);
         }
         if let Some(done) = p.get("completed").and_then(Value::as_bool) {
             self.tree.set_completed(src, done);

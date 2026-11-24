@@ -53,7 +53,7 @@ impl Outline {
         let kind = PopoverKind::References(id);
         let open = self.popover.is_open(&kind);
         let badge = div()
-            .id(("reference-count", id as usize))
+            .id(("reference-count", id.as_usize()))
             .flex_none()
             .ml_2()
             .px_1()
@@ -394,7 +394,7 @@ impl Outline {
                 let target = if mirror { self.tree.parent(id) } else { id };
                 section.push(
                     div()
-                        .id(("backlink", id as usize))
+                        .id(("backlink", id.as_usize()))
                         .flex()
                         .items_start()
                         .gap_2()
@@ -449,8 +449,15 @@ impl Outline {
         let has_kids = self.tree.has_children(self.tree.source(id));
         let collapsed = node.collapsed;
         let label: String = markup::plain_text(&src.text).chars().take(60).collect();
-        let base =
-            div().id(("bullet", id as usize)).flex_none().w(px(18.)).h(px(line_h)).flex().items_center().justify_center().cursor_pointer();
+        let base = div()
+            .id(("bullet", id.as_usize()))
+            .flex_none()
+            .w(px(18.))
+            .h(px(line_h))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer();
         let inner = match kind {
             BlockKind::Todo => {
                 return base
@@ -619,7 +626,7 @@ impl Outline {
         });
 
         let chevron = div()
-            .id(("chevron", id as usize))
+            .id(("chevron", id.as_usize()))
             .absolute()
             .left(px(left - 20.))
             .top(px(top_pad))
@@ -661,7 +668,7 @@ impl Outline {
             .children(note_el.map(|n| div().text_size(px(13.)).line_height(px(20.)).child(n)));
 
         let row = div()
-            .id(("row", id as usize))
+            .id(("row", id.as_usize()))
             .group("row")
             .relative()
             .w_full()

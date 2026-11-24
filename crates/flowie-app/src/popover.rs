@@ -154,7 +154,7 @@ impl Outline {
                     let (text, note) = self.plain_text_and_note(src);
                     let path = self.render_path(src, 392., false, window, cx);
                     out.push(
-                        crate::ui::list::hover_row(theme, ("popover-ref", src as usize))
+                        crate::ui::list::hover_row(theme, ("popover-ref", src.as_usize()))
                             .py_2()
                             .px_2()
                             .child(text)
@@ -171,7 +171,7 @@ impl Outline {
                 .iter()
                 .filter(|id| **id == ROOT || self.tree.contains(**id))
                 .map(|&id| {
-                    crate::ui::list::hover_row(theme, ("popover-crumb", id as usize))
+                    crate::ui::list::hover_row(theme, ("popover-crumb", id.as_usize()))
                         .px_2()
                         .py_1()
                         .hover(|s| s.text_color(theme.link))

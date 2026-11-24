@@ -2,6 +2,7 @@ use crate::flatten::flatten_mapped;
 use crate::io;
 use crate::markup::{self, Kind};
 use crate::search::{find_highlights, Query};
+use crate::tree::virtual_id;
 use crate::*;
 
 fn texts(tree: &Tree, parent: NodeId) -> Vec<String> {
@@ -194,10 +195,10 @@ fn hide_completed() {
 
 #[test]
 fn merge_leaving_keeps_position() {
-    let r = |id| Row { id, depth: 0 };
+    let r = |n| Row { id: NodeId(n), depth: 0 };
     let old = [r(1), r(2), r(3), r(4)];
     let new = [r(1), r(4), r(5)];
-    let merged: Vec<(NodeId, bool)> = merge_leaving(&old, &new).iter().map(|d| (d.row.id, d.leaving)).collect();
+    let merged: Vec<(u128, bool)> = merge_leaving(&old, &new).iter().map(|d| (d.row.id.0, d.leaving)).collect();
     assert_eq!(merged, vec![(1, false), (2, true), (3, true), (4, false), (5, false)]);
 }
 
@@ -368,14 +369,21 @@ fn expand_to_level_and_restore_and_backlinks() {
 }
 
 #[test]
-fn next_id_survives_reload() {
+fn node_ids() {
     let mut t = Tree::new();
     let a = t.create_at(ROOT, 0, "a");
-    let b = t.create_after(a, "b");
-    t.delete(b);
-    let mut t2 = Tree::from_nodes(t.nodes().cloned().collect::<Vec<_>>());
-    t2.ensure_next_id(t.next_id());
-    assert!(t2.alloc_id() > b);
+    assert!(!a.is_virtual() && a != ROOT);
+    assert_eq!((a.0 >> 76) & 0xF, 4, "version 4 UUID");
+    assert_eq!(a.to_string().len(), 32);
+    assert_eq!(a.to_string().parse::<NodeId>(), Ok(a));
+    let hyphenated = uuid::Uuid::from_u128(a.0).hyphenated().to_string();
+    assert_eq!(hyphenated.parse::<NodeId>(), Ok(a));
+    assert!("123".parse::<NodeId>().is_err());
+    assert_eq!(serde_json::to_string(&a).unwrap(), format!("\"{a}\""));
+    assert_eq!(serde_json::from_str::<NodeId>(&format!("\"{a}\"")).unwrap(), a);
+    let v = virtual_id(a, ROOT);
+    assert!(v.is_virtual() && v != a);
+    assert_eq!(virtual_id(a, ROOT), v, "stable");
 }
 
 #[test]

@@ -288,9 +288,9 @@ class Flowie:
         out = self.call("create", markdown=markdown.strip("\n"), **where)
         ids = {}
         for line in out.splitlines():
-            m = re.match(r"\s*- (.*)  \[id:(\d+)", line)
+            m = re.match(r"\s*- (.*)  \[id:([0-9a-f]+)", line)
             if m:
-                ids[m.group(1)] = int(m.group(2))
+                ids[m.group(1)] = m.group(2)
         return ids
 
     def find_window(self):
@@ -346,16 +346,16 @@ def seed(app, c):
     today = c["today"].format(research=link(label_of(c["research"]), ids["research"]),
                               reading=link(label_of(c["reading"]), ids["reading"]), due=day(1))
     ids["today/all"] = app.call("journal", date=day(0), markdown=today.strip("\n"))
-    journal = int(re.search(r"under id:(\d+)", ids["today/all"]).group(1))
+    journal = re.search(r"under id:([0-9a-f]+)", ids["today/all"]).group(1)
     ids["today"] = journal
     home = app.call("read", depth=1)
-    journal_root = int(re.search(r"- Journal  \[id:(\d+)", home).group(1))
+    journal_root = re.search(r"- Journal  \[id:([0-9a-f]+)", home).group(1)
     app.call("update", id=journal_root, text=c["journal"])
     # Collapse the journal days and big pages on Home.
     for d in journal_days():
-        m = re.search(rf"- {day(d)}  \[id:(\d+)", app.call("read", id=journal_root, depth=1))
+        m = re.search(rf"- {day(d)}  \[id:([0-9a-f]+)", app.call("read", id=journal_root, depth=1))
         if m:
-            app.call("update", id=int(m.group(1)), collapsed=True)
+            app.call("update", id=m.group(1), collapsed=True)
     for key in ("research", "launch"):
         app.call("update", id=ids[key], collapsed=True)
     for key in ("research", "reading", "launch"):
@@ -402,7 +402,7 @@ def shot_commands(app, c, ids):
 
 def today_id(ids, prefix):
     """A bullet on today's journal page, by the start of its text."""
-    return int(re.search(rf"- (?:\[.\] )?{re.escape(prefix)}.*\[id:(\d+)", ids["today/all"]).group(1))
+    return re.search(rf"- (?:\[.\] )?{re.escape(prefix)}.*\[id:([0-9a-f]+)", ids["today/all"]).group(1)
 
 
 def shot_journal(app, c, ids):

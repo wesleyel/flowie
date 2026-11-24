@@ -5,7 +5,7 @@
 //! calendar, settings…) so App Store and website screenshots can be retaken
 //! from a script. Never part of a release build.
 
-use flowie_core::{BlockKind, NodeId, ROOT};
+use flowie_core::{BlockKind, ROOT};
 use gpui::{point, px, Context};
 use serde_json::Value;
 
@@ -16,12 +16,6 @@ use crate::settings::Tab;
 
 fn s<'a>(p: &'a Value, k: &str) -> Option<&'a str> {
     p.get(k).and_then(Value::as_str)
-}
-
-fn id(p: &Value, k: &str) -> Result<NodeId, String> {
-    p.get(k)
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim_start_matches("id:").parse().ok())))
-        .ok_or_else(|| format!("missing `{k}`"))
 }
 
 fn f(p: &Value, k: &str) -> Result<f32, String> {
@@ -61,7 +55,7 @@ impl Outline {
                 Ok("reset".into())
             }
             "star" => {
-                let id = id(p, "id")?;
+                let id = self.agent_node(p, "id")?;
                 if !self.starred.contains(&id) {
                     self.starred.push(id);
                 }
@@ -79,7 +73,7 @@ impl Outline {
             }
             // A mirror of `source` as the last child of `parent`.
             "mirror" => {
-                let (source, parent) = (id(p, "source")?, id(p, "parent")?);
+                let (source, parent) = (self.agent_node(p, "source")?, self.agent_node(p, "parent")?);
                 let index = self.tree.children(parent).len();
                 let m = self.tree.create_mirror(source, parent, index).ok_or("can't mirror into itself")?;
                 self.commit_structure(None, cx);
@@ -87,7 +81,7 @@ impl Outline {
                 Ok(m.to_string())
             }
             "kind" => {
-                let id = id(p, "id")?;
+                let id = self.agent_node(p, "id")?;
                 let kind = BlockKind::from_name(s(p, "kind").unwrap_or("")).ok_or("unknown kind")?;
                 self.tree.set_kind(id, kind);
                 self.commit_structure(None, cx);
@@ -95,7 +89,7 @@ impl Outline {
                 Ok("kind".into())
             }
             "zoom" => {
-                let id = id(p, "id").unwrap_or(ROOT);
+                let id = if p.get("id").is_some() { self.agent_node(p, "id")? } else { ROOT };
                 self.shot_close_ui();
                 self.zoom_to(id, cx);
                 self.edit = None;
@@ -103,7 +97,7 @@ impl Outline {
             }
             // Caret in a bullet's text (`offset` defaults to the end).
             "caret" => {
-                let id = id(p, "id")?;
+                let id = self.agent_node(p, "id")?;
                 let len = self.tree.node(self.tree.source(id)).text.len();
                 let off = p.get("offset").and_then(Value::as_u64).map_or(len, |o| o as usize);
                 self.start_edit(Target::Text(id), off, cx);
@@ -152,7 +146,7 @@ impl Outline {
             }
             // The right-click menu of a bullet, drawn at (x, y) in window points.
             "bullet_menu" => {
-                let id = id(p, "id")?;
+                let id = self.agent_node(p, "id")?;
                 self.shot_close_ui();
                 self.edit = None;
                 self.block = Some(BlockSel { anchor: id, head: id });

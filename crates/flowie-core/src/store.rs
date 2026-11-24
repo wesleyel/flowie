@@ -15,8 +15,8 @@ const SCHEMA: &str = "
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 CREATE TABLE IF NOT EXISTS nodes (
-    id        INTEGER PRIMARY KEY,
-    parent    INTEGER NOT NULL,
+    id        BLOB    PRIMARY KEY,
+    parent    BLOB    NOT NULL,
     rank      REAL    NOT NULL,
     text      TEXT    NOT NULL DEFAULT '',
     note      TEXT    NOT NULL DEFAULT '',
@@ -25,11 +25,11 @@ CREATE TABLE IF NOT EXISTS nodes (
     created   INTEGER NOT NULL,
     modified  INTEGER NOT NULL,
     kind      INTEGER NOT NULL DEFAULT 0,
-    mirror    INTEGER NOT NULL DEFAULT 0
-);
+    mirror    BLOB    NOT NULL
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS trash (
     seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-    root       INTEGER NOT NULL,
+    root       BLOB    NOT NULL,
     deleted_at INTEGER NOT NULL,
     label      TEXT    NOT NULL,
     payload    TEXT    NOT NULL
@@ -40,13 +40,61 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 ";
 
+/// The database format, kept in `PRAGMA user_version`. Version 2 has UUID
+/// node ids; a database from before (integer ids) is moved aside, not converted.
+const FORMAT: i64 = 2;
+
+impl rusqlite::ToSql for NodeId {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::from(self.to_bytes().to_vec()))
+    }
+}
+
+impl rusqlite::types::FromSql for NodeId {
+    fn column_result(v: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        let b = v.as_blob()?;
+        NodeId::from_bytes(b).ok_or(rusqlite::types::FromSqlError::InvalidBlobSize { expected_size: 16, blob_size: b.len() })
+    }
+}
+
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let conn = Connection::open(path)?;
+    let mut conn = Connection::open(path)?;
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let has_nodes: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'nodes'", [], |r| r.get(0))?;
+    if has_nodes > 0 && version < FORMAT {
+        // Fold the WAL into the file so the three files move as one.
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+        drop(conn);
+        let aside = set_aside(path);
+        eprintln!("flowie: {} has an older format; moved it to {}", path.display(), aside.display());
+        conn = Connection::open(path)?;
+    }
     conn.execute_batch(SCHEMA)?;
+    conn.pragma_update(None, "user_version", FORMAT)?;
     Ok(conn)
+}
+
+/// Rename an old-format database (and its WAL and shared-memory files) to
+/// `<name>.old-<millis>`, where a newer Flowie leaves it alone.
+fn set_aside(path: &Path) -> PathBuf {
+    let mut aside = path.as_os_str().to_owned();
+    aside.push(format!(".old-{}", crate::tree::now_millis()));
+    let aside = PathBuf::from(aside);
+    for suffix in ["", "-wal", "-shm"] {
+        let mut from = path.as_os_str().to_owned();
+        from.push(suffix);
+        let mut to = aside.as_os_str().to_owned();
+        to.push(suffix);
+        if Path::new(&from).exists() {
+            if let Err(e) = std::fs::rename(&from, &to) {
+                eprintln!("flowie: could not move {}: {e}", Path::new(&from).display());
+            }
+        }
+    }
+    aside
 }
 
 pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, String)>)> {
@@ -54,8 +102,8 @@ pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, Stri
     let nodes = stmt
         .query_map([], |r| {
             Ok(Node {
-                id: r.get::<_, i64>(0)? as NodeId,
-                parent: r.get::<_, i64>(1)? as NodeId,
+                id: r.get(0)?,
+                parent: r.get(1)?,
                 rank: r.get(2)?,
                 text: r.get(3)?,
                 note: r.get(4)?,
@@ -64,7 +112,7 @@ pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, Stri
                 created: r.get(7)?,
                 modified: r.get(8)?,
                 kind: crate::tree::BlockKind::from_u8(r.get::<_, i64>(9)? as u8),
-                mirror: r.get::<_, i64>(10)? as NodeId,
+                mirror: r.get(10)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -84,8 +132,8 @@ pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], 
         )?;
         for n in upserts {
             up.execute(params![
-                n.id as i64,
-                n.parent as i64,
+                n.id,
+                n.parent,
                 n.rank,
                 n.text,
                 n.note,
@@ -94,12 +142,12 @@ pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], 
                 n.created,
                 n.modified,
                 n.kind.to_u8() as i64,
-                n.mirror as i64
+                n.mirror
             ])?;
         }
         let mut del = tx.prepare_cached("DELETE FROM nodes WHERE id = ?1")?;
         for id in deletes {
-            del.execute(params![*id as i64])?;
+            del.execute(params![id])?;
         }
         let mut m = tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2")?;
         for (k, v) in meta {
@@ -129,7 +177,7 @@ pub fn list_trash(conn: &Connection, keep_days: i64) -> rusqlite::Result<Vec<Tra
         let payload: String = r.get(4)?;
         Ok(TrashEntry {
             seq: r.get(0)?,
-            root: r.get::<_, i64>(1)? as NodeId,
+            root: r.get(1)?,
             deleted_at: r.get(2)?,
             label: r.get(3)?,
             nodes: serde_json::from_str(&payload).unwrap_or_default(),
@@ -255,7 +303,7 @@ fn writer_loop(path: PathBuf, rx: Receiver<Msg>) {
                 let payload = serde_json::to_string(&nodes).unwrap_or_default();
                 if let Err(e) = conn.execute(
                     "INSERT INTO trash (root, deleted_at, label, payload) VALUES (?1, ?2, ?3, ?4)",
-                    params![root as i64, crate::tree::now_millis(), label, payload],
+                    params![root, crate::tree::now_millis(), label, payload],
                 ) {
                     eprintln!("flowie: trash write failed: {e}");
                 }

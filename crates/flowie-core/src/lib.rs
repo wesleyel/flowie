@@ -7,6 +7,7 @@ pub mod io;
 pub mod markup;
 mod ops;
 pub mod search;
+pub mod short_id;
 pub mod store;
 pub mod tree;
 
@@ -14,6 +15,7 @@ pub use flatten::{flatten, flatten_mapped, merge_leaving, DisplayRow, Row, ViewO
 pub use history::{Caret, History, Kind as HistoryKind};
 pub use io::Item;
 pub use search::Query;
+pub use short_id::ShortIds;
 pub use tree::{BlockKind, Node, NodeId, Tree, ROOT};
 
 #[cfg(test)]

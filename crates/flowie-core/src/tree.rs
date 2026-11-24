@@ -2,21 +2,100 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-pub type NodeId = u64;
+/// A node's id: a random (version 4) UUID, the same in every outline the
+/// node reaches (share packages keep it). Shown as 32 lowercase hex digits;
+/// `ShortIds` gives the shortest unambiguous prefix for display.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct NodeId(pub u128);
 
-/// The invisible root of every outline. Its children are the top-level bullets.
-pub const ROOT: NodeId = 0;
+/// The invisible root of every outline (the nil UUID). Its children are the top-level bullets.
+pub const ROOT: NodeId = NodeId(0);
 
-/// Ids with this bit set are *virtual*: the rows shown inside a mirror. The
-/// tree resolves them to the real node they display (see `set_virtuals`).
-pub const VIRTUAL_BIT: NodeId = 1 << 62;
+/// Bits 76–79 of a UUID hold its version.
+const VERSION_SHIFT: u32 = 76;
+const VERSION_MASK: u128 = 0xF << VERSION_SHIFT;
+/// Bits 62–63 hold the variant (`10` for RFC 9562 UUIDs).
+const VARIANT_MASK: u128 = 0b11 << 62;
+const VARIANT_RFC: u128 = 0b10 << 62;
+/// Version 8 ("custom") marks *virtual* ids: the rows shown inside a mirror.
+/// The tree resolves them to the real node they display (see `add_virtuals`).
+const VIRTUAL_VERSION: u128 = 8 << VERSION_SHIFT;
+
+impl NodeId {
+    /// A new random id.
+    pub fn random() -> NodeId {
+        NodeId(uuid::Uuid::new_v4().as_u128())
+    }
+
+    /// Whether this is a virtual id (a row inside a mirror), not a stored node.
+    #[inline]
+    pub fn is_virtual(self) -> bool {
+        self.0 & VERSION_MASK == VIRTUAL_VERSION
+    }
+
+    /// The bytes stored in the database (big-endian, as UUIDs are written).
+    pub fn to_bytes(self) -> [u8; 16] {
+        self.0.to_be_bytes()
+    }
+
+    pub fn from_bytes(b: &[u8]) -> Option<NodeId> {
+        Some(NodeId(u128::from_be_bytes(b.try_into().ok()?)))
+    }
+
+    /// A short number for UI element ids (not unique; fine for hashing).
+    pub fn as_usize(self) -> usize {
+        (self.0 as u64 ^ (self.0 >> 64) as u64) as usize
+    }
+}
+
+impl std::fmt::Display for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:032x}", self.0)
+    }
+}
+
+impl std::fmt::Debug for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+/// Parses the full id: 32 hex digits, with or without the UUID hyphens.
+impl std::str::FromStr for NodeId {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<NodeId, ()> {
+        let hex: String = s.chars().filter(|c| *c != '-').collect();
+        if hex.len() != 32 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(());
+        }
+        u128::from_str_radix(&hex, 16).map(NodeId).map_err(|_| ())
+    }
+}
+
+impl serde::Serialize for NodeId {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for NodeId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<NodeId, D::Error> {
+        let s = <std::borrow::Cow<'de, str>>::deserialize(d)?;
+        s.parse().map_err(|_| serde::de::Error::custom("expected a node id (32 hex digits)"))
+    }
+}
 
 /// A stable virtual id for `child` shown under the row `parent_key`.
 pub fn virtual_id(parent_key: NodeId, child: NodeId) -> NodeId {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (parent_key, child).hash(&mut h);
-    VIRTUAL_BIT | (h.finish() & (VIRTUAL_BIT - 1))
+    let lo = h.finish();
+    (child, parent_key).hash(&mut h);
+    let hi = h.finish();
+    let bits = ((hi as u128) << 64) | lo as u128;
+    NodeId((bits & !VERSION_MASK & !VARIANT_MASK) | VIRTUAL_VERSION | VARIANT_RFC)
 }
 
 /// How a node is displayed.
@@ -146,7 +225,6 @@ pub struct Change {
 pub struct Tree {
     nodes: HashMap<NodeId, Node>,
     children: HashMap<NodeId, Vec<NodeId>>,
-    next_id: NodeId,
     /// Changes since the last `take_journal` (undo grouping).
     journal: Vec<Change>,
     /// Node ids changed since the last `take_dirty` (persistence).
@@ -183,7 +261,7 @@ fn link_targets(node: &Node) -> HashSet<NodeId> {
 
 impl Tree {
     pub fn new() -> Self {
-        let mut tree = Tree { next_id: 1, ..Default::default() };
+        let mut tree = Tree::default();
         tree.nodes.insert(ROOT, Node::new(ROOT, ROOT, 0.0));
         tree.children.insert(ROOT, Vec::new());
         tree
@@ -198,7 +276,6 @@ impl Tree {
             if n.parent != ROOT && !ids.contains(&n.parent) {
                 n.parent = ROOT;
             }
-            tree.next_id = tree.next_id.max(n.id + 1);
         }
         for n in all {
             tree.children.entry(n.id).or_default();
@@ -235,7 +312,7 @@ impl Tree {
         for target in link_targets(node) {
             edit(&mut self.links, target);
         }
-        if node.mirror != 0 {
+        if node.mirror != ROOT {
             edit(&mut self.mirrors, node.mirror);
         }
     }
@@ -257,8 +334,9 @@ impl Tree {
     }
 
     /// Nodes whose text or note links to `id`, sorted by id.
+    /// Nodes linking to `id`, in outline order.
     pub fn links_to(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
-        self.links.get(&id).into_iter().flatten().copied()
+        self.in_outline_order(self.links.get(&id).into_iter().flatten().copied().collect()).into_iter()
     }
 
     /// Number of distinct nodes linking to `id`.
@@ -268,7 +346,26 @@ impl Tree {
 
     /// Mirrors of `source`, sorted by id.
     pub fn mirrors_of(&self, source: NodeId) -> Vec<NodeId> {
-        self.mirrors.get(&source).into_iter().flatten().copied().collect()
+        self.in_outline_order(self.mirrors.get(&source).into_iter().flatten().copied().collect())
+    }
+
+    /// Sort `ids` the way they appear reading the outline top to bottom (ids
+    /// are random, so their own order means nothing).
+    fn in_outline_order(&self, mut ids: Vec<NodeId>) -> Vec<NodeId> {
+        if ids.len() > 1 {
+            ids.sort_by_cached_key(|&id| {
+                let mut path = Vec::new();
+                let mut n = id;
+                while n != ROOT {
+                    let Some(node) = self.nodes.get(&n) else { break };
+                    path.push(self.children(node.parent).iter().position(|c| *c == n).unwrap_or(usize::MAX));
+                    n = node.parent;
+                }
+                path.reverse();
+                path
+            });
+        }
+        ids
     }
 
     /// Defensive: any node unreachable from the root (a parent cycle in bad data) moves to the root.
@@ -310,7 +407,7 @@ impl Tree {
     /// The real node behind a (possibly virtual) id.
     #[inline]
     pub fn resolve(&self, id: NodeId) -> NodeId {
-        if id & VIRTUAL_BIT != 0 {
+        if id.is_virtual() {
             self.virtuals.get(&id).copied().unwrap_or(id)
         } else {
             id
@@ -406,19 +503,14 @@ impl Tree {
         out
     }
 
-    /// The next id that will be allocated (persist it so ids of deleted nodes are never reused).
-    pub fn next_id(&self) -> NodeId {
-        self.next_id
-    }
-
-    pub fn ensure_next_id(&mut self, at_least: NodeId) {
-        self.next_id = self.next_id.max(at_least);
-    }
-
+    /// A new id no node in this tree has.
     pub fn alloc_id(&mut self) -> NodeId {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
+        loop {
+            let id = NodeId::random();
+            if !self.nodes.contains_key(&id) {
+                return id;
+            }
+        }
     }
 
     /// A rank that sorts at position `index` among the current children of `parent`.
@@ -476,7 +568,6 @@ impl Tree {
         }
         self.insert_sorted(&node);
         self.children.entry(node.id).or_default();
-        self.next_id = self.next_id.max(node.id + 1);
         self.sync_index(before.as_ref(), Some(&node));
         self.journal.push(Change { id: node.id, before, after: Some(node.clone()) });
         self.dirty.insert(node.id);

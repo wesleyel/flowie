@@ -55,7 +55,7 @@ fn walk(
 ) {
     // Explicit stack to stay safe on very deep outlines.
     // (row id, real node, depth, inside a mirror, mirror sources on the path)
-    let top_virtual = parent & crate::tree::VIRTUAL_BIT != 0 || tree.node(parent).mirror != crate::tree::ROOT;
+    let top_virtual = parent.is_virtual() || tree.node(parent).mirror != crate::tree::ROOT;
     let kids = tree.children(tree.source(parent));
     let mut stack: Vec<(NodeId, NodeId, u16, bool, Vec<NodeId>)> = kids
         .iter()

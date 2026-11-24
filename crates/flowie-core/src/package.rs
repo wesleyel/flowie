@@ -10,7 +10,7 @@
 //! - `images/<sha256>.<ext>`: image files, stored as they are (already compressed).
 //!
 //! Node ids are kept: they are global, so the same bullet has the same id in
-//! every outline it reaches. See `docs/roadmap.md` for the design.
+//! every outline it reaches.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};

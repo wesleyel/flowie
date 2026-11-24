@@ -5,10 +5,9 @@ og_description: A keyboard-first outliner for Mac and Windows. Zoom into any bul
 ---
 <section class="hero">
   <div class="container">
-    <img class="app-icon" src="{{ '/images/icon.png' | relative_url }}" width="256" height="256" alt="">
     {%- for pair in site.data.i18n %}{% assign t = pair[1] %}
     <div class="hero-copy" lang="{{ t.lang }}">
-      <h1>{{ t.name }}</h1>
+      <div class="hero-brand"><img class="app-icon" src="{{ '/images/icon.png' | relative_url }}" width="256" height="256" alt=""><h1>{{ t.name }}</h1></div>
       <p class="tagline">{{ t.tagline }}</p>
       <div class="cta">
         {% include badge.html t=t %}

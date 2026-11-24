@@ -91,7 +91,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
         // Fold the WAL into the file so the three files move as one.
         let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
         drop(conn);
-        let aside = set_aside(path);
+        let aside = set_aside(path).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         eprintln!("flowie: {} has an older format; moved it to {}", path.display(), aside.display());
         conn = Connection::open(path)?;
     }
@@ -102,22 +102,27 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
 
 /// Rename an old-format database (and its WAL and shared-memory files) to
 /// `<name>.old-<millis>`, where a newer Flowie leaves it alone.
-fn set_aside(path: &Path) -> PathBuf {
+fn set_aside(path: &Path) -> std::io::Result<PathBuf> {
     let mut aside = path.as_os_str().to_owned();
     aside.push(format!(".old-{}", crate::tree::now_millis()));
     let aside = PathBuf::from(aside);
+    let mut moved = Vec::new();
     for suffix in ["", "-wal", "-shm"] {
         let mut from = path.as_os_str().to_owned();
         from.push(suffix);
         let mut to = aside.as_os_str().to_owned();
         to.push(suffix);
         if Path::new(&from).exists() {
-            if let Err(e) = std::fs::rename(&from, &to) {
-                eprintln!("flowie: could not move {}: {e}", Path::new(&from).display());
+            if let Err(error) = std::fs::rename(&from, &to) {
+                for (original, moved_to) in moved.iter().rev() {
+                    let _ = std::fs::rename(moved_to, original);
+                }
+                return Err(error);
             }
+            moved.push((PathBuf::from(from), PathBuf::from(to)));
         }
     }
-    aside
+    Ok(aside)
 }
 
 pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, String)>)> {

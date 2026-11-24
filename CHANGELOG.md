@@ -2,8 +2,6 @@
 
 All notable changes to Flowie are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Each version's section becomes its [GitHub release](https://github.com/wesleyel/flowie/releases)
 notes (`scripts/changelog-section.sh`). A version first ships as release candidates
 (`X.Y.Z-rc.N`, as GitHub releases and in the `flowie` Homebrew cask), then as `X.Y.Z`.
@@ -12,175 +10,92 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ### Added
 
-- Settings has a General tab, opened first by ⌘,: your author name (empty uses your name from the
-  OS) and author ID, for the share packages to come. Copy the ID on one device and Paste ID on
-  another to be the same author on both. Each outline database also gets a device ID, shown in
-  About.
-- Export as Package… (in a bullet's menu, the File menu and `/export`) saves bullets with
-  everything under them as one `.flowie` file for another Flowie user: a zip with the outline as
-  JSON and a Markdown preview. The dialog sets a title and an optional description, can leave
-  completed bullets out, and shows the author name the package carries. Links to bullets outside
-  the package become plain text; mirrors whose original is outside become copies.
-- Opening a `.flowie` package (double-click it on macOS, File → Import…, or `flowie <file>`, which
-  hands it to the Flowie already running) shows what it holds: who sent it and when, a preview,
-  and where to put it (Home unless you pick another bullet). Imported bullets keep their IDs, so
-  links between them still work. A package imported before comes in as a copy with new IDs.
-- Imported bullets show an unread dot until you open them, edit inside them or choose Mark as Seen;
-  hovering the dot says who sent it and when. `is:new` finds them.
-- Opening a newer version of a package you imported offers Update: bullets changed only in the
-  package are updated, new ones added, removed ones moved to Trash, and your own changes kept.
-  Bullets changed on both sides are listed to keep yours or take the package's. Import a Copy is
-  still there.
-- Images: one per bullet, with the bullet's text as its caption. Paste one, drop image files on a
-  row, or use Insert Image… (File menu, `/image`, ⌘⌥I). Space or a double-click shows it full size,
-  ⌘C copies the picture, and `has:image` finds image bullets. PNG, JPEG, GIF and WebP up to 50 MB;
-  files are kept once each in an `Images` folder beside the outline, and ones nothing uses any more
-  are removed. Agents add images with the new MCP tool `attach_image`.
-- Markdown export writes images to an `images` folder beside the file as `![caption](images/…)`;
-  Markdown import reads such images back. Share packages carry their images.
-- What's New (Help menu, Flowie menu on macOS, `/whats`): the release notes of each version, in
-  your language where translated, with versions since your last update marked New. It opens by
-  itself once after Flowie updates (not on a first install); turn that off in Settings → General.
-  Esc, Back or ⌘Z returns to exactly where you were.
+- **Settings**: add author name and author ID in General, and a device ID per outline database.
+- **Sharing**: add Export as Package to save bullets and descendants as a `.flowie` file, with an option to leave completed bullets out.
+- **Sharing**: open `.flowie` packages for preview and import into a chosen location; imported bullets keep their IDs, and importing again creates a copy.
+- **Sharing**: mark imported package bullets unread and find them with `is:new`.
+- **Sharing**: offer to update an imported package while preserving local changes.
+- **Images**: attach one image to each bullet by pasting, dropping files or using Insert Image.
+- **Images**: transfer image files with a `.flowie` share package or with Markdown and its accompanying `images` folder. OPML carries only the image type and caption.
+- **What's New**: browse release notes as nested bullets. Edits last until the page closes. The page can open after an update and marks new versions.
 
 ### Changed
 
-- Bullets now have random UUIDs as ids, the same in every outline a bullet reaches, ready for
-  sharing outlines later. An outline database from an earlier version is not converted: Flowie
-  renames it to `flowie.sqlite.old-<time>` beside the new one and starts afresh. Export to OPML
-  first to keep its contents. Outlines saved by an earlier build of this release candidate are set
-  aside the same way, since bullets now carry images.
-- The MCP server shows bullets with short ids, like git's abbreviated commits: at least 6 hex
-  digits, more when another bullet starts the same way. Tools accept any unique prefix of 4 or more
-  digits, and links agents write with a short id are saved with the full one.
-- Backlinks and mirrors are listed in outline order.
-- While editing, a link to another bullet shows only its label, not its id, and the caret steps
-  over it as one character: ← and → skip it, Backspace and Delete remove it whole, and a
-  double-click selects it. Links to web pages still show their address.
-- Hovering a link to another bullet, while editing or not, shows a preview of that bullet: its
-  path, text, note and first children. Clicking the preview opens the bullet.
+- **Identity**: give bullets random UUIDs and show short IDs over MCP.
+- **Links**: list backlinks and mirrors in outline order.
+- **Editing**: show internal links by label and move or delete the caret over a whole link.
+- **Links**: preview a linked bullet's path, text, note and first children on hover.
 
 ### Fixed
 
-- Updated the `url` library to 2.5.9 for RUSTSEC-2026-0592 (a stack overflow on deeply nested
-  `blob:` URLs).
-- Clearing a search returns the page to where it was scrolled before the search, instead of to the
-  top of the zoomed-in bullet.
+- **Dependencies**: update `url` to 2.5.9 for the stack overflow in deeply nested `blob:` URLs reported as RUSTSEC-2026-0592.
+- **Search**: restore the previous scroll position when clearing a search.
 
 ## [1.0.0-rc.3] - 2026-11-22
 
 ### Added
 
-- Text color shortcuts: ⌘⌃1 to ⌘⌃7 for red, orange, yellow, green, blue, purple and gray, ⌘⌃0 to
-  remove the color, and ⌘⌃C to step to the next color in that order. They color the selected text,
-  or with nothing selected the whole bullet (which is then selected, so the color shows and ⌘⌃C
-  keeps stepping), or every selected bullet. Pressing a color again on text that has it removes
-  it. They are also in the Format menu and can be changed in Settings.
-- Flowie reopens its window at the size and place you left it, on the same display, and in full
-  screen if it was. If that display is no longer attached it opens centered as before, and a window
-  that would now be partly off the display is moved and shrunk to fit.
-- Windows 10 and 11 (64-bit): each GitHub release includes `Flowie-<version>-windows-x64.zip`. The
-  window has its own menu bar and shortcuts use Ctrl where macOS uses ⌘. Because Ctrl+Alt is AltGr
-  on many keyboards, no default uses it: block types are Ctrl+Shift+0 to Ctrl+Shift+8, back and
-  forward are Alt+← and Alt+→, mirror is Alt+M, and text colors are Alt+0 to Alt+7 and Alt+C. The
-  outline lives in `%LOCALAPPDATA%\Flowie`. Linux builds from source with the same shortcuts, and CI
-  checks it.
-- Opening Flowie while it is already open brings the open window forward instead of opening the
-  same outline a second time. When `flowie mcp` starts Flowie for an agent, its window no longer
-  takes focus.
+- **Formatting**: add text color shortcuts, ⌘⌃1 through ⌘⌃7 for red, orange, yellow, green, blue, purple and gray, ⌘⌃0 to clear and ⌘⌃C to cycle.
+- **Window**: restore size, position, display and full-screen state when reopening, adjusting the window if its display is gone.
+- **Platforms**: add Windows 10 and 11 (64-bit) release archives and support building Linux from source.
+- **Window**: focus an existing Flowie window on a second launch, and keep MCP-started windows from taking focus.
 
 ### Changed
 
-- Shortcut hints, toasts and the tutorial name the shortcuts as you have set them in Settings,
-  written the way your system writes them (⇧⌘P on macOS, Ctrl+Shift+P elsewhere).
-- The `claude mcp add` command and MCP client config in Settings → Agent pass `FLOWIE_DB` when
-  Flowie runs on a database other than the default one.
-- Scrolling the outline with a mouse wheel is now smooth: each step of the wheel glides instead of
-  jumping, as a trackpad already did.
-- In the light theme, orange and yellow text are easier to tell apart from red and from each
-  other.
-- Release candidates on GitHub are no longer marked as pre-releases, and the newest version, a
-  candidate included, is marked as the latest release.
-- The Homebrew cask `wesleyel/tap/flowie` now gets release candidates too, and `flowie@beta` is
-  gone: `brew upgrade` moves an installed `flowie@beta` over to `flowie`.
-- Enter on a to-do or numbered item starts the next row as the same kind (a new to-do starts
-  unchecked), and a new first child takes the kind of the child below it. Enter on an empty to-do
-  or numbered item turns it back into a plain bullet, ending the list.
+- **Shortcuts**: show configured shortcuts in hints, toasts and the tutorial using system notation.
+- **Agents**: include `FLOWIE_DB` in MCP client configuration when using a non-default database.
+- **Scrolling**: animate mouse-wheel scrolling smoothly.
+- **Appearance**: improve the contrast between orange and yellow text in the light theme.
+- **Releases**: publish GitHub release candidates as the latest version and offer them in the Homebrew cask.
+- **Lists**: Enter continues a to-do or numbered list, while Enter on an empty item returns it to a plain bullet.
 
 ### Fixed
 
-- Reopening a bullet returns to where you had scrolled in it, instead of its top, also after
-  quitting and relaunching Flowie.
+- **Navigation**: restore a bullet's previous scroll position when reopening it, including after restarting Flowie.
 
 ## [1.0.0-rc.2] - 2026-11-19
 
 ### Added
 
-- Each GitHub release includes the open-source version, `Flowie-<version>-macos.zip`: a universal build
-  for macOS 13 or later, ad-hoc signed and not notarized.
-- Homebrew cask: `brew install --cask wesleyel/tap/flowie`, updated by each release.
-- Right-click a bullet's dot for a bullet menu: open, expand or collapse everything below, complete,
-  star, change the block type, copy the bullet or its link, duplicate, move, mirror to another
-  bullet, export and delete, plus when it was created and edited and what links to it. Inside a
-  selection it acts on every selected bullet.
-- Scrollbars in the macOS overlay style on the outline, the trash, settings pages, popovers, the
-  palette, the `/` menu and right-click menus; menus taller than the window scroll.
-- The right-click menu on text now starts with Cut, Copy and Paste, and shows Paste alone when
-  nothing is selected.
+- **Releases**: include a universal macOS 13+ build archive with each GitHub release.
+- **Installation**: add the Homebrew cask `brew install --cask wesleyel/tap/flowie`.
+- **Outline**: add a bullet context menu for opening, folding, completing, starring, moving, mirroring, exporting and deleting bullets.
+- **Scrolling**: add macOS overlay scrollbars to the outline, Trash, Settings, popovers, palette and menus.
+- **Editing**: add Cut, Copy and Paste to the text context menu.
 
 ### Changed
 
-- A more Mac-like look: the macOS system colors and accent colors, menus whose highlighted item
-  fills with the accent, rounder menus, popovers and sheets with softer shadows, Mac-style
-  segmented controls, buttons, checkboxes, key caps and search field, and a toast that matches
-  the window instead of being inverted. Selected rows in Quick Open, the `/` menu and Settings
-  are filled with the accent.
-- Flowie now runs on a current snapshot of Zed's GPUI (through gpui-kit) instead of the 2025
-  release. A shortcut entered in Settings that can't be read is now skipped instead of stopping
-  the app.
+- **Appearance**: update system and accent colors, menus, popovers, buttons, checkboxes, search field and toasts.
+- **Dependencies**: use the current Zed GPUI snapshot through gpui-kit and skip unrecognized shortcut settings.
 
 ### Fixed
 
-- The Mac's Emacs-style editing keys now work while editing a bullet: ⌃A / ⌃E for the start or end
-  of the line, ⌃B / ⌃F / ⌃P / ⌃N to move, ⌃H / ⌃D to delete, and ⌃K to delete to the end of the
-  line, with ⌃Y putting that text back. They can be changed in Settings like any other shortcut.
-- Selecting text with the mouse now snaps to the nearest character boundary, as in other Mac apps:
-  a drag selects a character once it passes the character's middle, instead of only after crossing
-  all of it.
+- **Editing**: support macOS Emacs-style editing shortcuts and allow changing them in Settings.
+- **Editing**: snap mouse text selection to character boundaries.
 
 ## [1.0.0-rc.1] - 2026-11-18
 
-The first release candidate of Flowie 1.0.0, free software under the GPL-3.0-or-later. 1.0.0
-itself comes to the [Mac App Store](https://apps.apple.com/app/id6835913837) and here.
+Flowie 1.0.0's first release candidate, free software under GPL-3.0-or-later. The 1.0.0 release will also be available on the [Mac App Store](https://apps.apple.com/app/id6835913837).
 
 ### Added
 
-- **Outlining**: every bullet is a page you can zoom into and out of, with smooth animations;
-  indent, collapse, move and drag bullets, and act on a multi-bullet selection.
-- **Formatting**: headings, to-dos, numbered lists, quotes, code blocks and plain text, from the
-  keyboard or the `/` menu; bold, italic, strikethrough, highlight, seven colors and links, with
-  markup shown only on the bullet being edited. Notes under any bullet; undo for everything.
-- **Math**: inline `$…$` and display `$$…$$` LaTeX, rendered natively with a live preview.
-- **Links and mirrors**: `[[` links with backlinks, and mirrors that show one bullet in several
-  places.
-- **Tags, mentions and dates**: `#tags` and `@mentions` with completion, plus clickable dates.
-- **Journal**: a page for every day and a calendar.
-- **Quick open and search**: ⌘P jumps to any bullet, starred page or saved search, or creates a
-  page. Search filters by phrase, tag, person, to-do state, headings, notes, dates and recent
-  changes.
-- **Local storage**: one SQLite database on your Mac; no account, no cloud, no tracking.
-- **Import and export**: import OPML, Markdown and text (including Workflowy exports), and export
-  Markdown, OPML or text. Deleted bullets stay in a 30-day Trash.
-- **Keyboard**: a customizable shortcut for every action, including mouse side buttons, and a
-  built-in tutorial.
-- **Appearance and language**: light and dark themes, accent colors, and English and 简体中文.
-- **AI assistants**: a built-in MCP server lets assistants such as Claude read the outline, and
-  edit it if allowed in Settings → Agent.
-- **Help menu**: Send Feedback, the tutorial, the Privacy Policy and the Terms of Use.
+- **Outlining**: zoom into each bullet as a page, with indentation, folding, moving, dragging and multi-selection.
+- **Formatting**: add headings, to-dos, numbered lists, quotes, code blocks, plain text, bold, italic, strikethrough, highlights, text colors and links.
+- **Math**: render inline `$…$` and display `$$…$$` LaTeX formulas natively with a live preview.
+- **Links**: add internal links, backlinks and mirrors.
+- **Tags**: add autocomplete for `#tags` and `@mentions`, plus clickable dates.
+- **Journal**: create a page for each day and browse days in a calendar.
+- **Search**: quickly open bullets, starred pages and saved searches, and filter by phrase, tag, person, to-do state, heading, note, date and recent changes.
+- **Storage**: keep data in a local SQLite database without an account or cloud service.
+- **Import and export**: support OPML, Markdown and text, including Workflowy exports, and keep deleted bullets in Trash for 30 days.
+- **Shortcuts**: make every action customizable and include a built-in tutorial.
+- **Appearance**: add light and dark themes, accent colors, English and Simplified Chinese.
+- **Agents**: include an MCP server for assistants to read the outline and, when allowed in Settings, edit it.
+- **Help**: add Send Feedback, the tutorial, Privacy Policy and Terms of Use.
 
 ### Security
 
-- Bundled SQLite 3.54.1 (through rusqlite 0.43), which fixes CVE-2026-119375.
+- **Dependencies**: bundle SQLite 3.54.1 through rusqlite 0.43 to fix CVE-2026-119375.
 
 [Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.3...HEAD
 [1.0.0-rc.3]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.2...v1.0.0-rc.3

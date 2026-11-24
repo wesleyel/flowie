@@ -1,23 +1,19 @@
-//! What's New: a read-only page, like Trash, built from the release notes
+//! What's New: a temporary editable view, like Trash, built from the release notes
 //! compiled into the app. `CHANGELOG.md` is the English source; translations
-//! live in `locales/whats-new/<code>.md` with the same `## [x.y.z] - date`
-//! sections, and each version shows in the UI language when its translation
-//! has it, else in English.
+//! live in the root `CHANGELOG.zh-CN.md` with the same `## [x.y.z] - date`
+//! sections. Each version shows in the UI language when translated, else in
+//! English.
 
+use flowie_core::{flatten, Item, Tree, ROOT};
+use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight};
 use std::cmp::Ordering;
-use std::collections::HashSet;
-
-use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, StyledText};
 
 use crate::i18n::{self, t};
 use crate::outline::{BlockSel, Outline, Target, WhatsNew as WhatsNewAction};
-use crate::rich::{self, Piece, Style};
 use crate::ui::button::{button, Variant};
 
 const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
-include!(concat!(env!("OUT_DIR"), "/whats_new.rs"));
-
-const RELEASES_URL: &str = "https://github.com/wesleyel/flowie/releases/tag/v";
+const CHANGELOG_ZH: &str = include_str!("../../../CHANGELOG.zh-CN.md");
 
 /// One version's notes.
 #[derive(Debug, Clone, PartialEq)]
@@ -91,7 +87,7 @@ pub fn compare(a: &str, b: &str) -> Option<Ordering> {
 
 /// The translation for a locale code, if bundled.
 fn translation(code: &str) -> Option<&'static str> {
-    WHATS_NEW.iter().find(|(c, _)| *c == code).map(|(_, md)| *md)
+    (code == "zh-CN").then_some(CHANGELOG_ZH)
 }
 
 /// The releases to show, newest first, each in `code`'s language when
@@ -108,17 +104,6 @@ pub fn releases(code: &str) -> Vec<Release> {
                 .cloned()
                 .map_or(r.clone(), |l| Release { date: r.date.clone(), ..l })
         })
-        .collect()
-}
-
-/// Released versions a translation has no section for (the i18n report).
-#[cfg(test)]
-pub fn untranslated(code: &str) -> Vec<String> {
-    let local: HashSet<String> = translation(code).map(sections).unwrap_or_default().into_iter().map(|r| r.version).collect();
-    sections(CHANGELOG)
-        .into_iter()
-        .filter(|r| compare(&r.version, "0.0.0").is_some() && !local.contains(&r.version))
-        .map(|r| r.version)
         .collect()
 }
 
@@ -153,11 +138,47 @@ pub fn on_launch(seen: Option<&str>, running: &str) -> OnLaunch {
 pub struct WhatsNewPage {
     /// Versions after this are marked New (the version seen before this update).
     pub new_after: Option<String>,
-    /// Older versions the user unfolded.
-    pub open: HashSet<String>,
+    pub tree: Tree,
+    locale: &'static str,
     /// Where the user was: put back on close.
     return_to: Option<(Target, usize)>,
     block: Option<BlockSel>,
+}
+
+fn notes_tree(locale: &str, new_after: Option<&str>) -> Tree {
+    let mut tree = Tree::new();
+    for (index, release) in releases(locale).into_iter().enumerate() {
+        let unreleased = release.version == "Unreleased";
+        let is_new = unreleased || new_after.is_some_and(|seen| compare(&release.version, seen) == Some(Ordering::Greater));
+        let mut title = if unreleased { t!("whats_new.unreleased").to_string() } else { release.version };
+        if !release.date.is_empty() {
+            title.push_str(&format!(" · {}", release.date));
+        }
+        if is_new {
+            title.push_str(&format!(" · {}", t!("whats_new.new")));
+        }
+        let mut version = Item::new(&title);
+        version.collapsed = index > 0 && !is_new;
+        let mut group: Option<usize> = None;
+        for block in blocks(&release.body) {
+            match block {
+                Block::Heading(text) => {
+                    group = Some(version.children.len());
+                    version.children.push(Item::new(&text));
+                }
+                Block::Para(text) | Block::Item(text) => {
+                    let children = match group {
+                        Some(index) => &mut version.children[index].children,
+                        None => &mut version.children,
+                    };
+                    children.push(Item::new(&text));
+                }
+            }
+        }
+        tree.insert_items(ROOT, index, &[version]);
+    }
+    tree.take_journal();
+    tree
 }
 
 /// The version this build is: Cargo.toml stays at `X.Y.Z` through the
@@ -197,7 +218,9 @@ impl Outline {
         self.popover.close();
         let return_to = self.edit.take().map(|e| (e.target, e.caret()));
         let block = self.block.take();
-        self.whats_new = Some(WhatsNewPage { new_after, open: HashSet::new(), return_to, block });
+        let locale = i18n::active();
+        let tree = notes_tree(locale, new_after.as_deref());
+        self.whats_new = Some(WhatsNewPage { new_after, locale, tree, return_to, block });
         self.page_scroll = gpui::ScrollHandle::new();
         // Written when shown, not when closed: a crash while it's open doesn't show it again.
         self.mark_whats_new_seen();
@@ -215,6 +238,9 @@ impl Outline {
     /// not when the user went somewhere else.
     pub fn close_whats_new(&mut self, restore: bool, cx: &mut Context<Self>) -> bool {
         let Some(p) = self.whats_new.take() else { return false };
+        if self.edit.as_ref().is_some_and(|e| matches!(e.target, Target::Field(crate::outline::Field::WhatsNew(_)))) {
+            self.edit = None;
+        }
         if restore {
             match p.return_to.filter(|(t, _)| matches!(t, Target::Text(id) | Target::Note(id) if self.tree.contains(*id))) {
                 Some((target, offset)) => self.start_edit(target, offset, cx),
@@ -250,90 +276,23 @@ impl Outline {
 
     pub fn render_whats_new(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let page = self.whats_new.as_ref();
-        let new_after = page.and_then(|p| p.new_after.clone());
-        let open = page.map(|p| p.open.clone()).unwrap_or_default();
-        let (font, color) = self.base_style(window, false);
-        let style = Style { theme: &self.theme, font, color, completed: false, highlights: &[], code: false };
-        let mut sections: Vec<AnyElement> = Vec::new();
-        let mut first = true;
-        for r in releases(i18n::active()) {
-            let unreleased = compare(&r.version, "0.0.0").is_none();
-            let is_new = unreleased || new_after.as_deref().is_some_and(|seen| compare(&r.version, seen) == Some(Ordering::Greater));
-            // New versions and the newest one show; older ones fold.
-            let expanded = is_new || first || open.contains(&r.version);
-            first = false;
-            let version = r.version.clone();
-            let title = if unreleased { t!("whats_new.unreleased").to_string() } else { r.version.clone() };
-            let header = div()
-                .id(gpui::SharedString::from(format!("release-{version}")))
-                .flex()
-                .items_center()
-                .gap_2()
-                .pt_4()
-                .pb_1()
-                .cursor_pointer()
-                .child(crate::icons::icon(if expanded { "chevron-down" } else { "chevron-right" }, crate::icons::SM, theme.muted))
-                .child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(title))
-                .children(is_new.then(|| {
-                    div()
-                        .px(px(6.))
-                        .rounded(px(4.))
-                        .bg(theme.accent)
-                        .text_color(theme.on_accent)
-                        .text_size(px(11.))
-                        .child(t!("whats_new.new"))
-                }))
-                .child(div().flex_1())
-                .child(div().text_size(px(12.)).text_color(theme.muted).child(r.date.clone()))
-                .children((!unreleased).then(|| {
-                    let url = format!("{RELEASES_URL}{version}");
-                    button(theme, gpui::SharedString::from(format!("release-link-{version}")), Variant::Link)
-                        .child(t!("whats_new.release_page"))
-                        .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)))
-                }))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(p) = this.whats_new.as_mut() {
-                        if !p.open.remove(&version) {
-                            p.open.insert(version.clone());
-                        }
-                    }
-                    cx.notify();
-                }));
-            let mut body: Vec<AnyElement> = Vec::new();
-            if expanded {
-                for block in blocks(&r.body) {
-                    body.push(match block {
-                        Block::Heading(h) => div()
-                            .pt_2()
-                            .pb_1()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.muted)
-                            .child(h)
-                            .into_any_element(),
-                        Block::Item(text) => div()
-                            .flex()
-                            .items_start()
-                            .gap_2()
-                            .py(px(2.))
-                            .child(div().flex_none().mt(px(9.)).size(px(5.)).rounded_full().bg(theme.bullet))
-                            .child(div().flex_1().min_w_0().child(rich_line(&text, &style, cx)))
-                            .into_any_element(),
-                        Block::Para(text) => div().py(px(2.)).child(rich_line(&text, &style, cx)).into_any_element(),
-                    });
-                }
+        let page = self.whats_new.as_mut().unwrap();
+        if page.locale != i18n::active() {
+            page.locale = i18n::active();
+            page.tree = notes_tree(page.locale, page.new_after.as_deref());
+            if self.edit.as_ref().is_some_and(|edit| matches!(edit.target, Target::Field(crate::outline::Field::WhatsNew(_)))) {
+                self.edit = None;
             }
-            sections.push(div().border_b_1().border_color(theme.divider).pb_2().child(header).children(body).into_any_element());
         }
+        let rows = flatten(&page.tree, ROOT, &Default::default());
         let content = div()
             .id("whats-new")
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.page_scroll)
-            .px(px(crate::outline::PAD_X + 24.))
             .child(
                 div()
+                    .px(px(crate::outline::PAD_X + 24.))
                     .flex()
                     .items_center()
                     .justify_between()
@@ -348,34 +307,42 @@ impl Outline {
                             })),
                     ),
             )
-            .child(div().max_w(px(720.)).pb_8().children(sections));
+            .child(div().pb_8().children(rows.into_iter().map(|row| self.render_whats_new_row(row, window, cx))));
         crate::ui::scrollbar::area("whats-new-bar", &self.page_scroll, theme, content).size_full().into_any_element()
     }
-}
 
-/// One line of notes with Flowie's inline markup; links open in the browser.
-fn rich_line(text: &str, style: &Style, cx: &mut Context<Outline>) -> AnyElement {
-    let Some(Piece::Text { text, runs, clicks, .. }) =
-        rich::build(text, false, style).into_iter().find(|p| matches!(p, Piece::Text { .. }))
-    else {
-        return div().into_any_element();
-    };
-    let styled = StyledText::new(text).with_runs(runs);
-    let layout = styled.layout().clone();
-    div()
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |_, ev: &gpui::MouseDownEvent, _, cx| {
-                let Ok(ix) = layout.index_for_position(ev.position) else { return };
-                if let Some((_, rich::Click::Link(url))) = clicks.iter().find(|(r, _)| r.contains(&ix)) {
-                    if url.starts_with("http") {
-                        cx.open_url(url);
-                    }
-                }
-            }),
-        )
-        .child(styled)
-        .into_any_element()
+    fn render_whats_new_row(&mut self, row: flowie_core::Row, window: &mut gpui::Window, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let id = row.id;
+        let tree = &self.whats_new.as_ref().unwrap().tree;
+        let collapsed = tree.node(id).collapsed;
+        let marker = div()
+            .id(("whats-new-marker", id.as_usize()))
+            .w(px(18.))
+            .h(px(crate::view::LINE_H))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(crate::view::bullet_dot(theme, collapsed, false, false))
+            .when(tree.has_children(id), |marker| {
+                marker.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
+                    let Some(page) = this.whats_new.as_mut() else { return };
+                    page.tree.set_collapsed(id, !collapsed);
+                    page.tree.take_journal();
+                    this.end_field_edit();
+                    cx.notify();
+                }))
+            });
+        let target = Target::Field(crate::outline::Field::WhatsNew(id));
+        let editing = self.edit.as_ref().is_some_and(|edit| edit.target == target);
+        crate::view::bullet_row(row.depth, 3.)
+            .children(crate::view::indent_guides(row.depth, theme))
+            .when(editing, |row| row.bg(theme.row_selected.opacity(0.45)))
+            .child(marker)
+            .child(div().flex_1().min_w_0().pl(px(6.)).child(self.render_node_text(id, target, window, cx)))
+            .into_any_element()
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -482,12 +449,7 @@ mod tests {
         // Every version shows, in some language.
         assert_eq!(releases("zh-CN").len(), releases("en").len());
         assert_eq!(releases("xx").iter().map(|r| &r.body).collect::<Vec<_>>(), releases("en").iter().map(|r| &r.body).collect::<Vec<_>>());
-        // A report, not a failure: list what each translation lacks.
-        for (code, _) in WHATS_NEW {
-            let missing = untranslated(code);
-            if !missing.is_empty() {
-                eprintln!("whats-new/{code}.md has no notes for: {}", missing.join(", "));
-            }
-        }
+        let headings = |md| sections(md).into_iter().map(|release| (release.version, release.date)).collect::<Vec<_>>();
+        assert_eq!(headings(CHANGELOG), headings(CHANGELOG_ZH));
     }
 }

@@ -133,6 +133,8 @@ pub enum Field {
     /// The export dialog's title and description.
     PackageTitle,
     PackageDescription,
+    /// A temporary What's New row, discarded when the page closes.
+    WhatsNew(NodeId),
 }
 
 pub struct Edit {
@@ -689,7 +691,7 @@ impl Outline {
     pub fn edit_map(&self) -> crate::rich::EditMap {
         let code = match self.edit.as_ref().map(|e| e.target) {
             Some(Target::Text(id)) => self.tree.get(id).is_some_and(|n| n.kind == flowie_core::BlockKind::Code),
-            Some(Target::Note(_)) => false,
+            Some(Target::Note(_) | Target::Field(Field::WhatsNew(_))) => false,
             _ => true,
         };
         crate::rich::EditMap::new(self.edit_text(), code)
@@ -1711,6 +1713,12 @@ impl Outline {
 
     pub fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else { return };
+        if self.whats_new.is_some() && matches!(self.edit_target(), Some(Target::Field(Field::WhatsNew(_)))) {
+            if let Some(text) = item.text() {
+                self.replace_edit_text(self.edit.as_ref().unwrap().sel.clone(), &text, false, cx);
+            }
+            return;
+        }
         if self.paste_images(&item, cx) {
             return;
         }

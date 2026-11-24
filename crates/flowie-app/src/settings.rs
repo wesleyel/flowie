@@ -203,6 +203,7 @@ impl Outline {
             Field::AuthorName => &self.config.author.name,
             Field::PackageTitle => self.package_export.as_ref().map_or("", |p| p.title.as_str()),
             Field::PackageDescription => self.package_export.as_ref().map_or("", |p| p.description.as_str()),
+            Field::WhatsNew(id) => self.whats_new.as_ref().and_then(|page| page.tree.get(id)).map_or("", |node| node.text.as_str()),
         }
     }
 
@@ -217,6 +218,12 @@ impl Outline {
             Field::PackageDescription => {
                 if let Some(p) = self.package_export.as_mut() {
                     p.description = text;
+                }
+            }
+            Field::WhatsNew(id) => {
+                if let Some(page) = self.whats_new.as_mut().filter(|page| page.tree.contains(id)) {
+                    page.tree.set_text(id, &text);
+                    page.tree.take_journal();
                 }
             }
         }

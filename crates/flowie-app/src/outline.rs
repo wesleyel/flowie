@@ -1743,13 +1743,17 @@ impl Outline {
     }
 
     pub fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        self.copy(&Copy, window, cx);
-        if self.block.is_some() {
+        if let Some(roots) = self.block_roots() {
+            if roots.is_empty() {
+                return;
+            }
+            self.copy_items(&roots, cx);
             self.delete_node(&DeleteNode, window, cx);
             self.toast(crate::i18n::t!("toast.cut_kept_in_trash"));
         } else if let Some(e) = &self.edit {
             if !e.sel.is_empty() {
                 let r = e.sel.clone();
+                self.copy(&Copy, window, cx);
                 self.replace_edit_text(r, "", false, cx);
             }
         }

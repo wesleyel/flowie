@@ -44,6 +44,12 @@ and press Backspace while recording to remove that binding.
 
 File menu: export as OPML, Markdown or plain text (selected bullets, or the whole page), and the Trash.
 
+Select a `.flowie` share package on its own to preview it; OPML, Markdown and text files can be
+imported together. **Import a Copy** creates independent bullets with new IDs. **Update** merges
+changes into a previous import. If the outline changes while the preview is open, review the
+refreshed comparison before confirming. If an attachment cannot be saved, the import stays open
+and no bullets are changed.
+
 Flowie writes [OPML 2.0](https://opml.org/spec2.opml). Every `outline` has a standard `text`
 attribute. A mirror's `text` is a snapshot of its source text, so any OPML reader can display it.
 The `flowie` namespace (`https://github.com/wesleyel/flowie/ns/opml/1`) adds `id` for the bullet's

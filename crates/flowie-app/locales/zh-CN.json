@@ -18,6 +18,7 @@
     "page_created": "已在主页下新建页面「{name}」",
     "mirror_into_self": "不能把条目镜像到它自身内部",
     "nothing_to_import": "没有可导入的内容",
+    "import_package_alone": "请一次只导入一个 Flowie 分享包，不要同时选择其他文件。",
     "nothing_to_export": "没有可导出的内容",
     "bullet_deleted": "该条目已删除（见废纸篓）",
     "cut_kept_in_trash": "已剪切，废纸篓中也保留了一份",
@@ -484,6 +485,7 @@
       "newer": "这个分享包来自更新版本的 Flowie，请更新 Flowie 后再打开。",
       "too_large": "分享包太大，无法导入",
       "damaged": "分享包已损坏，无法导入",
+      "outline_changed": "大纲在预览期间发生了变化，请核对更新后的预览并再次确认。",
       "unreadable": "无法读取 {path}：{error}"
     },
     "update": {

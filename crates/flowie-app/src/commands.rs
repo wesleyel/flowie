@@ -1,15 +1,36 @@
 //! Commands added on top of basic editing: trash, move to, mirrors, stars,
 //! levels, block types, import/export, saved searches, journal.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use flowie_core::{io, markup, search::today, store, BlockKind, NodeId, ROOT};
+use flowie_core::{io, markup, search::today, store, BlockKind, NodeId, Tree, ROOT};
 use gpui::{ClipboardItem, Context, PathPromptOptions, Window};
 
 use crate::anim::{self, Channel};
 use crate::i18n::t;
 use crate::outline::*;
 use crate::palette::{node_label, Mode};
+
+#[derive(Debug, PartialEq, Eq)]
+enum ImportSelection<'a> {
+    Documents,
+    Package(&'a Path),
+    MultipleWithPackage,
+}
+
+fn import_selection(paths: &[PathBuf]) -> ImportSelection<'_> {
+    match paths.iter().find(|path| crate::share::is_package(path)) {
+        Some(path) if paths.len() == 1 => ImportSelection::Package(path),
+        Some(_) => ImportSelection::MultipleWithPackage,
+        None => ImportSelection::Documents,
+    }
+}
+
+fn items_to_clipboard(tree: &Tree, ids: &[NodeId]) -> ClipboardItem {
+    let items = tree.to_items(ids);
+    let text = io::to_markdown(&items);
+    ClipboardItem::new_string_with_json_metadata(text, items)
+}
 
 impl Outline {
     pub fn send_to_trash(&mut self, id: NodeId) {
@@ -331,11 +352,20 @@ impl Outline {
         });
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
-            // A share package opens the import dialog instead.
-            let (packages, paths): (Vec<_>, Vec<_>) = paths.into_iter().partition(|p| crate::share::is_package(p));
-            if let Some(p) = packages.into_iter().next() {
-                this.update(cx, |this, cx| this.open_package_file(&p, cx)).ok();
-                return;
+            match import_selection(&paths) {
+                ImportSelection::Documents => {}
+                ImportSelection::Package(path) => {
+                    this.update(cx, |this, cx| this.open_package_file(path, cx)).ok();
+                    return;
+                }
+                ImportSelection::MultipleWithPackage => {
+                    this.update(cx, |this, cx| {
+                        this.toast(t!("toast.import_package_alone"));
+                        cx.notify();
+                    })
+                    .ok();
+                    return;
+                }
             }
             let mut files = Vec::new();
             for p in paths {
@@ -449,9 +479,7 @@ impl Outline {
     /// Copy bullets with full fidelity for pasting inside Flowie, plus
     /// Markdown text for other apps.
     pub fn copy_items(&self, ids: &[NodeId], cx: &mut Context<Self>) {
-        let items = self.tree.to_items(ids);
-        let text = io::to_markdown(&items);
-        cx.write_to_clipboard(ClipboardItem::new_string_with_json_metadata(text, items));
+        cx.write_to_clipboard(items_to_clipboard(&self.tree, ids));
     }
 
     // ----------------------------------------------------------- trash
@@ -595,5 +623,48 @@ impl Outline {
     pub fn today(&mut self, _: &Today, _: &mut Window, cx: &mut Context<Self>) {
         let d = today();
         self.open_day(&d, cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cut_image_clipboard_keeps_the_caption_and_subtree() {
+        let mut tree = Tree::new();
+        let image = tree.create_at(ROOT, 0, "caption");
+        let child = tree.create_at(image, 0, "child");
+        tree.create_at(child, 0, "grandchild");
+        let name = format!("{}.png", "a".repeat(64));
+        let mut node = tree.node(image).clone();
+        node.kind = BlockKind::Image;
+        node.image = name.clone();
+        node.collapsed = true;
+        tree.put(node);
+
+        let clipboard = items_to_clipboard(&tree, &[image]);
+        let [gpui::ClipboardEntry::String(entry)] = clipboard.entries() else { panic!("expected structured text") };
+        let items = entry.metadata_json::<Vec<flowie_core::Item>>().unwrap();
+        tree.delete(image);
+        let [pasted] = tree.insert_items(ROOT, 0, &items)[..] else { panic!("expected one image") };
+        let node = tree.node(pasted);
+        assert_eq!(
+            (node.kind, node.image.as_str(), node.text.as_str(), node.collapsed),
+            (BlockKind::Image, name.as_str(), "caption", true)
+        );
+        let child = tree.children(pasted)[0];
+        assert_eq!(tree.node(child).text, "child");
+        assert_eq!(tree.node(tree.children(child)[0]).text, "grandchild");
+    }
+
+    #[test]
+    fn packages_must_be_selected_alone_for_import() {
+        let package = PathBuf::from("shared.FLOWIE");
+        let document = PathBuf::from("notes.md");
+        assert_eq!(import_selection(std::slice::from_ref(&package)), ImportSelection::Package(&package));
+        assert_eq!(import_selection(&[document.clone(), package.clone()]), ImportSelection::MultipleWithPackage);
+        assert_eq!(import_selection(&[package, PathBuf::from("other.flowie")]), ImportSelection::MultipleWithPackage);
+        assert_eq!(import_selection(&[document, PathBuf::from("outline.opml")]), ImportSelection::Documents);
     }
 }

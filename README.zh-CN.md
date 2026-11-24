@@ -3,7 +3,7 @@
 <h1 align="center">Flowie 大纲笔记</h1>
 
 <p align="center"><b>键盘优先，用列表思考。</b><br>
-进入任意条目、链接与镜像想法、书写公式、瞬间找到一切——所有数据只保存在你的 Mac 上。</p>
+进入任意条目，链接和镜像笔记，写公式，搜索大纲。笔记保存在你自己的设备上。</p>
 
 <p align="center">
   <a href="https://apps.apple.com/app/id6835913837"><img src="assets/mac-app-store-badge-zh-cn.svg" height="48" alt="在 Mac App Store 下载"></a>
@@ -13,6 +13,7 @@
   <a href="https://github.com/wesleyel/flowie/actions/workflows/ci.yml"><img src="https://github.com/wesleyel/flowie/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="许可证：GPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13+">
+  <img src="https://img.shields.io/badge/Windows-10%2F11-black" alt="Windows 10 和 11（64 位）">
 </p>
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b> · <a href="https://wesleyel.github.io/flowie/">官网</a></p>
@@ -27,6 +28,7 @@
 - 标题、待办、编号列表、引用、代码块、正文，用快捷键或 `/` 菜单切换。
 - 加粗、斜体、删除线、高亮、七种颜色和链接——只有正在编辑的条目才显示标记符号。
 - 任意条目都能写备注，所有操作都能撤销。
+- 把图片粘贴或拖进大纲，还能给图片加一行说明。
 
 <p align="center">
   <img src="website/images/03-commands-zh-Hans.jpg" width="400" alt="/ 命令菜单">
@@ -37,7 +39,7 @@
 - 行内 `$…$` 与独立 `$$…$$` LaTeX 公式，原生实时渲染，编辑时在行下方预览。
 
 **连接想法**
-- 输入 `[[` 链接到任意条目，在目标页面底部看到反向链接。
+- 输入 `[[` 链接到任意条目。鼠标停在链接上就能预览，打开目标页面就能看到反向链接。
 - 镜像：同一个条目出现在多个地方，在哪里编辑都会同步。
 - `#标签` 和 `@提及` 自动补全；日期可以点击。
 - 每天一页日记，配合日历快速跳转。
@@ -56,15 +58,23 @@
   <img src="website/images/05-search-zh-Hans.jpg" width="400" alt="带条件的搜索">
 </p>
 
-**数据只在你的 Mac 上**
-- 一个本地 SQLite 数据库。无需账号，没有云端，没有追踪。
+**保存和分享笔记**
+- 大纲存在本地 SQLite 数据库。无需账号，没有云端，没有追踪。
 - 导入 OPML、Markdown 和纯文本（支持 Workflowy 导出文件）；导出 Markdown、OPML 或纯文本。
+- Flowie 导出的 OPML 会保留内部链接和镜像。要一起带走图片，可以用 `.flowie` 分享包，或者带上 Markdown 导出时附带的 `images` 文件夹。
+- 把条目、子项和图片打包成 `.flowie` 文件发给别人。对方可以先预览，再选位置导入。收到新版分享包时，可以合并变更，保留自己的修改。用 `is:new` 查找未读条目。
 - 删除的条目在废纸篓保留 30 天。
+
+<p align="center">
+  <img src="website/images/10-images-zh-Hans.jpg" width="400" alt="京都旅行大纲里的路线图和图片说明">
+  <img src="website/images/11-share-package-zh-Hans.jpg" width="400" alt="导入前预览 Flowie 分享包">
+</p>
 
 **为键盘而生**
 - 每个操作都有快捷键，每个快捷键都能修改——鼠标侧键也可以绑定。
 - 内置教程，覆盖全部功能。
 - 浅色与深色主题、强调色，支持简体中文与英文。
+- 打开「帮助 → 新功能」，就能看到每个版本改了什么。
 
 <p align="center"><img src="website/images/08-dark-zh-Hans.jpg" width="640" alt="深色主题与紫色强调色"></p>
 
@@ -75,19 +85,32 @@
 
 ## 获取 Flowie
 
-- **[Mac App Store](https://apps.apple.com/app/id6835913837)**：经过签名和沙盒保护，自动更新。购买是获取 Flowie 最省事的方式，也是对开发的支持。（暂未在中国大陆地区上架。）
-- **开源版**：在 [Releases](https://github.com/wesleyel/flowie/releases) 页面下载 `Flowie-<版本号>-macos.zip`，以 `-rc.N` 结尾的是候选版。该版本未经公证，首次打开时请右键点按 Flowie.app 并选择「打开」（macOS 15 及以上：先打开一次，再到「系统设置 → 隐私与安全性」点「仍要打开」）。不会自动更新。
-- **Homebrew**：同样是开源版，`brew install --cask wesleyel/tap/flowie` 安装，`brew upgrade` 更新，候选版也会推送。
-- **自行编译**：Flowie 是自由软件，步骤见 [docs/building.md](docs/building.md)。
+### macOS
 
-需要 macOS 13 Ventura 或更高版本，支持 Apple 芯片和 Intel 处理器。
+需要 macOS 13 或更高版本，支持 Apple 芯片和 Intel。
+
+- **Mac App Store** 版本经过签名，在沙盒中运行，可自动更新。购买可以支持开发。中国大陆地区暂未上架。[前往 Mac App Store](https://apps.apple.com/app/id6835913837)。
+- **Homebrew** 用 `brew install --cask wesleyel/tap/flowie` 安装，用 `brew upgrade --cask wesleyel/tap/flowie` 更新。
+- **GitHub** 下载 `Flowie-<版本号>-macos.zip`，解压后把 `Flowie.app` 移到「应用程序」。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。
+
+Homebrew 和 GitHub 提供的版本未经公证。如果 macOS 15 或更高版本阻止打开，先尝试打开一次，再到「系统设置 → 隐私与安全性」点「仍要打开」。在更早的 macOS 上，右键点按应用，选择「打开」。
+
+### Windows
+
+需要 Windows 10 或 11（64 位）。下载 `Flowie-<版本号>-windows-x64.zip`，解压后运行 `Flowie.exe`。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。
+
+GitHub Releases 和 Homebrew 都提供候选版（`-rc.N`）。
+
+### 从源码构建
+
+macOS、Windows 和 Linux 都可以从源码构建。[编译指南](docs/building.md)。
 
 ## 了解更多
 
 - [使用说明](docs/usage.md)：快捷键、标记语法与搜索语法（英文）
 - [AI 助手（MCP）](docs/mcp.md)
 - [参与翻译](docs/translations.md)
-- [更新日志](CHANGELOG.md) · [参与贡献](CONTRIBUTING.md) · [安全问题](SECURITY.md) · [问题反馈](https://github.com/wesleyel/flowie/issues) · [隐私政策](https://wesleyel.github.io/flowie/privacy.html)
+- [更新日志](CHANGELOG.zh-CN.md) · [参与贡献](CONTRIBUTING.md) · [安全问题](SECURITY.md) · [问题反馈](https://github.com/wesleyel/flowie/issues) · [隐私政策](https://wesleyel.github.io/flowie/privacy.html)
 
 ## 许可证
 

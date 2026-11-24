@@ -4,11 +4,11 @@ en:
   lang: en
   shot: en-US
   name: Flowie
-  tagline: A fast, keyboard-first outliner for thinking in lists. Zoom into any bullet, link and mirror ideas, write math, and find anything instantly — all stored locally on your Mac.
+  tagline: A fast, keyboard-first outliner. Zoom into any bullet, link and mirror ideas, write math, and search your outline. Your notes stay on your device.
   badge: /images/badge-en.svg
   badge_width: 156
   badge_alt: Download on the Mac App Store
-  source: Free and open source on GitHub
+  download: Download for Mac or Windows
   shot_alt: An outline in Flowie with headings, to-dos and math
   features: Features
   gallery: Screenshots
@@ -19,11 +19,11 @@ zh:
   lang: zh-CN
   shot: zh-Hans
   name: Flowie 大纲笔记
-  tagline: 键盘优先，用列表思考。进入任意条目、链接与镜像想法、书写公式、瞬间找到一切——所有数据只保存在你的 Mac 上。
+  tagline: 用键盘就能整理大纲。进入任意条目，链接和镜像笔记，写公式，搜索大纲。笔记保存在你自己的设备上。
   badge: /images/badge-zh.svg
   badge_width: 140
   badge_alt: 在 Mac App Store 下载
-  source: 在 GitHub 上免费开源
+  download: 下载 Mac 或 Windows 版
   shot_alt: Flowie 中带有标题、待办和公式的大纲
   features: 功能
   gallery: 截图

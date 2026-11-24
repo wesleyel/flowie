@@ -4,12 +4,21 @@ Flowie 的重要变更记录于此。
 
 ## [Unreleased]
 
+## [1.0.0-rc.4] - 2026-11-24
+
 ### 破坏性变更
 
 - **MCP**: 条目 ID 改用 UUID 字符串或唯一的十六进制短前缀；仍发送数字 ID 的客户端需要更新请求。
 - **存储**: 条目 ID 改用 UUID。应用首次打开旧库时，会在同一目录将原文件保留为 `<数据库文件名>.old-<时间戳>`，并创建新数据库。若移动旧库失败，本次数据库初始化会停止。
-- **迁移**: [一次性数据库工具](docs/usage.md#database-migration-from-rc3-to-rc4)仅支持 RC3 → RC4，可在同目录备份含 WAL 已提交数据的旧库后原位替换。使用 OPML 迁移时，在旧版主页取消选择后导出，再到新版主页导入。
-- **导入导出**: rc.3 及更早版本导出的 OPML 可迁移条目的文字、顺序、层级、备注、完成状态和类型。迁移后需重新建立内部链接和镜像。这些导出文件不含星标、保存的搜索、废纸篓、折叠状态或图片文件。
+
+### 从 RC3 升级到 RC4
+
+先退出 Flowie，迁移旧数据库后再打开 RC4。迁移工具随本次发布提供，只支持从 `1.0.0-rc.3` 迁移到 `1.0.0-rc.4`。
+
+- **macOS（Apple 芯片和 Intel）** 解压后，在该文件夹打开终端，运行 `./migrate-rc3-to-rc4 --replace "$HOME/Library/Application Support/Flowie/flowie.sqlite"`。[下载 macOS 迁移工具](https://github.com/wesleyel/flowie/releases/download/v1.0.0-rc.4/Flowie-1.0.0-rc.4-migration-macos.zip)。
+- **Windows（64 位）** 解压后，在该文件夹打开 PowerShell，运行 `.\migrate-rc3-to-rc4.exe --replace "$env:LOCALAPPDATA\Flowie\flowie.sqlite"`。[下载 Windows 迁移工具](https://github.com/wesleyel/flowie/releases/download/v1.0.0-rc.4/Flowie-1.0.0-rc.4-migration-windows-x64.zip)。
+- 如果数据库不在默认位置，把命令中的路径换成实际路径。`--replace` 会先在原目录创建 `<数据库文件名>.rc3-backup-<时间戳>`，备份包含 WAL 里已提交的修改。请在 RC4 里确认大纲无误后再处理备份。想保留旧库并生成新文件，可以去掉 `--replace`，依次传入旧库和新库路径。
+- 也可以在旧版主页取消选择后导出 OPML，再到新版主页导入。RC3 及更早版本的 OPML 保留条目正文、顺序、层级、备注、完成状态和类型。导入后需要重新建立内部链接和镜像。星标、保存的搜索、废纸篓、折叠状态和图片文件不在导出文件里。
 
 ### 新增
 
@@ -106,7 +115,8 @@ Flowie 1.0.0 的首个候选版本，以 GPL-3.0-or-later 授权。1.0.0 正式�
 
 - **依赖**: 通过 rusqlite 0.43 内置 SQLite 3.54.1，修复 CVE-2026-119375。
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.3...HEAD
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.4...HEAD
+[1.0.0-rc.4]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.3...v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.2...v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/wesleyel/flowie/releases/tag/v1.0.0-rc.1

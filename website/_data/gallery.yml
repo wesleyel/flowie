@@ -1,5 +1,10 @@
-# Screenshots under the feature cards: images/<file>-<en-US|zh-Hans>.jpg, 1600×1000.
-# Same order as the features; keep an even count so the two-column grid fills.
+# Screenshots: images/<file>-<en-US|zh-Hans>.jpg, 1600×1000.
+- file: 10-images
+  en: An image and caption in a trip outline
+  zh: 旅行大纲里的路线图和图片说明
+- file: 11-share-package
+  en: Preview a share package before importing it
+  zh: 导入前预览分享包
 - file: 03-commands
   en: The / command menu
   zh: / 命令菜单

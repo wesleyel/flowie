@@ -3,7 +3,7 @@
 <h1 align="center">Flowie</h1>
 
 <p align="center"><b>A fast, keyboard-first outliner for thinking in lists.</b><br>
-Zoom into any bullet, link and mirror ideas, write math, and find anything instantly — all stored locally on your Mac.</p>
+Zoom into any bullet, link and mirror ideas, write math, and search your outline. Your notes are stored on your device.</p>
 
 <p align="center">
   <a href="https://apps.apple.com/app/id6835913837"><img src="assets/mac-app-store-badge.svg" height="48" alt="Download on the Mac App Store"></a>
@@ -13,6 +13,7 @@ Zoom into any bullet, link and mirror ideas, write math, and find anything insta
   <a href="https://github.com/wesleyel/flowie/actions/workflows/ci.yml"><img src="https://github.com/wesleyel/flowie/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13+">
+  <img src="https://img.shields.io/badge/Windows-10%2F11-black" alt="Windows 10 and 11 (64-bit)">
 </p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="https://wesleyel.github.io/flowie/">Website</a></p>
@@ -27,6 +28,7 @@ Zoom into any bullet, link and mirror ideas, write math, and find anything insta
 - Headings, to-dos, numbered lists, quotes, code blocks and plain text, from the keyboard or the `/` menu.
 - Bold, italic, strikethrough, highlight, seven colors and links — markup shows only on the bullet you're editing.
 - Notes under any bullet, and undo for everything.
+- Paste or drop images into the outline and add captions.
 
 <p align="center">
   <img src="website/images/03-commands-en-US.jpg" width="400" alt="The / command menu">
@@ -37,7 +39,7 @@ Zoom into any bullet, link and mirror ideas, write math, and find anything insta
 - Inline `$…$` and display `$$…$$` LaTeX, rendered natively as you type, with a live preview while editing.
 
 **Connect ideas**
-- Link to any bullet with `[[` and see backlinks on its page.
+- Link to any bullet with `[[`. Hover over an internal link to preview its target, or open the target to see backlinks.
 - Mirrors: one bullet in several places — edit it anywhere, it changes everywhere.
 - `#tags` and `@mentions` with completion; clickable dates.
 - A journal page for every day and a calendar to get around.
@@ -56,15 +58,23 @@ Zoom into any bullet, link and mirror ideas, write math, and find anything insta
   <img src="website/images/05-search-en-US.jpg" width="400" alt="Search with filters">
 </p>
 
-**Your data, on your Mac**
-- One local SQLite database. No account, no cloud, no tracking.
+**Keep and share your notes**
+- Flowie stores the outline in a local SQLite database. No account, no cloud, no tracking.
 - Import OPML, Markdown and text (Workflowy exports work); export Markdown, OPML or text.
+- Flowie's OPML exports keep internal links and mirrors. To take images with you, use a `.flowie` package or keep the `images` folder with your Markdown export.
+- Share a branch as a `.flowie` file. The recipient can preview it, choose where to import it, and merge later updates while keeping their own edits. Use `is:new` to find unread imports.
 - Deleted bullets stay in the Trash for 30 days.
+
+<p align="center">
+  <img src="website/images/10-images-en-US.jpg" width="400" alt="An image and caption in a Kyoto trip outline">
+  <img src="website/images/11-share-package-en-US.jpg" width="400" alt="Previewing a Flowie share package before importing it">
+</p>
 
 **Made for the keyboard**
 - Every action has a shortcut, and every shortcut can be changed — including mouse side buttons.
 - A built-in tutorial that covers every feature.
 - Light and dark themes, accent colors, English and 简体中文.
+- Read release notes in the app under **Help → What's New**.
 
 <p align="center"><img src="website/images/08-dark-en-US.jpg" width="640" alt="Dark theme with a purple accent"></p>
 
@@ -75,12 +85,25 @@ Zoom into any bullet, link and mirror ideas, write math, and find anything insta
 
 ## Get Flowie
 
-- **[Mac App Store](https://apps.apple.com/app/id6835913837)** — signed, sandboxed and updated automatically. Buying it is the easiest way to get Flowie and the way to support its development.
-- **Open-source version** — `Flowie-<version>-macos.zip` on the [Releases](https://github.com/wesleyel/flowie/releases) page; versions ending in `-rc.N` are release candidates. It isn't notarized: right-click Flowie.app and choose **Open** the first time (on macOS 15 or later, **System Settings → Privacy & Security → Open Anyway**). It doesn't update itself.
-- **Homebrew** — the same open-source version: `brew install --cask wesleyel/tap/flowie`, and `brew upgrade` keeps it current, release candidates included.
-- **Build it yourself** — Flowie is free software; see [docs/building.md](docs/building.md).
+### macOS
 
-Requires macOS 13 Ventura or later, on Apple silicon or Intel.
+Requires macOS 13 or later on Apple silicon or Intel.
+
+- **Mac App Store** — a signed, sandboxed build with automatic updates. Buying it supports development. [Get it on the Mac App Store](https://apps.apple.com/app/id6835913837).
+- **Homebrew** — install with `brew install --cask wesleyel/tap/flowie` and update with `brew upgrade --cask wesleyel/tap/flowie`.
+- **GitHub** — download `Flowie-<version>-macos.zip`, unzip it and move `Flowie.app` to Applications. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest).
+
+The Homebrew and GitHub builds are not notarized. On macOS 15 or later, try opening `Flowie.app` first, then go to **System Settings → Privacy & Security → Open Anyway** if macOS blocks it. On older macOS versions, right-click the app and choose **Open**.
+
+### Windows
+
+Requires Windows 10 or 11 (64-bit). Download `Flowie-<version>-windows-x64.zip`, unzip it and run `Flowie.exe`. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest).
+
+GitHub Releases and Homebrew include release candidates (`-rc.N`).
+
+### Build from source
+
+You can build Flowie on macOS, Windows or Linux. [Build guide](docs/building.md).
 
 ## Learn more
 

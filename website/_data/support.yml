@@ -2,50 +2,54 @@
 en:
   heading: Support
   id: support-en
-  intro: 'Questions, bug reports and ideas: <a href="mailto:wesleyel@icloud.com?subject=Flowie%20support">wesleyel@icloud.com</a> or <a href="https://github.com/wesleyel/flowie/issues">GitHub issues</a>. <b>Help → Send Feedback…</b> in the app fills in your Flowie and macOS versions.'
+  intro: 'Send questions, bug reports or ideas to <a href="mailto:wesleyel@icloud.com?subject=Flowie%20support">wesleyel@icloud.com</a> or open a <a href="https://github.com/wesleyel/flowie/issues">GitHub issue</a>. <b>Help → Send Feedback…</b> fills in your Flowie version and operating system.'
   faq:
     - q: What is Flowie?
-      a: "A keyboard-first outliner for macOS 13 or later: every bullet is a page you can zoom into, with links and backlinks, mirrors, tags, a daily journal, LaTeX math and fast search. Everything is stored locally on your Mac."
+      a: "Flowie is a keyboard-first outliner. You can zoom into any bullet, link or mirror it elsewhere, keep a daily journal, and write LaTeX right in your notes."
+    - q: Which systems does Flowie run on?
+      a: 'Download Flowie for macOS 13 or later (Apple silicon or Intel) or Windows 10 and 11 (64-bit) from <a href="https://github.com/wesleyel/flowie/releases/latest">GitHub Releases</a>. On Linux, <a href="https://github.com/wesleyel/flowie/blob/main/docs/building.md">build it from source</a>.'
     - q: Where are my notes stored?
-      a: "Only on your Mac, in one SQLite database: inside Flowie's app container for the Mac App Store version, or in <code>~/Library/Application Support/Flowie</code> for the open-source version. Flowie has no account and no cloud sync, and it makes no network requests of its own."
-    - q: Does Flowie sync, or run on iPhone, Windows or Linux?
-      a: "No. Flowie is a Mac app with no sync service; it works fully offline. You can keep your outline in sync yourself by exporting, or back it up with Time Machine."
+      a: 'Flowie saves your notes in a local SQLite database and keeps attached images in a folder next to it. See <a href="https://github.com/wesleyel/flowie/blob/main/docs/building.md#where-data-lives">where Flowie stores its files on each system</a>.'
+    - q: Can I sync across devices?
+      a: "Flowie works offline and has no sync service. You can send part of an outline to another device as a <code>.flowie</code> file."
     - q: Can Flowie replace Workflowy?
-      a: "It works the same way — nested bullets you zoom into, mirrors, tags and fast search — but as a native Mac app that keeps your data local. Workflowy's OPML export imports directly."
+      a: "If you use Workflowy for nested bullets, mirrors, tags and search, those features are in Flowie too. You can import a Workflowy OPML file directly."
     - q: Can I write math in my notes?
       a: "Yes. Type inline <code>$…$</code> or display <code>$$…$$</code> LaTeX; Flowie renders it natively as you type, with a KaTeX-compatible engine."
     - q: How do I move my notes from Workflowy or another outliner?
-      a: "Export from the other app as OPML or Markdown, then use <b>File → Import…</b> (⌘⇧I)."
+      a: "Export from the other app as OPML or Markdown, then use <b>File → Import…</b>."
     - q: How do I back up or export?
-      a: "Use <b>File → Export</b> to save Markdown, OPML or plain text. Time Machine also backs up Flowie's data."
+      a: "Use the export commands in <b>File</b> to save Markdown, OPML, plain text or a <code>.flowie</code> package. To back up Flowie's data, include the database and its image folder."
     - q: I deleted something by mistake.
-      a: "Press ⌘Z, or open <b>File → Trash</b>: deleted bullets stay there for 30 days."
+      a: "Undo the deletion, or open <b>File → Trash</b>. Deleted bullets stay there for 30 days."
     - q: How do AI assistants connect?
-      a: "Turn it on in Settings → Agent, then register Flowie's MCP server, for example: <code>claude mcp add flowie -- /Applications/Flowie.app/Contents/MacOS/Flowie mcp</code>"
+      a: 'Enable access in <b>Settings → Agent</b>, then follow the <a href="https://github.com/wesleyel/flowie/blob/main/docs/mcp.md">MCP setup guide</a> to connect your assistant.'
     - q: Is Flowie free?
       a: "Flowie is free software under the GPL-3.0. Download the open-source version from <a href=\"https://github.com/wesleyel/flowie/releases/latest\">GitHub Releases</a>, install it with <code>brew install --cask wesleyel/tap/flowie</code>, or build it yourself. The Mac App Store version is the same app, signed, sandboxed and updated for you — buying it supports development."
 zh:
   heading: 支持
   id: support-zh
-  intro: '问题、错误报告与建议：<a href="mailto:wesleyel@icloud.com?subject=Flowie%20%E5%8F%8D%E9%A6%88">wesleyel@icloud.com</a>，或在 <a href="https://github.com/wesleyel/flowie/issues">GitHub Issues</a> 提交。在应用中选择<b>「帮助 → 发送反馈…」</b>会自动附上 Flowie 和 macOS 版本。'
+  intro: '有问题或建议，可以发邮件到 <a href="mailto:wesleyel@icloud.com?subject=Flowie%20%E5%8F%8D%E9%A6%88">wesleyel@icloud.com</a>，也可以在 <a href="https://github.com/wesleyel/flowie/issues">GitHub</a> 提交。在应用中选择<b>「帮助 → 发送反馈…」</b>，会自动附上 Flowie 和系统版本。'
   faq:
     - q: Flowie 是什么？
-      a: "一款键盘优先的 macOS 大纲笔记（macOS 13 及以上）：每个条目都能进入成为页面，支持链接与反向链接、镜像、标签、每日日记、LaTeX 公式和快速搜索，所有数据只保存在你的 Mac 上。"
+      a: "Flowie 是一款可以用键盘操作的大纲笔记。每个条目都能点进去当一页用。你可以链接或镜像条目、写日记，也可以在笔记里写 LaTeX 公式。"
+    - q: Flowie 支持哪些系统？
+      a: 'macOS 13 及以上（Apple 芯片和 Intel）和 Windows 10、11（64 位）可以从 <a href="https://github.com/wesleyel/flowie/releases/latest">GitHub Releases</a> 下载。Linux 用户可以<a href="https://github.com/wesleyel/flowie/blob/main/docs/building.md">从源码构建</a>。'
     - q: 笔记保存在哪里？
-      a: "只保存在你的 Mac 上的一个 SQLite 数据库里：Mac App Store 版在 Flowie 的应用容器内，开源版在 <code>~/Library/Application Support/Flowie</code>。Flowie 没有账号和云同步，自身不发起任何网络请求。"
-    - q: 支持同步吗？有 iPhone、Windows 或 Linux 版吗？
-      a: "没有。Flowie 是 Mac 应用，不提供同步服务，完全离线可用。可以通过导出自行转移，或用时间机器备份。"
+      a: '笔记保存在本地 SQLite 数据库里，图片放在数据库旁边的文件夹里。<a href="https://github.com/wesleyel/flowie/blob/main/docs/building.md#where-data-lives">查看各系统的保存位置</a>。'
+    - q: 可以在不同设备间同步吗？
+      a: "Flowie 可以离线使用，没有云同步。要把部分大纲传到另一台设备，可以导出为 <code>.flowie</code> 文件。"
     - q: 可以替代 Workflowy 吗？
-      a: "用法相同：层层嵌套、可进入的条目，镜像、标签和快速搜索；不同的是它是原生 Mac 应用，数据留在本地。Workflowy 导出的 OPML 可以直接导入。"
+      a: "Flowie 也支持嵌套条目、镜像、标签和搜索。Workflowy 导出的 OPML 可以直接导入。"
     - q: 能在笔记里写公式吗？
       a: "可以。输入行内 <code>$…$</code> 或独立 <code>$$…$$</code> LaTeX 公式，Flowie 会用兼容 KaTeX 的引擎在输入时原生渲染。"
     - q: 如何从 Workflowy 等大纲工具迁移？
-      a: "在原应用中导出 OPML 或 Markdown，然后在 Flowie 中选择<b>「文件 → 导入…」</b>（⌘⇧I）。"
+      a: "在原应用中导出 OPML 或 Markdown，然后在 Flowie 中选择<b>「文件 → 导入…」</b>。"
     - q: 如何备份或导出？
-      a: "通过<b>「文件 → 导出」</b>保存为 Markdown、OPML 或纯文本。时间机器也会备份 Flowie 的数据。"
+      a: "在<b>「文件」</b>菜单里可以导出 Markdown、OPML、纯文本或 <code>.flowie</code> 分享包。备份 Flowie 数据时，记得把数据库和旁边的图片文件夹一起备份。"
     - q: 误删了内容怎么办？
-      a: "按 ⌘Z，或打开<b>「文件 → 废纸篓」</b>：删除的条目会保留 30 天。"
+      a: "可以撤销，也可以打开<b>「文件 → 废纸篓」</b>恢复。删除的条目会保留 30 天。"
     - q: 如何连接 AI 助手？
-      a: "在「设置 → Agent」中开启，然后注册 Flowie 的 MCP 服务器，例如：<code>claude mcp add flowie -- /Applications/Flowie.app/Contents/MacOS/Flowie mcp</code>"
+      a: '在<b>「设置 → Agent」</b>中允许访问，再按 <a href="https://github.com/wesleyel/flowie/blob/main/docs/mcp.md">MCP 配置指南</a>连接助手。'
     - q: Flowie 免费吗？
       a: "Flowie 是以 GPL-3.0 授权的自由软件。可以从 <a href=\"https://github.com/wesleyel/flowie/releases/latest\">GitHub Releases</a> 下载开源版、用 <code>brew install --cask wesleyel/tap/flowie</code> 安装，或自行编译。Mac App Store 版本是同一个应用，已签名、沙盒保护并自动更新——购买它就是对开发的支持。"

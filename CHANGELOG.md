@@ -8,12 +8,21 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+## [1.0.0-rc.4] - 2026-11-24
+
 ### Breaking changes
 
 - **MCP**: node IDs are now UUID strings or short hexadecimal prefixes; clients sending numeric IDs must update their requests.
 - **Storage**: Flowie uses UUIDs for bullets. If the app opens an older database, it keeps the old file beside the new database as `<database>.old-<timestamp>`. Database initialization stops if moving the old file fails.
-- **Migration**: a [one-time database tool](docs/usage.md#database-migration-from-rc3-to-rc4) supports RC3 → RC4 only, including an in-place option with a WAL-aware backup. For OPML migration, export from Home with no selection in the old version and import the file at Home in the new version.
-- **Import and export**: OPML from rc.3 and earlier carries text, order, hierarchy, notes, completion and block types. Recreate internal links and mirrors after migrating. Stars, saved searches, Trash, fold state and image files are omitted from those exports.
+
+### Upgrade a database from RC3 to RC4
+
+Quit Flowie and run the one-time migration tool before opening your RC3 database in RC4. The tool supports only `1.0.0-rc.3` → `1.0.0-rc.4` and is available only as an attachment to this release.
+
+- **macOS (Apple silicon and Intel)** — unzip the tool, open Terminal in the extracted folder and run `./migrate-rc3-to-rc4 --replace "$HOME/Library/Application Support/Flowie/flowie.sqlite"`. [Download the macOS tool](https://github.com/wesleyel/flowie/releases/download/v1.0.0-rc.4/Flowie-1.0.0-rc.4-migration-macos.zip).
+- **Windows (64-bit)** — unzip the tool, open PowerShell in the extracted folder and run `.\migrate-rc3-to-rc4.exe --replace "$env:LOCALAPPDATA\Flowie\flowie.sqlite"`. [Download the Windows tool](https://github.com/wesleyel/flowie/releases/download/v1.0.0-rc.4/Flowie-1.0.0-rc.4-migration-windows-x64.zip).
+- If Flowie uses a different database, substitute its path. With `--replace`, the tool saves a backup next to it as `<database>.rc3-backup-<timestamp>`, including committed WAL changes. Keep the backup until you check your outline in RC4. To make a migrated copy instead, run the tool with the old and new database paths as its two arguments, without `--replace`.
+- You can also export OPML from Home with nothing selected in the old app, then import it at Home in the new app. OPML from RC3 and earlier keeps text, order, hierarchy, notes, completion and block types. Recreate internal links and mirrors after importing. Stars, saved searches, Trash, fold state and image files are left out.
 
 ### Added
 
@@ -110,7 +119,8 @@ Flowie 1.0.0's first release candidate, free software under GPL-3.0-or-later. Th
 
 - **Dependencies**: bundle SQLite 3.54.1 through rusqlite 0.43 to fix CVE-2026-119375.
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.3...HEAD
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.4...HEAD
+[1.0.0-rc.4]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.3...v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.2...v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/wesleyel/flowie/releases/tag/v1.0.0-rc.1

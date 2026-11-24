@@ -21,7 +21,7 @@ on:
         description: Tag to (re)publish, e.g. v1.0.0 or v1.0.0-rc.1
         required: true
       build:
-        description: Also rebuild and re-upload the macOS app zip
+        description: Also rebuild and upload the macOS and Windows archives
         type: boolean
         default: false
 
@@ -147,6 +147,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber
+      - name: Package and upload the RC4 migration tool
+        if: env.TAG == 'v1.0.0-rc.4'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked -p flowie-core --example migrate-rc3-to-rc4 --target "$target"
+          done
+          stage="build/Flowie-migration"
+          mkdir -p "$stage"
+          lipo -create -output "$stage/migrate-rc3-to-rc4" \
+            target/aarch64-apple-darwin/release/examples/migrate-rc3-to-rc4 \
+            target/x86_64-apple-darwin/release/examples/migrate-rc3-to-rc4
+          codesign --force --sign - "$stage/migrate-rc3-to-rc4"
+          codesign --verify --strict "$stage/migrate-rc3-to-rc4"
+          "$stage/migrate-rc3-to-rc4" --help
+          cp LICENSE "$stage/"
+          zip="build/Flowie-${TAG#v}-migration-macos.zip"
+          ditto -c -k --keepParent "$stage" "$zip"
+          gh release upload "$TAG" "$zip" --clobber
       - name: Update the Homebrew cask
         # Casks/flowie.rb in wesleyel/homebrew-tap (`brew install --cask wesleyel/tap/flowie`)
         # takes every release, candidates included, but only the newest version: rebuilding an
@@ -208,3 +228,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$env:TAG" "$env:ZIP" "$env:ZIP.sha256" --clobber
+      - name: Package and upload the RC4 migration tool
+        if: env.TAG == 'v1.0.0-rc.4'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          cargo build --release --locked -p flowie-core --example migrate-rc3-to-rc4 --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $ver = $env:TAG.TrimStart('v')
+          $stage = "build\Flowie-migration"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "target\x86_64-pc-windows-msvc\release\examples\migrate-rc3-to-rc4.exe" "$stage\"
+          & "$stage\migrate-rc3-to-rc4.exe" --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item "LICENSE" "$stage\"
+          $zip = "build\Flowie-$ver-migration-windows-x64.zip"
+          Compress-Archive -Path $stage -DestinationPath $zip -Force
+          gh release upload "$env:TAG" "$zip" --clobber

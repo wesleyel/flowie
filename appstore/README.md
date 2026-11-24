@@ -65,7 +65,8 @@ cp ~/Library/Application\ Support/Flowie/flowie.sqlite* ~/Library/Application\ S
 
 `scripts/screenshots.py` retakes every screenshot from the current code: the App Store
 PNGs in `fastlane/screenshots/<locale>/` and the website's 1600×1000 JPEGs in
-`website/images/`. It builds Flowie with the `screenshots` feature (into
+`website/images/`. The share-package preview goes to the website only, so the App Store set
+stays at ten per language. The script builds Flowie with the `screenshots` feature (into
 `target/screenshots`), runs it on a throwaway database with a 1440×900 window, fills it
 with demo pages through the agent socket and captures each state with `screencapture`.
 The demo text and the list of shots are at the top of the script.

@@ -4,17 +4,17 @@ permalink: /llms.txt
 ---
 # Flowie
 
-> Flowie is a fast, keyboard-first outliner for macOS (13 Ventura or later, Apple silicon and Intel). Every bullet is a page you can zoom into; it has `[[` links with backlinks, mirrors, tags, a daily journal, native LaTeX math, instant search, and a built-in MCP server for AI assistants. All data stays in one local SQLite database on the Mac: no account, no cloud, no tracking. It is free software under the GPL-3.0-or-later, written in Rust on GPUI, with English and Simplified Chinese (简体中文) interfaces.
+> Flowie is a keyboard-first outliner. You can zoom into any bullet, link or mirror it elsewhere, add images, keep a daily journal, and write LaTeX. Your notes and images stay on your device. Flowie is free software under GPL-3.0-or-later, written in Rust on GPUI, with English and Simplified Chinese (简体中文) interfaces.
 
 Key facts:
 
-- Platform: macOS only (no Windows, Linux, iOS or web version). No sync between devices; the outline is a local file.
-- Get it: the [Mac App Store]({{ site.app_store_url }}) (signed, sandboxed, auto-updating), the open-source version from [GitHub Releases]({{ site.github_url }}/releases/latest) (`Flowie-<version>-macos.zip`, not notarized), or Homebrew: `brew install --cask wesleyel/tap/flowie`.
-- Migrating: imports OPML, Markdown and plain text, including Workflowy exports; exports Markdown, OPML and plain text.
-- Math: inline `$…$` and display `$$…$$` LaTeX (KaTeX-compatible), rendered natively while typing.
-- AI: an MCP server (`Flowie mcp`, stdio) with tools search, read, starred, create, update, complete, move, delete, journal and open. Access is Off / Read only / Read & write in Settings → Agent; every AI edit is live and undoable. Register with Claude Code: `claude mcp add flowie -- /Applications/Flowie.app/Contents/MacOS/Flowie mcp`.
-- Keyboard: every action has a shortcut and every shortcut can be remapped, including mouse side buttons; ⌘P quick open; `/` command menu.
-- Good fit for: people who think in nested lists, Workflowy users who want a local, offline Mac app, students and researchers who write math in notes, and anyone who wants an AI assistant to read and edit their outline.
+- Runs on macOS 13 or later (Apple silicon or Intel) and Windows 10 or 11 (64-bit). Linux users can [build from source]({{ site.github_url }}/blob/main/docs/building.md).
+- Download the macOS and Windows archives from [GitHub Releases]({{ site.github_url }}/releases/latest). On macOS, use `brew install --cask wesleyel/tap/flowie` or get the signed, sandboxed version from the [Mac App Store]({{ site.app_store_url }}).
+- Import and export OPML, Markdown and plain text. Flowie's OPML keeps internal links and mirrors. To move images, use a `.flowie` package or keep the `images` folder with the Markdown export.
+- Share a branch as a `.flowie` file. The recipient can preview it, pick a location, and merge updates. Search `is:new` to find unread imports.
+- Write inline `$…$` and display `$$…$$` LaTeX (KaTeX-compatible). Flowie renders it as you type.
+- Connect AI assistants through the built-in MCP server (`Flowie mcp`, stdio). Settings → Agent controls read and write access. Pass bullet IDs as UUIDs or unique hexadecimal prefixes. See the [MCP guide]({{ site.github_url }}/blob/main/docs/mcp.md).
+- Customize keyboard shortcuts and mouse side buttons. Use quick open to jump to any bullet, or type `/` for commands.
 
 ## Docs
 

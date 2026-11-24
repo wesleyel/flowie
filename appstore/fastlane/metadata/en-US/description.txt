@@ -1,29 +1,30 @@
-Flowie is a fast, keyboard-first outliner for thinking in lists. Every bullet can be a page: zoom in to focus, zoom out to see the big picture.
+Flowie is a keyboard-first outliner for Mac. Plan a trip, take research notes or keep a journal. Open any bullet as its own page when you want to focus on one part of the outline.
 
 WRITE AND ORGANIZE
-• Nest, indent, collapse and drag bullets with smooth animations
+• Nest, indent, collapse and drag bullets
 • Headings, to-dos, numbered lists, quotes and code blocks
-• Bold, italic, highlight, colors and links — from the keyboard, the / menu or a right-click
-• Math with LaTeX syntax, rendered as you type
+• Format text with keyboard shortcuts, the / menu or a right-click
+• Paste or drop images into the outline and add captions
+• Write inline or display LaTeX math with a live preview
 
 CONNECT YOUR IDEAS
-• Link to any bullet with [[ and see backlinks on its page
-• Mirrors: one bullet in several places, edits show everywhere
+• Type [[ to link to any bullet. Hover over a link for a preview, or open the linked page to see its backlinks
+• Mirror a bullet in several places and edit it from any of them
 • Tags and mentions with completion
 • Daily journal pages and a calendar
 
-FIND ANYTHING
+SEARCH AND JUMP
 • ⌘P to jump to any bullet or create a new page
-• Search with filters: tags, dates, completed, changed in the last days
-• Star pages and save searches
+• Filter by tag, date, completion or recent changes
+• Star pages, save searches and find unread imports with is:new
 
-YOUR DATA, ON YOUR MAC
-• Everything is stored locally; nothing is sent anywhere
-• Import OPML, Markdown and text (Workflowy exports work)
-• Export Markdown, OPML or plain text
-• Undo for everything, and a Trash that keeps deleted bullets for 30 days
+KEEP AND SHARE YOUR NOTES
+• Notes and images stay on your Mac. No account or cloud sync
+• Share a branch and its images as a .flowie file. The recipient can preview it, choose where to import it, and merge later updates while keeping their own edits
+• Import and export Markdown, plain text and OPML, including imports from Workflowy. Flowie's OPML exports keep internal links and mirrors
+• Restore deleted bullets from the Trash for up to 30 days
 
-FOR AI AGENTS
-• A built-in MCP server lets AI assistants such as Claude read your outline — and edit it if you allow it in Settings. Off, read-only or read & write; every agent change is one undo step.
+AI ASSISTANTS
+• Connect Claude or another MCP client. Choose Off, Read only or Read & write in Settings. You can undo each edit an assistant makes
 
-Every shortcut can be changed. English and Simplified Chinese.
+Customizable shortcuts. Available in English and Simplified Chinese.

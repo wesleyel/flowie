@@ -12,7 +12,7 @@ agent socket, puts the window into each state with the `shot.*` methods
 (crates/flowie-app/src/dev/shots.rs) and captures it with `screencapture -l`.
 
 Writes
-    appstore/fastlane/screenshots/<locale>/NN-name.png   2880×1800 (App Store)
+    appstore/fastlane/screenshots/<locale>/NN-name.png   2880×1800 (up to 10 per locale)
     website/images/NN-name-<locale>.jpg                  1600×1000 (website)
 
 Needs a Retina display (2× scale) and Screen Recording permission for the app
@@ -22,6 +22,7 @@ it runs: hover effects would show up in the shots.
 """
 
 import argparse
+import base64
 import datetime as dt
 import json
 import os
@@ -147,6 +148,9 @@ EN = {
     "palette": "read",
     "search": "#idea",
     "saved_search": "is:todo",
+    "author": "Maya Chen",
+    "image_caption": "Walking route for our first day in Kyoto",
+    "package_description": "Places to visit and things to book before the trip.",
 }
 
 ZH = {
@@ -237,6 +241,9 @@ ZH = {
     "palette": "阅读",
     "search": "#想法",
     "saved_search": "is:todo",
+    "author": "陈小林",
+    "image_caption": "抵达京都第一天的步行路线",
+    "package_description": "想去的地方，以及出发前要预订的事项。",
 }
 
 LOCALES = {"en-US": EN, "zh-Hans": ZH}
@@ -245,10 +252,12 @@ LOCALES = {"en-US": EN, "zh-Hans": ZH}
 
 
 class Flowie:
-    def __init__(self, workdir, language, dark=False):
+    def __init__(self, workdir, content, dark=False):
         self.dir = workdir
         self.sock_path = str(workdir / "agent.sock")
-        settings = {"agent": "read-write", "language": language, "theme": "system", "accent": "Purple" if dark else ""}
+        settings = {"agent": "read-write", "language": content["language"], "theme": "system",
+                    "accent": "Purple" if dark else "", "author": {"name": content["author"]},
+                    "whats_new_after_updates": False}
         (workdir / "settings.json").write_text(json.dumps(settings))
         # FLOWIE_SHOT_APPEARANCE sets the app's appearance (title bar included) whatever the
         # Mac is set to; the theme follows it.
@@ -445,7 +454,36 @@ def shot_agent(app, c, ids):
     app.call("shot.settings", tab="agent")
 
 
+def attach_route(app, content, parent):
+    image = app.dir / "kyoto-route.png"
+    subprocess.run(["sips", "-s", "format", "png", str(ROOT / "scripts" / "fixtures" / "kyoto-route.svg"),
+                    "--out", str(image)], check=True, capture_output=True)
+    result = app.call("attach_image", parent=parent, caption=content["image_caption"],
+                      data=base64.b64encode(image.read_bytes()).decode("ascii"))
+    return re.search(r"\[id:([0-9a-f]+)\]", result).group(1)
+
+
+def shot_images(app, content, ids):
+    image_id = attach_route(app, content, ids["travel"])
+    app.call("shot.zoom", id=ids["travel"])
+    return lambda: app.call("delete", ids=[image_id])
+
+
+def shot_package(app, content, ids):
+    path = app.dir / "kyoto.flowie"
+    attach_route(app, content, ids["travel"])
+    app.call("shot.package_export", id=ids["travel"], description=content["package_description"])
+    app.call("shot.package_write", path=str(path))
+    app.call("shot.wipe")
+    for page in ("reading", "ideas", "research"):
+        created = app.create(content[page])
+        app.call("update", id=next(iter(created.values())), collapsed=True)
+    if app.call("shot.package_open", path=str(path)) != "dialog":
+        raise RuntimeError("Couldn't open the demo share package")
+
+
 # (file name, function, dark appearance)
+WEBSITE_ONLY = {"11-share-package"}
 SHOTS = [
     ("01-outline", shot_outline, False),
     ("02-quick-open", shot_quick_open, False),
@@ -456,6 +494,8 @@ SHOTS = [
     ("07-links", shot_links, False),
     ("08-dark", shot_dark, True),
     ("09-agent", shot_agent, False),
+    ("10-images", shot_images, False),
+    ("11-share-package", shot_package, False),
 ]
 
 # --------------------------------------------------------------------- main
@@ -496,21 +536,22 @@ def run_session(locale, dark, shots, keep):
     c = LOCALES[locale]
     # Short path: Unix socket paths are limited to ~100 bytes.
     work = Path(tempfile.mkdtemp(prefix="flowie-shots-", dir="/tmp"))
-    app = Flowie(work, c["language"], dark)
+    app = Flowie(work, c, dark)
     try:
         ids = seed(app, c)
         for name, fn, _ in shots:
             app.call("shot.reset")
             undo = fn(app, c, ids)
-            png = APPSTORE / locale / f"{name}.png"
+            png = work / f"{name}.png"
             app.capture(png)
             w, h = image_size(png)
             if (w, h) != (WINDOW[0] * 2, WINDOW[1] * 2):
-                print(f"warning: {png.name} is {w}×{h}, not {WINDOW[0] * 2}×{WINDOW[1] * 2} (window clipped or not 2×?)",
-                      file=sys.stderr)
+                raise RuntimeError(f"{png.name} is {w}×{h}; expected {WINDOW[0] * 2}×{WINDOW[1] * 2} on a Retina display")
             jpg = WEBSITE / f"{name}-{locale}.jpg"
             subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "82", "-Z", "1600", str(png),
                             "--out", str(jpg)], check=True, capture_output=True)
+            if name not in WEBSITE_ONLY:
+                shutil.copyfile(png, APPSTORE / locale / png.name)
             print(f"{locale}  {name}")
             app.call("shot.reset")
             if undo:

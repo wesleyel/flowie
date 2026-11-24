@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="520" viewBox="0 0 1000 520">
+  <rect width="1000" height="520" fill="#f5efe4"/>
+  <path fill="#e3ebd4" d="M625 0H1000V520H682L727 435 704 353 761 226 671 161Z"/>
+  <path fill="#d7e5cb" d="M810 15H1000V484L920 442 871 332 896 251 788 180Z"/>
+  <path d="M250 -30C301 72 207 129 258 226S347 339 313 550" fill="none" stroke="#acd3de" stroke-width="45"/>
+  <path d="M77 88H511L634 159H708M49 159H466L568 207H762M52 248H559L692 193H863M56 336H819M63 421H583L751 389H964M100 483H706M150 48V474M358 37V481M467 58V480M577 208V473M672 235V399" fill="none" stroke="#fffaf2" stroke-width="13"/>
+  <path d="M350 248H462L521 229 566 248H676L737 315 755 386H849" fill="none" stroke="#b04c50" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#fffaf2" stroke="#b04c50" stroke-width="7">
+    <circle cx="350" cy="248" r="14"/><circle cx="566" cy="248" r="14"/><circle cx="849" cy="386" r="14"/>
+  </g>
+  <g font-family="Helvetica, sans-serif" font-size="27" font-weight="bold" fill="#403b34" text-anchor="middle">
+    <text x="350" y="212">Gion</text>
+    <text x="566" y="299">Yasaka Shrine</text>
+    <text x="849" y="439">Kiyomizu-dera</text>
+  </g>
+  <path d="M924 124l18-43 18 43-18-9Z" fill="#546553"/>
+  <text x="942" y="69" text-anchor="middle" font-family="Helvetica, sans-serif" font-weight="bold" font-size="22" fill="#546553">N</text>
+</svg>

@@ -1500,6 +1500,7 @@ dependencies = [
  "chrono",
  "crc32fast",
  "flate2",
+ "roxmltree 0.21.2",
  "rusqlite",
  "serde",
  "serde_json",

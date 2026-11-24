@@ -333,6 +333,72 @@ fn import_opml_exported_by_rc3() {
 }
 
 #[test]
+fn opml_keeps_known_type_names_but_omits_image_files() {
+    let image = Item { kind: BlockKind::Image, image: format!("{}.png", "a".repeat(64)), ..Item::new("图注") };
+    let xml = io::to_opml("Images", std::slice::from_ref(&image));
+    assert!(!xml.contains(&image.image));
+    assert_eq!(io::parse_any(&xml), [Item { kind: BlockKind::Image, ..Item::new("图注") }]);
+    assert_eq!(io::parse_any(&xml.replace("flowie:kind=\"image\"", "flowie:kind=\"future-type\"")), [Item::new("图注")]);
+}
+
+#[test]
+fn opml_mirrors_and_links_round_trip_and_follow_a_reimported_copy() {
+    let mut original = Tree::new();
+    let source = original.create_at(ROOT, 0, "项目 & <计划> \"一\"");
+    let mirror = original.create_mirror(source, ROOT, 0).unwrap();
+    let reference = original.create_at(ROOT, 1, &format!("[项目](flowie:{source})"));
+    original.set_note(reference, &format!("[镜像](flowie:{mirror})"));
+    for (index, kind) in BlockKind::ALL.into_iter().enumerate() {
+        let child = original.create_at(source, index, kind.name());
+        original.set_kind(child, kind);
+    }
+    let xml = io::to_opml("Home", &original.to_opml_items(original.children(ROOT)));
+    let document = roxmltree::Document::parse(&xml).unwrap();
+    let outlines: Vec<_> = document.descendants().filter(|element| element.has_tag_name("outline")).collect();
+    assert!(outlines.iter().all(|element| element.attribute("text").is_some()));
+    assert_eq!(outlines[0].attribute("text"), Some(original.node(source).text.as_str()));
+    assert_eq!(outlines[0].children().filter(|element| element.is_element()).count(), 0);
+
+    let renamed_prefix = xml.replace("xmlns:flowie=", "xmlns:f=").replace(" flowie:", " f:");
+    let items = io::parse_any(&renamed_prefix);
+    let mut imported = Tree::new();
+    let first = imported.insert_items(ROOT, 0, &items);
+    assert_eq!(first, [mirror, reference, source]);
+    let copy = imported.insert_items(ROOT, first.len(), &items);
+    for roots in [&first, &copy] {
+        let (mirror, reference, source) = (roots[0], roots[1], roots[2]);
+        assert_eq!(imported.source(mirror), source);
+        assert_eq!(imported.mirrors_of(source), [mirror]);
+        assert_eq!(imported.backlinks(source), [reference]);
+        assert_eq!(imported.backlinks(mirror), [reference]);
+        assert_eq!(imported.node(reference).text, format!("[项目](flowie:{source})"));
+        assert_eq!(imported.node(reference).note, format!("[镜像](flowie:{mirror})"));
+        let kinds: Vec<_> = imported.children(source).iter().map(|&child| imported.node(child).kind).collect();
+        assert_eq!(kinds, BlockKind::ALL);
+    }
+    imported.set_text(copy[2], "修改副本");
+    assert_eq!(imported.node(imported.source(copy[0])).text, "修改副本");
+    assert_eq!(imported.node(imported.source(mirror)).text, original.node(source).text);
+}
+
+#[test]
+fn opml_mirror_alone_uses_existing_source_or_snapshot() {
+    let mut original = Tree::new();
+    let source = original.create_at(ROOT, 0, "单独导出");
+    let mirror = original.create_mirror(source, ROOT, 1).unwrap();
+    let xml = io::to_opml("Selection", &original.to_opml_items(&[mirror]));
+    let items = io::parse_any(&xml);
+    let mut empty = Tree::new();
+    let fallback = empty.insert_items(ROOT, 0, &items)[0];
+    assert_eq!(empty.node(fallback).text, "单独导出");
+    assert_eq!(empty.node(fallback).mirror, ROOT);
+    let restored = original.insert_items(ROOT, 0, &items)[0];
+    assert_eq!(original.source(restored), source);
+    let foreign = io::parse_any(&xml.replace("https://github.com/wesleyel/flowie/ns/opml/1", "urn:other"));
+    assert_eq!(foreign, [Item::new("单独导出")]);
+}
+
+#[test]
 fn opml_roundtrip_and_workflowy_html() {
     let (mut t, [a, b, ..]) = sample();
     t.set_note(a, "line1\nline2 & <x>");

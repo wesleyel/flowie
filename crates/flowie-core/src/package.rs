@@ -456,6 +456,7 @@ impl Package {
                 collapsed: n.collapsed,
                 children,
                 image: shown.image.clone().unwrap_or_default(),
+                ..Default::default()
             }
         }
         self.outline.roots.iter().filter_map(|r| by_id.get(r)).map(|n| build(n, &by_id, &kids, &unlink, 0)).collect()

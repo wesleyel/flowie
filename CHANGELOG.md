@@ -16,6 +16,7 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ### Added
 
+- **OPML**: preserve bullet IDs, mirrors and internal links in new exports. Readers that only use the standard `text` attribute display the mirror's source text. Importing again creates an independent copy, with links and mirrors pointing to the corresponding copied bullets.
 - **Settings**: add author name and author ID in General, and a device ID per outline database.
 - **Sharing**: add Export as Package to save bullets and descendants as a `.flowie` file, with an option to leave completed bullets out.
 - **Sharing**: open `.flowie` packages for preview and import into a chosen location; imported bullets keep their IDs, and importing again creates a copy.

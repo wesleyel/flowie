@@ -97,15 +97,23 @@ impl Tree {
         let parent = self.source(parent);
         let mut stack: Vec<_> = items.iter().enumerate().rev().map(|(offset, item)| (parent, index + offset, item)).collect();
         let mut imported = Vec::new();
-        let mut mapped = HashMap::new();
+        let mut seen_ids = HashSet::new();
         let mut ambiguous = HashSet::new();
+        let mut pending: Vec<_> = items.iter().collect();
+        while let Some(item) = pending.pop() {
+            if let Some(id) = item.id.filter(|id| *id != ROOT && !id.is_virtual()) {
+                if !seen_ids.insert(id) {
+                    ambiguous.insert(id);
+                }
+            }
+            pending.extend(&item.children);
+        }
+        let mut mapped = HashMap::new();
         while let Some((under, position, item)) = stack.pop() {
-            let original = item.id.filter(|id| *id != ROOT && !id.is_virtual());
+            let original = item.id.filter(|id| *id != ROOT && !id.is_virtual() && !ambiguous.contains(id));
             let id = original.filter(|id| !self.contains(*id)).unwrap_or_else(|| self.alloc_id());
             if let Some(original) = original {
-                if mapped.insert(original, id).is_some() {
-                    ambiguous.insert(original);
-                }
+                mapped.insert(original, id);
             }
             let mut node = Node::new(id, under, self.rank_at(under, position));
             node.text = item.text.clone();
@@ -136,7 +144,7 @@ impl Tree {
                     && !self.has_children(id)
                     && !self.is_ancestor(source, id)
             });
-            if source.is_none() && mapped.is_empty() {
+            if source.is_none() && mapped.is_empty() && ambiguous.is_empty() {
                 continue;
             }
             let mut node = self.node(id).clone();

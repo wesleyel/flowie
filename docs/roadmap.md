@@ -203,7 +203,7 @@ common base: changed only there → update, only here → keep, both → conflic
 
 - One image per bullet: a new `BlockKind::Image`. The bullet's text is the caption (editable and
   searchable). No images inside running text; images in notes may come later.
-- Files, not database blobs: `Images/<ab>/<sha256>.<ext>` beside `flowie.sqlite`, written once
+- Files, not database blobs: `<database>.images/<ab>/<sha256>.<ext>` beside each database, written once
   (temp file, fsync, rename) before the database refers to them. Backups then copy each image
   once, and deleting frees space without `VACUUM`. The database keeps a `blobs` table of metadata
   (hash, mime, width, height, size). Display thumbnails live in the Caches folder.

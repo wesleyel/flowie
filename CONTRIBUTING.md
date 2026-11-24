@@ -22,6 +22,19 @@ advisories (`deny.toml`).
 - New features belong in the first-launch tutorial too
   (`crates/flowie-app/tutorial/<locale>.md`).
 
+## App source layout
+
+The desktop app lives under `crates/flowie-app/src`. Keep a feature's state,
+actions, and rendering together. `outline/` owns the main editor, `pages/`
+owns full-page replacements such as Trash and What's New, and `overlays/`
+owns the palette, popovers, and menus. `settings/` is organized by tab.
+`app/` holds platform integration, while `text/` and `ui/` provide shared
+editing and UI components.
+
+`share/` owns the package dialogs and unread indicators. The package format
+and image storage live in `flowie-core`. Screenshot tooling lives in `dev/`
+and builds with the `screenshots` feature.
+
 ## Licensing of contributions
 
 Flowie is licensed under the GNU General Public License v3.0 or later (`LICENSE`).

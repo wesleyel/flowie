@@ -1,0 +1,429 @@
+//! The outline entity and its shared view state.
+
+mod blocks;
+mod clipboard;
+mod display;
+mod documents;
+mod editing;
+mod history;
+mod journal;
+mod navigation;
+mod render;
+mod rows;
+mod selection;
+mod structure;
+
+use std::ops::Range;
+
+use flowie_core::{store::Writer, DisplayRow, History, NodeId, Row, Tree, ROOT};
+use gpui::{actions, px, Bounds, Context, FocusHandle, ListAlignment, ListState, Pixels, TextLayout, Window};
+
+use crate::ui::{
+    anim::{Anims, Tween},
+    theme::Theme,
+};
+
+use navigation::{PageLocation, PageScroll, WheelScroll};
+use structure::DropTarget;
+
+pub(crate) use render::TITLE_SIZE;
+pub(crate) use rows::{bullet_dot, bullet_row, indent_guides, row_metrics, FONT_SIZE, LINE_H};
+
+actions!(
+    flowie,
+    [
+        Newline,
+        ToggleNote,
+        Indent,
+        Outdent,
+        Backspace,
+        Delete,
+        DeleteWordLeft,
+        KillLine,
+        Yank,
+        Left,
+        Right,
+        Up,
+        Down,
+        WordLeft,
+        WordRight,
+        SelectLeft,
+        SelectRight,
+        SelectWordLeft,
+        SelectWordRight,
+        SelectUp,
+        SelectDown,
+        Home,
+        End,
+        SelectHome,
+        SelectEnd,
+        SelectAll,
+        ToggleComplete,
+        Collapse,
+        Expand,
+        ZoomIn,
+        ZoomOut,
+        ZoomHome,
+        PageBack,
+        PageForward,
+        MoveUp,
+        MoveDown,
+        DeleteNode,
+        Undo,
+        Redo,
+        Copy,
+        Cut,
+        Paste,
+        Bold,
+        Italic,
+        InlineCode,
+        WrapMath,
+        InsertLink,
+        Find,
+        Escape,
+        ToggleCompletedVisible,
+        Quit,
+        Jump,
+        MoveTo,
+        LinkToBullet,
+        MirrorBullet,
+        ToggleStar,
+        ExpandAll,
+        Level1,
+        Level2,
+        Level3,
+        Level4,
+        Import,
+        ExportOpml,
+        ExportMarkdown,
+        ExportText,
+        ExportPackage,
+        InsertImage,
+        WhatsNew,
+        ShowTrash,
+        SaveSearch,
+        Highlight,
+        ColorRed,
+        ColorOrange,
+        ColorYellow,
+        ColorGreen,
+        ColorBlue,
+        ColorPurple,
+        ColorGray,
+        ColorNone,
+        CycleColor,
+        KindBullet,
+        KindH1,
+        KindH2,
+        KindH3,
+        KindParagraph,
+        KindTodo,
+        KindNumbered,
+        KindQuote,
+        KindCode,
+        Today,
+        NextMatch,
+        PrevMatch,
+        ShowCalendar,
+        OpenSettings,
+        OpenAbout,
+        SendFeedback,
+        OpenTutorial,
+        OpenPrivacyPolicy,
+        OpenTerms,
+    ]
+);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    Text(NodeId),
+    Note(NodeId),
+    Search,
+    Palette,
+    /// A one-line text field in a dialog or in Settings.
+    Field(Field),
+}
+
+/// The text fields outside the outline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    /// Settings → General → Author name.
+    AuthorName,
+    /// The export dialog's title and description.
+    PackageTitle,
+    PackageDescription,
+    /// A temporary What's New row, discarded when the page closes.
+    WhatsNew(NodeId),
+}
+
+pub struct Edit {
+    pub target: Target,
+    pub sel: Range<usize>,
+    pub reversed: bool,
+    pub marked: Option<Range<usize>>,
+    /// Layout of the editor's text from the last paint (caret mapping, IME).
+    pub layout: Option<TextLayout>,
+    pub bounds: Option<Bounds<Pixels>>,
+    pub selecting_with_mouse: bool,
+}
+
+impl Edit {
+    pub fn new(target: Target, offset: usize) -> Edit {
+        Edit { target, sel: offset..offset, reversed: false, marked: None, layout: None, bounds: None, selecting_with_mouse: false }
+    }
+
+    pub fn caret(&self) -> usize {
+        if self.reversed {
+            self.sel.start
+        } else {
+            self.sel.end
+        }
+    }
+}
+
+/// Block selection of whole rows (Esc from the editor, Shift-↑/↓).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockSel {
+    pub anchor: NodeId,
+    pub head: NodeId,
+}
+
+pub struct Outline {
+    pub focus: FocusHandle,
+    pub tree: Tree,
+    pub history: History,
+    pub writer: Option<Writer>,
+    pub zoom: NodeId,
+    back_pages: Vec<PageLocation>,
+    forward_pages: Vec<PageLocation>,
+    /// Scroll position of each page opened this session, so reopening a node returns to it.
+    page_scrolls: std::collections::HashMap<NodeId, PageScroll>,
+    /// The window's size and place, saved on quit (see `window_place`).
+    window_place: Option<crate::app::window_place::Place>,
+    pub hide_completed: bool,
+    pub query: String,
+    pub rows: Vec<Row>,
+    pub display: Vec<DisplayRow>,
+    pub list: ListState,
+    pub edit: Option<Edit>,
+    pub block: Option<BlockSel>,
+    pub anims: Anims,
+    pub zoom_tween: Option<Tween>,
+    pub theme: Theme,
+    pub drop: Option<DropTarget>,
+    pub highlight_terms: Vec<String>,
+    pub palette: Option<crate::overlays::palette::Palette>,
+    pub inline: Option<crate::overlays::palette::Inline>,
+    pub inline_entries_len: usize,
+    pub block_saved: Option<BlockSel>,
+    pub starred: Vec<NodeId>,
+    pub saved_searches: Vec<String>,
+    /// The temporary page replacing the outline, if any.
+    pub page: Option<crate::pages::PageSession>,
+    pub db_path: Option<std::path::PathBuf>,
+    pub calendar: Option<crate::overlays::calendar::Calendar>,
+    pub journal_id: Option<NodeId>,
+    /// This device, for share packages and (later) the change history: a UUID kept in the database's meta.
+    pub device_id: String,
+    /// A block selection is being extended by dragging the mouse.
+    pub mouse_block: bool,
+    /// Snapshots of deleted nodes, so their rows can animate out.
+    pub ghosts: std::collections::HashMap<NodeId, flowie_core::Node>,
+    /// Scroll position of the open popup list (palette or inline menu).
+    pub popup_scroll: gpui::ScrollHandle,
+    /// Short ids shown to agents, rebuilt when the tree changes.
+    pub short_ids: std::cell::RefCell<flowie_core::ShortIds>,
+    pub popover_scroll: gpui::ScrollHandle,
+    pub menu_scroll: gpui::ScrollHandle,
+    pub settings: Option<crate::settings::SettingsUi>,
+    pub settings_return: Option<(Target, usize)>,
+    pub config: crate::settings::Config,
+    /// Mouse-wheel scrolling still to animate (`config.smooth_scroll`).
+    wheel: WheelScroll,
+    pub config_path: std::path::PathBuf,
+    /// Selectable read-only labels, keyed by name.
+    pub labels: std::collections::HashMap<&'static str, gpui::Entity<crate::text::selectable::SelectableText>>,
+    pub toast: Option<(String, Tween)>,
+    /// Row / display positions by id, rebuilt whenever `rows` / `display`
+    /// change, so per-row lookups during render are O(1).
+    row_pos: std::collections::HashMap<NodeId, usize>,
+    display_pos: std::collections::HashMap<NodeId, usize>,
+    /// The one floating popover (references, hidden path levels).
+    pub popover: crate::overlays::popover::PopoverState,
+    /// Text removed by ⌃K, put back by ⌃Y (macOS keeps this apart from the clipboard).
+    pub kill_buffer: String,
+    /// The open right-click menu (text or bullet).
+    pub menu: Option<crate::overlays::context_menu::ContextMenu>,
+    /// The open menu of the in-window menu bar (see `app_menu`).
+    pub app_menu: Option<usize>,
+    pub app_menu_scroll: gpui::ScrollHandle,
+    /// The open export dialog.
+    pub package_export: Option<crate::share::PackageExport>,
+    /// The open import dialog.
+    pub package_import: Option<crate::share::PackageImport>,
+    /// Image files, beside the database (none without one).
+    pub image_dir: Option<flowie_core::images::ImageDir>,
+    /// What is known about each image file, by name.
+    pub blobs: std::collections::HashMap<String, flowie_core::images::BlobInfo>,
+    /// The image shown full-window (Space on an image bullet).
+    pub image_preview: Option<NodeId>,
+    /// What's New to show once the window is (after a background launch).
+    pub whats_new_pending: Option<Option<String>>,
+    /// Roots imported from share packages, by root id.
+    pub imports: std::collections::HashMap<NodeId, flowie_core::store::ImportRecord>,
+}
+
+pub const INDENT: f32 = 24.0;
+pub const PAD_X: f32 = 36.0;
+
+impl Outline {
+    pub fn new(
+        tree: Tree,
+        writer: Option<Writer>,
+        db_path: Option<std::path::PathBuf>,
+        meta: Vec<(String, String)>,
+        imports: Vec<flowie_core::store::ImportRecord>,
+        blobs: Vec<flowie_core::images::BlobInfo>,
+        config: crate::settings::Config,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let db_path_for_config = db_path.clone();
+        let db_path_for_images = db_path.clone();
+        let mut zoom = ROOT;
+        let mut hide_completed = false;
+        let mut starred = Vec::new();
+        let mut saved_searches = Vec::new();
+        let mut page_scrolls = std::collections::HashMap::new();
+        for (k, v) in &meta {
+            match k.as_str() {
+                "zoom" => zoom = v.parse().unwrap_or(ROOT),
+                "hide_completed" => hide_completed = v == "1",
+                "scroll" => page_scrolls.extend(PageScroll::decode(v)),
+                "starred" => starred = v.split(',').filter_map(|x| x.parse().ok()).collect(),
+                "saved_searches" => saved_searches = v.split('\n').filter(|x| !x.is_empty()).map(String::from).collect(),
+                _ => {}
+            }
+        }
+        if !tree.contains(zoom) {
+            zoom = ROOT;
+        }
+        let mut this = Outline {
+            focus: cx.focus_handle(),
+            tree,
+            history: History::new(),
+            writer,
+            zoom,
+            back_pages: Vec::new(),
+            forward_pages: Vec::new(),
+            page_scrolls,
+            window_place: None,
+            hide_completed,
+            query: String::new(),
+            rows: Vec::new(),
+            display: Vec::new(),
+            list: ListState::new(0, ListAlignment::Top, px(600.)),
+            wheel: WheelScroll::default(),
+            edit: None,
+            block: None,
+            anims: Anims::default(),
+            zoom_tween: None,
+            theme: Theme::build(window.appearance(), &config),
+            drop: None,
+            highlight_terms: Vec::new(),
+            palette: None,
+            inline: None,
+            inline_entries_len: 0,
+            block_saved: None,
+            starred,
+            saved_searches,
+            page: None,
+            db_path,
+            calendar: None,
+            journal_id: meta.iter().find(|(k, _)| k == "journal").and_then(|(_, v)| v.parse().ok()),
+            device_id: meta.iter().find(|(k, _)| k == "device").map(|(_, v)| v.clone()).unwrap_or_default(),
+            toast: None,
+            row_pos: Default::default(),
+            display_pos: Default::default(),
+            popover: Default::default(),
+            menu: None,
+            app_menu: None,
+            app_menu_scroll: gpui::ScrollHandle::new(),
+            package_export: None,
+            package_import: None,
+            image_dir: db_path_for_images.as_deref().map(flowie_core::images::ImageDir::beside),
+            blobs: blobs.into_iter().map(|b| (b.name.clone(), b)).collect(),
+            image_preview: None,
+            whats_new_pending: None,
+            imports: imports.into_iter().map(|r| (r.root, r)).collect(),
+            kill_buffer: String::new(),
+            mouse_block: false,
+            ghosts: Default::default(),
+            popup_scroll: gpui::ScrollHandle::new(),
+            short_ids: Default::default(),
+            popover_scroll: gpui::ScrollHandle::new(),
+            menu_scroll: gpui::ScrollHandle::new(),
+            settings: None,
+            settings_return: None,
+            config_path: crate::settings::Config::path(db_path_for_config.as_ref()),
+            labels: Default::default(),
+            config,
+        };
+        if this.device_id.is_empty() {
+            this.device_id = crate::settings::Author::new_id();
+            this.set_meta("device", &this.device_id.clone());
+        }
+        this.ensure_author();
+        if this.tree.children(ROOT).is_empty() {
+            this.seed_welcome();
+        }
+        this.refresh(false);
+        let top = this.restore_scroll();
+        if let Some(first) = top.or_else(|| this.rows.first().map(|r| r.id)) {
+            this.edit = Some(Edit::new(Target::Text(first), this.tree.node(first).text.len()));
+        }
+        let saved_place = meta.iter().find(|(k, _)| k == "window").and_then(|(_, v)| crate::app::window_place::Place::parse(v));
+        this.window_place = crate::app::window_place::Place::observe(saved_place.as_ref(), window, cx);
+        cx.observe_window_bounds(window, |this, window, cx| {
+            this.window_place =
+                crate::app::window_place::Place::observe(this.window_place.as_ref(), window, cx).or(this.window_place.take());
+        })
+        .detach();
+        cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.whats_new_window_shown(cx);
+            }
+        })
+        .detach();
+        cx.observe_window_appearance(window, |this, window, cx| {
+            this.apply_theme(window);
+            cx.notify();
+        })
+        .detach();
+        this
+    }
+
+    fn seed_welcome(&mut self) {
+        self.insert_tutorial(0);
+        self.tree.take_journal();
+        self.persist();
+    }
+
+    pub fn toast(&mut self, msg: impl Into<String>) {
+        self.toast = Some((msg.into(), Tween::new(std::time::Duration::from_millis(2600))));
+    }
+
+    pub fn set_meta(&self, key: &str, value: &str) {
+        if let Some(w) = &self.writer {
+            w.set_meta(key, value);
+        }
+    }
+
+    /// Settings or a dialog is open: the outline's own shortcuts are off
+    /// (except under a palette opened from the dialog, which needs them).
+    pub fn modal_open(&self) -> bool {
+        self.settings.is_some()
+            || self.image_preview.is_some()
+            || ((self.package_export.is_some() || self.package_import.is_some()) && self.palette.is_none())
+    }
+}

@@ -2,7 +2,7 @@
 
 use gpui::{div, prelude::*, px, Div, ElementId, MouseButton, SharedString, Stateful};
 
-use crate::theme::{Theme, R_XL};
+use crate::ui::theme::{Theme, R_XL};
 
 /// A popover or floating panel (calendar, link popover, quick open).
 pub fn popover(theme: Theme, id: impl Into<ElementId>) -> Stateful<Div> {

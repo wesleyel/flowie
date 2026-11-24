@@ -2,7 +2,7 @@
 
 use gpui::{div, prelude::*, px, Div, ElementId, Stateful};
 
-use crate::theme::{Theme, R_MD};
+use crate::ui::theme::{Theme, R_MD};
 
 /// A 28px list row. `selected` fills it with the accent and white text,
 /// like a focused Mac list; otherwise it shows a hover fill.

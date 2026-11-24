@@ -2,7 +2,7 @@
 
 use gpui::{div, prelude::*, px, Div, ElementId, Stateful};
 
-use crate::theme::{Theme, R_MD};
+use crate::ui::theme::{Theme, R_MD};
 
 /// The track the segments sit in.
 pub fn track(theme: Theme) -> Div {

@@ -2,7 +2,7 @@
 
 use gpui::{div, prelude::*, px, Div, FontWeight, SharedString};
 
-use crate::theme::Theme;
+use crate::ui::theme::Theme;
 
 /// A small section label above a group (palette title, settings sidebar).
 pub fn overline(theme: Theme, label: impl Into<SharedString>) -> Div {

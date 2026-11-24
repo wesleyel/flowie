@@ -34,7 +34,7 @@ pub fn socket_path(db: &Path) -> std::path::PathBuf {
     let uid = unsafe { libc::getuid() };
     let name = format!("flowie-{uid}-{:08x}.sock", hash_u32(db));
     // The sandbox can't use /tmp; its container has its own tmp.
-    match crate::platform::sandbox_container() {
+    match crate::app::platform::sandbox_container() {
         Some(data) => data.join("tmp").join(name),
         None => std::path::PathBuf::from("/tmp").join(name),
     }

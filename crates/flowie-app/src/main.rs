@@ -1,35 +1,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agent;
-mod anim;
-mod app_menu;
-mod calendar;
-mod commands;
-mod editor;
-mod format_menu;
-mod i18n;
-mod icons;
+mod app;
+#[cfg(feature = "screenshots")]
+mod dev;
 mod image;
-mod inline;
-mod keymap;
-mod menu;
 mod outline;
-mod palette;
-mod platform;
-mod popover;
-mod rich;
-mod selectable;
+mod overlays;
+mod pages;
 mod settings;
 mod share;
-#[cfg(feature = "screenshots")]
-mod shots;
-mod theme;
-mod tutorial;
+mod text;
 mod ui;
-mod view;
-mod volatile_page;
-mod whats_new;
-mod window_place;
 
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -38,7 +20,11 @@ use std::time::Instant;
 use flowie_core::{store, Tree, ROOT};
 use gpui::{px, size, App, AppContext, AssetSource, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions};
 
-use outline::*;
+use app::{i18n, keymap, platform, window_place};
+#[cfg(feature = "screenshots")]
+use dev::shots;
+use outline::{Outline, Quit};
+use ui::icons;
 
 struct Assets;
 

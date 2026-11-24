@@ -2,7 +2,7 @@
 
 use gpui::{anchored, deferred, div, point, prelude::*, px, AnyElement, Div, ElementId, Hsla, MouseButton, Pixels, Point, Stateful};
 
-use crate::theme::{Theme, R_MD, R_XL};
+use crate::ui::theme::{Theme, R_MD, R_XL};
 
 pub const MENU_W: f32 = 240.;
 /// Rows show their hover through this group, so the icon and shortcut can
@@ -53,7 +53,7 @@ pub fn row(theme: Theme, id: impl Into<ElementId>, icon: &str, label: String, sh
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(crate::icons::icon(icon, ICON, icon_fg).group_hover(ROW, |s| s.text_color(on))),
+                .child(crate::ui::icons::icon(icon, ICON, icon_fg).group_hover(ROW, |s| s.text_color(on))),
         )
         .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(label))
         .children(shortcut.map(|k| super::controls::shortcut(&k, theme.muted.opacity(0.72), Some((ROW, on.opacity(0.85))))))

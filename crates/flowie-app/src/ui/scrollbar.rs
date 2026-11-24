@@ -12,7 +12,7 @@ use gpui::{
     MouseMoveEvent, MouseUpEvent, Pixels, ScrollHandle,
 };
 
-use crate::theme::Theme;
+use crate::ui::theme::Theme;
 
 /// What scrolls: a scrolling div or a `list`.
 #[derive(Clone)]

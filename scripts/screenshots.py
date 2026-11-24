@@ -9,7 +9,7 @@
 Builds Flowie with the `screenshots` feature (target/screenshots), starts it on a
 throwaway database with a 1440×900 window, fills it with demo pages through the
 agent socket, puts the window into each state with the `shot.*` methods
-(crates/flowie-app/src/shots.rs) and captures it with `screencapture -l`.
+(crates/flowie-app/src/dev/shots.rs) and captures it with `screencapture -l`.
 
 Writes
     appstore/fastlane/screenshots/<locale>/NN-name.png   2880×1800 (App Store)

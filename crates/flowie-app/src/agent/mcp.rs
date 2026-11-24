@@ -97,7 +97,7 @@ impl Setup {
 
     /// `claude mcp add …`, quoted for the shell the user pastes it into.
     pub fn claude_command(&self) -> String {
-        let quote = crate::platform::shell_quote;
+        let quote = crate::app::platform::shell_quote;
         let env = self.db.as_ref().map(|db| format!("-e {} ", quote(&format!("FLOWIE_DB={db}")))).unwrap_or_default();
         format!("claude mcp add flowie {env}-- {} mcp", quote(&self.exe))
     }

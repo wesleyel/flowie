@@ -28,7 +28,12 @@ pub enum PopoverKind {
     References(NodeId),
     /// Path levels to list (hidden by an ellipsis, or a truncated label).
     Path(Vec<NodeId>),
+    /// What a link to another bullet points at: its path, text, note and first children.
+    Link(NodeId),
 }
+
+/// Children a link preview lists before "…".
+const LINK_PREVIEW_CHILDREN: usize = 5;
 
 struct Open {
     kind: PopoverKind,
@@ -46,6 +51,8 @@ pub struct PopoverState {
     /// The press that just closed a pinned popover from outside, so the same
     /// press on its own anchor toggles it off instead of reopening it.
     closed_by: Option<(PopoverKind, Point<Pixels>)>,
+    /// What a pending hover-open from `popover_hover_at` will show.
+    pending: Option<PopoverKind>,
 }
 
 impl PopoverState {
@@ -100,6 +107,7 @@ impl Outline {
                     return; // never replace a pinned popover by hovering
                 }
                 let (kind, at) = (kind.clone(), window.mouse_position());
+                p.pending = None;
                 p.timer = Some(cx.spawn(async move |this, cx| {
                     cx.background_executor().timer(HOVER_OPEN).await;
                     this.update(cx, |this, cx| {
@@ -117,6 +125,45 @@ impl Outline {
                 p.timer = None; // left before the hover delay ran out
             }
         }))
+    }
+
+    /// Hover for a part of a text (a link inside a line) rather than a whole
+    /// element: call on every mouse move with what is under the pointer, and
+    /// with `None` when the pointer is over something else or leaves the text.
+    pub fn popover_hover_at(&mut self, kind: Option<PopoverKind>, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let p = &mut self.popover;
+        let Some(kind) = kind else {
+            if p.pending.take().is_some() {
+                p.timer = None;
+            }
+            if let Some(o) = p.open.as_mut().filter(|o| !o.pinned && o.over_anchor && matches!(o.kind, PopoverKind::Link(_))) {
+                o.over_anchor = false;
+                self.schedule_popover_close(cx);
+            }
+            return;
+        };
+        if let Some(o) = p.open.as_mut().filter(|o| o.kind == kind) {
+            if !o.over_anchor {
+                o.over_anchor = true;
+                p.timer = None;
+            }
+            return;
+        }
+        if p.open.as_ref().is_some_and(|o| o.pinned) || p.pending.as_ref() == Some(&kind) {
+            return;
+        }
+        p.pending = Some(kind.clone());
+        p.timer = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(HOVER_OPEN).await;
+            this.update(cx, |this, cx| {
+                this.popover.timer = None;
+                this.popover.pending = None;
+                this.popover_scroll = gpui::ScrollHandle::new();
+                this.popover.open = Some(Open { kind, at, pinned: false, over_anchor: true, over_popup: false });
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
     fn schedule_popover_close(&mut self, cx: &mut Context<Self>) {
@@ -181,6 +228,32 @@ impl Outline {
                         .into_any_element()
                 })
                 .collect(),
+            PopoverKind::Link(id) => {
+                let id = *id;
+                if !self.tree.contains(id) {
+                    vec![div().p_2().text_color(theme.muted).child(t!("toast.bullet_deleted")).into_any_element()]
+                } else {
+                    let (text, note) = self.plain_text_and_note(id);
+                    let src = self.tree.source(id);
+                    let kids = self.tree.children(src).to_vec();
+                    let mut row = crate::ui::list::hover_row(theme, ("popover-link", id.as_usize()))
+                        .py_2()
+                        .px_2()
+                        .child(self.render_path(id, 392., false, window, cx))
+                        .child(div().text_color(theme.text).child(text))
+                        .when(!note.is_empty(), |d| d.child(div().text_color(theme.muted).child(note)));
+                    for &k in kids.iter().take(LINK_PREVIEW_CHILDREN) {
+                        row = row.child(div().pl_2().text_color(theme.muted).child(format!("• {}", self.crumb_label(k))));
+                    }
+                    if kids.len() > LINK_PREVIEW_CHILDREN {
+                        row = row.child(div().pl_2().text_color(theme.muted).child("…"));
+                    }
+                    vec![row
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(move |this, _, _, cx| this.zoom_to(id, cx)))
+                        .into_any_element()]
+                }
+            }
         };
         let width = px(440.).min(window.viewport_size().width - px(32.));
         let card = crate::ui::surface::popover(theme, "popover")

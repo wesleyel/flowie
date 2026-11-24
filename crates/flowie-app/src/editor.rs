@@ -127,6 +127,14 @@ impl Outline {
         Some(self.edit_map().to_raw(ix).min(self.edit_text().len()))
     }
 
+    /// The bullet the internal link under a point leads to.
+    pub fn link_target_at_point(&self, p: Point<Pixels>) -> Option<flowie_core::NodeId> {
+        let range = self.link_at_point(p)?;
+        let raw = &self.edit_text()[range];
+        let id = raw.rsplit_once("](flowie:")?.1.strip_suffix(')')?;
+        id.parse().ok()
+    }
+
     /// The internal link under a point, as a raw range (double-click selects it whole).
     pub fn link_at_point(&self, p: Point<Pixels>) -> Option<Range<usize>> {
         let layout = self.edit.as_ref()?.layout.as_ref()?;

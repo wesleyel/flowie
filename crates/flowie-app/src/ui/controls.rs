@@ -2,9 +2,9 @@
 
 use gpui::{div, prelude::*, px, radians, AnyElement, Div, ElementId, Hsla, Stateful, Transformation};
 
-use crate::icons::{icon, KEY};
-use crate::platform::{self, Os};
-use crate::theme::{Theme, R_MD, R_SM};
+use crate::app::platform::{self, Os};
+use crate::ui::icons::{icon, KEY};
+use crate::ui::theme::{Theme, R_MD, R_SM};
 
 /// A 16px checkbox.
 pub fn checkbox(theme: Theme, checked: bool) -> Div {

@@ -1,6 +1,6 @@
 //! Flowie's macOS controls: menus, popovers, sheets, list rows, buttons,
 //! segmented controls, checkboxes, key caps and toasts, drawn with GPUI from
-//! the tokens in `crate::theme`.
+//! the tokens in `crate::ui::theme`.
 //!
 //! Metrics and colors follow gpui-macos (<https://github.com/Rhein-Industries/gpui-macos>,
 //! MIT, © gpui-macos contributors and Jason Lee), reduced to the controls
@@ -17,3 +17,7 @@ pub mod scrollbar;
 pub mod segmented;
 pub mod surface;
 pub mod text;
+
+pub(crate) mod anim;
+pub(crate) mod icons;
+pub(crate) mod theme;

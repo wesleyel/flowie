@@ -8,7 +8,7 @@ use flowie_core::images::{self, BlobInfo, ImageDir};
 use flowie_core::{BlockKind, NodeId, ROOT};
 use gpui::{div, img, prelude::*, px, AnyElement, Context, MouseButton, ObjectFit, PathPromptOptions, StyledImage, Window};
 
-use crate::i18n::t;
+use crate::app::i18n::t;
 use crate::outline::{BlockSel, Edit, InsertImage, Outline, Target};
 
 /// Widest and tallest an image shows in a row, in points.

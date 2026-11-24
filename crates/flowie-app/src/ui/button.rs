@@ -2,16 +2,16 @@
 
 use gpui::{div, prelude::*, px, Div, ElementId, Hsla, Stateful};
 
-use crate::theme::{Theme, R_MD};
+use crate::ui::theme::{Theme, R_MD};
 
 /// A square icon button: 24px with a 14px glyph.
 pub fn icon_button(theme: Theme, id: impl Into<ElementId>, icon: &str, color: Hsla) -> Stateful<Div> {
-    square(theme, id, 24.).child(crate::icons::icon(icon, 14., color))
+    square(theme, id, 24.).child(crate::ui::icons::icon(icon, 14., color))
 }
 
 /// A toolbar button: 28px with a 16px glyph, matching the search field.
 pub fn tool_button(theme: Theme, id: impl Into<ElementId>, icon: &str, color: Hsla) -> Stateful<Div> {
-    square(theme, id, 28.).child(crate::icons::icon(icon, crate::icons::MD, color))
+    square(theme, id, 28.).child(crate::ui::icons::icon(icon, crate::ui::icons::MD, color))
 }
 
 fn square(theme: Theme, id: impl Into<ElementId>, size: f32) -> Stateful<Div> {

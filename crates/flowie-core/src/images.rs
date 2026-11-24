@@ -180,17 +180,26 @@ impl ImageDir {
         let io = |e: std::io::Error| ImageError::Io(e.to_string());
         let dir = path.parent().expect("inside the image folder");
         std::fs::create_dir_all(dir).map_err(io)?;
-        let tmp = dir.join(format!(".{}.tmp-{}", info.name, std::process::id()));
+        let (tmp, mut file) = loop {
+            let tmp = dir.join(format!(".{}.tmp-{}", info.name, uuid::Uuid::new_v4().simple()));
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp) {
+                Ok(file) => break (tmp, file),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(io(error)),
+            }
+        };
         let written = (|| {
-            let mut f = std::fs::File::create(&tmp)?;
-            f.write_all(bytes)?;
-            f.sync_all()?;
-            std::fs::rename(&tmp, &path)
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            drop(file);
+            match std::fs::rename(&tmp, &path) {
+                Ok(()) => Ok(()),
+                Err(_) if path.is_file() => Ok(()),
+                Err(error) => Err(error),
+            }
         })();
-        if let Err(e) = written {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(io(e));
-        }
+        let _ = std::fs::remove_file(&tmp);
+        written.map_err(io)?;
         Ok(info)
     }
 

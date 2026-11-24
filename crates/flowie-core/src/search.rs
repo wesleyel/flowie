@@ -2,7 +2,7 @@
 //! Terms: plain words (substring, case-insensitive, in text or note),
 //! `"quoted phrases"`, `#tag` / `@mention` (whole-token), `-term` (exclude),
 //! `is:done` / `is:open`, `is:todo` / `is:heading` / `is:quote` / `is:code`,
-//! `has:note`, `is:new` (imported roots not looked at yet), `changed:7d` (also `h`, `m`, `w`), and date filters over the
+//! `has:note`, `has:image`, `is:new` (imported roots not looked at yet), `changed:7d` (also `h`, `m`, `w`), and date filters over the
 //! dates written in bullets: `date:2026-11`, `date:today`, `before:2026-12-01`,
 //! `after:today`.
 
@@ -15,6 +15,7 @@ enum Term {
     Done(bool),
     Kinds(Vec<BlockKind>),
     HasNote,
+    HasImage,
     /// An imported root not seen yet (see `Query::set_new`).
     New,
     /// Modified within this many milliseconds.
@@ -104,6 +105,7 @@ impl Query {
                 "is:code" => Term::Kinds(vec![BlockKind::Code]),
                 "is:paragraph" => Term::Kinds(vec![BlockKind::Paragraph]),
                 "has:note" => Term::HasNote,
+                "has:image" | "is:image" => Term::HasImage,
                 "is:new" => Term::New,
                 _ if lower.starts_with("changed:") && parse_span(&lower[8..]).is_some() => Term::Changed(parse_span(&lower[8..]).unwrap()),
                 _ if lower.starts_with("date:") && lower.len() > 5 => Term::DatePrefix(resolve_date(&lower[5..])),
@@ -158,6 +160,7 @@ impl Query {
                 Term::Done(d) => node.completed == *d,
                 Term::Kinds(k) => k.contains(&node.kind),
                 Term::HasNote => !node.note.trim().is_empty(),
+                Term::HasImage => !node.image.is_empty(),
                 Term::New => self.new.contains(&node.id),
                 Term::Changed(ms) => now - node.modified <= *ms,
                 Term::DatePrefix(p) => dates().iter().any(|d| d.starts_with(p.as_str())),

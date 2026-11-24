@@ -115,6 +115,8 @@ pub enum BlockKind {
     Code,
     /// Numbered list item (number = position among siblings).
     Numbered,
+    /// An image (`Node::image`); the text is its caption.
+    Image,
 }
 
 impl BlockKind {
@@ -132,7 +134,7 @@ impl BlockKind {
         }
     }
 
-    pub const ALL: [BlockKind; 9] = [
+    pub const ALL: [BlockKind; 10] = [
         BlockKind::Bullet,
         BlockKind::Paragraph,
         BlockKind::H1,
@@ -142,6 +144,7 @@ impl BlockKind {
         BlockKind::Quote,
         BlockKind::Code,
         BlockKind::Numbered,
+        BlockKind::Image,
     ];
 
     pub fn to_u8(self) -> u8 {
@@ -163,6 +166,7 @@ impl BlockKind {
             BlockKind::Quote => "quote",
             BlockKind::Code => "code",
             BlockKind::Numbered => "numbered",
+            BlockKind::Image => "image",
         }
     }
 
@@ -188,6 +192,9 @@ pub struct Node {
     /// If non-zero, this node is a mirror: it shows (and edits) that node's
     /// text, note, completion and children.
     pub mirror: NodeId,
+    /// The image file (`<sha256>.<ext>` in the image folder), for `BlockKind::Image`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub image: String,
 }
 
 impl Node {
@@ -205,6 +212,7 @@ impl Node {
             modified: now,
             kind: BlockKind::Bullet,
             mirror: ROOT,
+            image: String::new(),
         }
     }
 }
@@ -559,7 +567,7 @@ impl Tree {
             return;
         }
         if let Some(b) = &before {
-            if b.text != node.text || b.note != node.note || b.completed != node.completed || b.kind != node.kind {
+            if b.text != node.text || b.note != node.note || b.completed != node.completed || b.kind != node.kind || b.image != node.image {
                 node.modified = now_millis();
             }
             if let Some(list) = self.children.get_mut(&b.parent) {

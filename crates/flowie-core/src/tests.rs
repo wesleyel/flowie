@@ -479,3 +479,23 @@ fn is_new_matches_the_given_ids() {
     assert!(!q.matches(t.node(a)));
     assert!(q.matches(t.node(b)));
 }
+
+#[test]
+fn markdown_images_round_trip() {
+    let name = format!("{}.png", "ab".repeat(32));
+    let items = io::parse_text("- ![A *cat*](pics/cat.png)\n  - under it");
+    assert_eq!(items[0].kind, BlockKind::Image);
+    assert_eq!((items[0].text.as_str(), items[0].image.as_str()), ("A *cat*", "pics/cat.png"));
+    assert_eq!(items[0].children.len(), 1);
+    let mut stored = items[0].clone();
+    stored.image = name.clone();
+    stored.children.clear();
+    assert_eq!(io::to_markdown(&[stored.clone()]), format!("- ![A *cat*](images/{name})\n"));
+    let mut t = Tree::new();
+    let ids = t.insert_items(ROOT, 0, &[stored]);
+    assert_eq!(t.node(ids[0]).image, name);
+    let mut q = Query::parse("has:image");
+    assert!(q.matches(t.node(ids[0])));
+    q = Query::parse("-has:image");
+    assert!(!q.matches(t.node(ids[0])));
+}

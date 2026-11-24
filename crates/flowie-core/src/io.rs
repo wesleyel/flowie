@@ -19,6 +19,9 @@ pub struct Item {
     pub collapsed: bool,
     #[serde(default)]
     pub children: Vec<Item>,
+    /// An image: its stored name, or (from Markdown) the path it was written with.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub image: String,
 }
 
 impl Item {
@@ -43,7 +46,15 @@ impl Tree {
         let src = self.source(id);
         let s = self.node(src);
         let children = if guard > 200 { Vec::new() } else { self.children(src).iter().map(|&c| self.item(c, guard + 1)).collect() };
-        Item { text: s.text.clone(), note: s.note.clone(), completed: s.completed, kind: n.kind, collapsed: n.collapsed, children }
+        Item {
+            text: s.text.clone(),
+            note: s.note.clone(),
+            completed: s.completed,
+            kind: n.kind,
+            collapsed: n.collapsed,
+            children,
+            image: s.image.clone(),
+        }
     }
 
     /// Insert items at `index` under `parent`; returns the new top-level ids.
@@ -62,6 +73,7 @@ impl Tree {
         node.completed = item.completed;
         node.kind = item.kind;
         node.collapsed = item.collapsed && !item.children.is_empty();
+        node.image = if item.kind == BlockKind::Image { item.image.clone() } else { String::new() };
         self.put(node);
         for (i, kid) in item.children.iter().enumerate() {
             self.insert_item(id, i, kid);
@@ -93,6 +105,7 @@ fn write_md(it: &Item, depth: usize, out: &mut String) {
         BlockKind::Todo => out.push_str(&format!("- [{}] {text}", if it.completed { "x" } else { " " })),
         BlockKind::Quote => out.push_str(&format!("- > {text}")),
         BlockKind::Numbered => out.push_str(&format!("1. {text}")),
+        BlockKind::Image => out.push_str(&format!("- ![{}]({})", text.replace(['[', ']'], ""), image_path(&it.image))),
         _ if it.completed && !text.is_empty() => out.push_str(&format!("- ~~{text}~~")),
         _ => out.push_str(&format!("- {text}")),
     }
@@ -105,6 +118,15 @@ fn write_md(it: &Item, depth: usize, out: &mut String) {
     }
     for kid in &it.children {
         write_md(kid, depth + 1, out);
+    }
+}
+
+/// Where Markdown export puts an image: `images/<name>` beside the file.
+pub fn image_path(name: &str) -> String {
+    if crate::images::is_name(name) {
+        format!("images/{name}")
+    } else {
+        name.to_string()
     }
 }
 
@@ -223,6 +245,17 @@ pub fn parse_text(text: &str) -> Vec<Item> {
 
 fn parse_line(s: &str) -> Item {
     let mut it = Item::default();
+    // `![caption](path)` alone on the line: an image (the app reads the file).
+    if let Some(rest) = s.strip_prefix("![") {
+        if let Some((caption, after)) = rest.split_once("](") {
+            if let Some(path) = after.strip_suffix(')').filter(|p| !p.is_empty() && !p.contains(char::is_whitespace)) {
+                it.kind = BlockKind::Image;
+                it.text = caption.to_string();
+                it.image = path.to_string();
+                return it;
+            }
+        }
+    }
     let mut s = s;
     for (prefix, kind) in [("### ", BlockKind::H3), ("## ", BlockKind::H2), ("# ", BlockKind::H1), ("> ", BlockKind::Quote)] {
         if let Some(rest) = s.strip_prefix(prefix) {

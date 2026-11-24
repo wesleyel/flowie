@@ -166,6 +166,7 @@ pub static BINDINGS: &[Binding] = &[
     b!("escape", "search", "escape", O, Escape),
     // App
     b!("import", "app", primary "shift-i", O, Import),
+    b!("insert-image", "app", mac "cmd-alt-i", other "alt-shift-i", O, InsertImage),
     b!("export-md", "app", primary "shift-e", O, ExportMarkdown),
     b!("export-package", "app", mac "cmd-alt-e", other "alt-shift-e", O, ExportPackage),
     b!("trash", "app", primary "shift-delete", O, ShowTrash),
@@ -342,6 +343,7 @@ fn menus_for(os: Os) -> Vec<AppMenu> {
     let app_menu = os == Os::Mac;
     let mut file_items = vec![
         item::<Import>(t!("menu.file.import"), Some("import")),
+        item::<InsertImage>(t!("menu.file.insert_image"), Some("insert-image")),
         AppMenuItem::Separator,
         item::<ExportPackage>(t!("menu.file.export_package"), Some("export-package")),
         AppMenuItem::Separator,

@@ -57,6 +57,7 @@ pub enum Action {
     OpenMirror,
     OpenMove,
     ExportPackage,
+    InsertImage,
     Today,
 }
 

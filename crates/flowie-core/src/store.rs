@@ -25,7 +25,15 @@ CREATE TABLE IF NOT EXISTS nodes (
     created   INTEGER NOT NULL,
     modified  INTEGER NOT NULL,
     kind      INTEGER NOT NULL DEFAULT 0,
-    mirror    BLOB    NOT NULL
+    mirror    BLOB    NOT NULL,
+    image     TEXT    NOT NULL DEFAULT ''
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS blobs (   -- image files in the image folder
+    name    TEXT    PRIMARY KEY,     -- <sha256>.<ext>
+    mime    TEXT    NOT NULL,
+    width   INTEGER NOT NULL,
+    height  INTEGER NOT NULL,
+    size    INTEGER NOT NULL
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS trash (
     seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,8 +59,8 @@ CREATE TABLE IF NOT EXISTS meta (
 ";
 
 /// The database format, kept in `PRAGMA user_version`. Version 2 has UUID
-/// node ids; a database from before (integer ids) is moved aside, not converted.
-const FORMAT: i64 = 2;
+/// node ids, version 3 images; a database from before is moved aside, not converted.
+const FORMAT: i64 = 3;
 
 impl rusqlite::ToSql for NodeId {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
@@ -108,7 +116,8 @@ fn set_aside(path: &Path) -> PathBuf {
 }
 
 pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, String)>)> {
-    let mut stmt = conn.prepare("SELECT id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror FROM nodes")?;
+    let mut stmt =
+        conn.prepare("SELECT id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image FROM nodes")?;
     let nodes = stmt
         .query_map([], |r| {
             Ok(Node {
@@ -123,6 +132,7 @@ pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, Stri
                 modified: r.get(8)?,
                 kind: crate::tree::BlockKind::from_u8(r.get::<_, i64>(9)? as u8),
                 mirror: r.get(10)?,
+                image: r.get(11)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -135,10 +145,10 @@ pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], 
     let tx = conn.transaction()?;
     {
         let mut up = tx.prepare_cached(
-            "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO UPDATE SET parent=?2, rank=?3, text=?4, note=?5,
-               completed=?6, collapsed=?7, modified=?9, kind=?10, mirror=?11",
+               completed=?6, collapsed=?7, modified=?9, kind=?10, mirror=?11, image=?12",
         )?;
         for n in upserts {
             up.execute(params![
@@ -152,7 +162,8 @@ pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], 
                 n.created,
                 n.modified,
                 n.kind.to_u8() as i64,
-                n.mirror
+                n.mirror,
+                n.image
             ])?;
         }
         let mut del = tx.prepare_cached("DELETE FROM nodes WHERE id = ?1")?;
@@ -199,6 +210,42 @@ pub fn load_imports(conn: &Connection) -> rusqlite::Result<Vec<ImportRecord>> {
     rows.collect()
 }
 
+pub fn load_blobs(conn: &Connection) -> rusqlite::Result<Vec<crate::images::BlobInfo>> {
+    let mut stmt = conn.prepare("SELECT name, mime, width, height, size FROM blobs")?;
+    let rows = stmt.query_map([], |r| {
+        Ok(crate::images::BlobInfo {
+            name: r.get(0)?,
+            mime: r.get(1)?,
+            width: r.get(2)?,
+            height: r.get(3)?,
+            size: r.get::<_, i64>(4)? as u64,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Image files still referred to: by a bullet, or by one in the trash.
+pub fn image_names_in_use(conn: &Connection) -> rusqlite::Result<std::collections::HashSet<String>> {
+    let mut used: std::collections::HashSet<String> = conn
+        .prepare("SELECT DISTINCT image FROM nodes WHERE image != ''")?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut stmt = conn.prepare("SELECT payload FROM trash WHERE payload LIKE '%\"image\"%'")?;
+    for payload in stmt.query_map([], |r| r.get::<_, String>(0))? {
+        let nodes: Vec<Node> = serde_json::from_str(&payload?).unwrap_or_default();
+        used.extend(nodes.into_iter().map(|n| n.image).filter(|i| !i.is_empty()));
+    }
+    Ok(used)
+}
+
+/// Forget blobs whose files are gone (after `images::ImageDir::collect`).
+pub fn drop_blobs(conn: &Connection, names: &[String]) -> rusqlite::Result<()> {
+    for n in names {
+        conn.execute("DELETE FROM blobs WHERE name = ?1", params![n])?;
+    }
+    Ok(())
+}
+
 /// Whether a bullet with this id sits in the trash (inside any deleted subtree).
 pub fn in_trash(conn: &Connection, id: NodeId) -> rusqlite::Result<bool> {
     // Payloads are JSON with ids as hex strings.
@@ -241,6 +288,7 @@ enum Msg {
     Untrash(i64),
     Meta(String, String),
     Import(ImportRecord),
+    Blob(crate::images::BlobInfo),
     Seen { root: NodeId, at: i64 },
     Flush(Sender<()>),
 }
@@ -292,6 +340,13 @@ impl Writer {
     pub fn import(&self, record: ImportRecord) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(Msg::Import(record));
+        }
+    }
+
+    /// Note an image file's size and type (written before any bullet refers to it).
+    pub fn blob(&self, info: crate::images::BlobInfo) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::Blob(info));
         }
     }
 
@@ -384,6 +439,12 @@ fn writer_loop(path: PathBuf, rx: Receiver<Msg>) {
                 ) {
                     eprintln!("flowie: import record write failed: {e}");
                 }
+            }
+            Some(Msg::Blob(b)) => {
+                let _ = conn.execute(
+                    "INSERT OR REPLACE INTO blobs (name, mime, width, height, size) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![b.name, b.mime, b.width, b.height, b.size as i64],
+                );
             }
             Some(Msg::Seen { root, at }) => {
                 let _ = conn.execute("UPDATE imports SET seen_at = ?2 WHERE root = ?1", params![root, at]);

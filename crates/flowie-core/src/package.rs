@@ -6,7 +6,8 @@
 //! - `manifest.json`: who exported it, when, and what (`Manifest`);
 //! - `outline.json`: the nodes as a flat list in outline order (`Outline`);
 //!   flat because deep nesting would hit the JSON parser's depth limit;
-//! - `preview.md`: the outline as Markdown, for people without Flowie.
+//! - `preview.md`: the outline as Markdown, for people without Flowie;
+//! - `images/<sha256>.<ext>`: image files, stored as they are (already compressed).
 //!
 //! Node ids are kept: they are global, so the same bullet has the same id in
 //! every outline it reaches. See `docs/roadmap.md` for the design.
@@ -16,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::images::ImageDir;
 use crate::io::Item;
 use crate::markup::{self, LinkEdit};
 use crate::tree::{BlockKind, NodeId, Tree, ROOT};
@@ -136,6 +138,8 @@ pub struct Outline {
 pub struct Package {
     pub manifest: Manifest,
     pub outline: Outline,
+    /// Image files by name (`images::is_name`), each checked against its name's hash.
+    pub images: std::collections::BTreeMap<String, Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,7 +224,9 @@ const MAX_EXPANSIONS: usize = 8;
 impl Package {
     /// Package `roots` (and their children) of `tree`. Roots inside another
     /// root, missing ones and duplicates are dropped.
-    pub fn export(tree: &Tree, roots: &[NodeId], opts: ExportOptions, meta: ExportMeta) -> Package {
+    /// Image files come from `images`; without it (or the file) an image
+    /// bullet goes as its caption.
+    pub fn export(tree: &Tree, roots: &[NodeId], opts: ExportOptions, meta: ExportMeta, images: Option<&ImageDir>) -> Package {
         let mut picked: Vec<NodeId> = Vec::new();
         for &r in roots {
             let r = tree.resolve(r);
@@ -277,7 +283,7 @@ impl Package {
                 collapsed: node.collapsed,
                 created: node.created,
                 modified: shown.modified,
-                image: None,
+                image: (node.kind == BlockKind::Image && keep_mirror.is_none() && !shown.image.is_empty()).then(|| shown.image.clone()),
                 mirror_of: keep_mirror,
                 was_mirror: copy,
             });
@@ -300,8 +306,25 @@ impl Package {
             n.collapsed &= parents.contains(&n.id) || n.mirror_of.is_some();
         }
 
+        let mut files = std::collections::BTreeMap::new();
+        for n in &mut nodes {
+            let Some(name) = n.image.clone() else { continue };
+            match files.contains_key(&name) {
+                true => {}
+                false => match images.and_then(|d| d.read(&name).ok()) {
+                    Some(bytes) => {
+                        files.insert(name, bytes);
+                    }
+                    None => {
+                        n.image = None;
+                        n.kind = BlockKind::Bullet;
+                    }
+                },
+            }
+        }
         let outline = Outline { roots: roots.clone(), nodes };
         let json = outline_json(&outline);
+        let image_bytes: u64 = files.values().map(|b| b.len() as u64).sum();
         let manifest = Manifest {
             format: FORMAT.into(),
             version: VERSION,
@@ -312,22 +335,26 @@ impl Package {
             exported_by: meta.author,
             app: meta.app,
             roots,
-            stats: Stats { nodes: outline.nodes.len(), images: 0, bytes: json.len() as u64 },
+            stats: Stats { nodes: outline.nodes.len(), images: files.len(), bytes: json.len() as u64 + image_bytes },
             outline_sha256: hex(&Sha256::digest(&json)),
         };
-        Package { manifest, outline }
+        Package { manifest, outline, images: files }
     }
 
     /// The package file's bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
         let manifest = serde_json::to_vec_pretty(&self.manifest).expect("manifest serializes");
         let preview = crate::io::to_markdown(&self.items());
-        zip::write(&[
+        let outline = outline_json(&self.outline);
+        let names: Vec<String> = self.images.keys().map(|n| format!("images/{n}")).collect();
+        let mut entries: Vec<(&str, &[u8], bool)> = vec![
             ("mimetype", MIMETYPE.as_bytes(), false),
             ("manifest.json", &manifest, true),
-            ("outline.json", &outline_json(&self.outline), true),
+            ("outline.json", &outline, true),
             ("preview.md", preview.as_bytes(), true),
-        ])
+        ];
+        entries.extend(names.iter().zip(self.images.values()).map(|(n, b)| (n.as_str(), b.as_slice(), false)));
+        zip::write(&entries)
     }
 
     /// Read a package file. Only the entries above are read; anything else
@@ -365,7 +392,34 @@ impl Package {
         }
         let mut outline: Outline = serde_json::from_slice(&json).map_err(|e| damaged(format!("outline.json: {e}")))?;
         validate(&mut outline)?;
-        Ok(Package { manifest, outline })
+        // Images the outline refers to, each checked against the hash in its name.
+        let mut files = std::collections::BTreeMap::new();
+        for n in &mut outline.nodes {
+            let Some(name) = n.image.clone() else { continue };
+            if !files.contains_key(&name) {
+                let path = format!("images/{name}");
+                let ok = match archive.entries.iter().find(|e| e.name == path) {
+                    Some(e) => {
+                        let bytes = archive.read(e, &mut budget)?;
+                        let good = crate::images::info(&bytes).is_ok_and(|i| i.name == name);
+                        if good {
+                            files.insert(name.clone(), bytes);
+                        }
+                        good
+                    }
+                    None => false,
+                };
+                if !ok {
+                    n.image = None;
+                }
+            }
+        }
+        for n in &mut outline.nodes {
+            if n.kind == BlockKind::Image && n.image.is_none() {
+                n.kind = BlockKind::Bullet;
+            }
+        }
+        Ok(Package { manifest, outline, images: files })
     }
 
     /// The outline as a nested tree (for previews): no ids, and links between
@@ -401,6 +455,7 @@ impl Package {
                 kind: n.kind,
                 collapsed: n.collapsed,
                 children,
+                image: shown.image.clone().unwrap_or_default(),
             }
         }
         self.outline.roots.iter().filter_map(|r| by_id.get(r)).map(|n| build(n, &by_id, &kids, &unlink, 0)).collect()
@@ -454,6 +509,7 @@ impl Package {
                     modified: if n.modified > 0 { n.modified } else { now },
                     kind: n.kind,
                     mirror: n.mirror_of.map_or(ROOT, map),
+                    image: n.image.clone().unwrap_or_default(),
                 });
                 if under == parent {
                     roots.push(new_id);
@@ -547,7 +603,7 @@ fn validate(outline: &mut Outline) -> Result<(), PackageError> {
             n.mirror_of = None;
             n.was_mirror = true;
         }
-        n.image = None;
+        n.image = n.image.take().filter(|i| crate::images::is_name(i));
     }
     Ok(())
 }
@@ -748,7 +804,7 @@ mod tests {
         let mut node = t.node(b).clone();
         node.note = "a note".into();
         t.put(node);
-        let p = Package::export(&t, &[a], ExportOptions::default(), meta());
+        let p = Package::export(&t, &[a], ExportOptions::default(), meta(), None);
         assert_eq!(texts(&p), [("a".into(), None), ("b".into(), Some(a)), ("d".into(), Some(b)), ("c".into(), Some(a))]);
         assert_eq!(p.outline.nodes.iter().map(|n| n.id).collect::<Vec<_>>(), [a, b, d, c]);
         assert_eq!(p.manifest.stats.nodes, 4);
@@ -773,7 +829,7 @@ mod tests {
         t.create_after(b, "c");
         t.set_completed(b, true);
         t.set_completed(a, true);
-        let p = Package::export(&t, &[a], ExportOptions { include_completed: false }, meta());
+        let p = Package::export(&t, &[a], ExportOptions { include_completed: false }, meta(), None);
         assert_eq!(texts(&p), [("a".into(), None), ("c".into(), Some(a))]);
     }
 
@@ -786,7 +842,7 @@ mod tests {
         let mut node = t.node(b).clone();
         node.text = format!("see [**A**](flowie:{a}) and [out](flowie:{out}) and [web](https://x.org)");
         t.put(node);
-        let p = Package::export(&t, &[a], ExportOptions::default(), meta());
+        let p = Package::export(&t, &[a], ExportOptions::default(), meta(), None);
         assert_eq!(p.outline.nodes[1].text, format!("see [**A**](flowie:{a}) and out and [web](https://x.org)"));
         assert_eq!(p.items()[0].children[0].text, "see **A** and out and [web](https://x.org)");
     }
@@ -800,17 +856,17 @@ mod tests {
         let m = t.create_mirror(src, a, 0).unwrap();
 
         // The source is outside: the mirror becomes a copy, with fresh ids below it.
-        let p = Package::export(&t, &[a], ExportOptions::default(), meta());
+        let p = Package::export(&t, &[a], ExportOptions::default(), meta(), None);
         let copy = &p.outline.nodes[1];
         assert_eq!((copy.id, copy.text.as_str(), copy.mirror_of, copy.was_mirror), (m, "source", None, true));
         let kid_copy = &p.outline.nodes[2];
         assert_eq!((kid_copy.text.as_str(), kid_copy.parent), ("kid", Some(m)));
         assert_ne!(kid_copy.id, kid);
-        assert_eq!(kid_copy.id, Package::export(&t, &[a], ExportOptions::default(), meta()).outline.nodes[2].id);
+        assert_eq!(kid_copy.id, Package::export(&t, &[a], ExportOptions::default(), meta(), None).outline.nodes[2].id);
         assert_eq!(uuid::Uuid::from_u128(kid_copy.id.0).get_version_num(), 4);
 
         // Both exported: the mirror stays a mirror.
-        let p = Package::export(&t, &[src, a], ExportOptions::default(), meta());
+        let p = Package::export(&t, &[src, a], ExportOptions::default(), meta(), None);
         let mirror = p.outline.nodes.iter().find(|n| n.id == m).unwrap();
         assert_eq!((mirror.mirror_of, mirror.was_mirror), (Some(src), false));
         assert_eq!(p.outline.nodes.len(), 4);
@@ -823,7 +879,7 @@ mod tests {
         let mut t = Tree::new();
         let a = t.create_at(ROOT, 0, "a");
         let b = t.create_at(a, 0, "b");
-        let p = Package::export(&t, &[b, a, a], ExportOptions::default(), meta());
+        let p = Package::export(&t, &[b, a, a], ExportOptions::default(), meta(), None);
         assert_eq!(p.outline.roots, [a]);
         assert_eq!(p.outline.nodes.len(), 2);
     }
@@ -833,7 +889,7 @@ mod tests {
         let mut t = Tree::new();
         let a = t.create_at(ROOT, 0, "a");
         t.create_at(a, 0, "b");
-        let p = Package::export(&t, &[a], ExportOptions::default(), meta());
+        let p = Package::export(&t, &[a], ExportOptions::default(), meta(), None);
 
         assert_eq!(Package::read(b"hello"), Err(PackageError::NotAPackage));
         assert_eq!(Package::read(&zip::write(&[("readme.txt", b"hi", false)])), Err(PackageError::NotAPackage));
@@ -896,7 +952,7 @@ mod tests {
     #[test]
     fn import_keeps_ids_order_and_mirrors() {
         let (t, a, b, c) = sample();
-        let p = Package::read(&Package::export(&t, &[a], ExportOptions::default(), meta()).to_bytes()).unwrap();
+        let p = Package::read(&Package::export(&t, &[a], ExportOptions::default(), meta(), None).to_bytes()).unwrap();
         let mut other = Tree::new();
         let home = other.create_at(ROOT, 0, "home");
         assert!(p.present_in(&other).is_empty());
@@ -914,7 +970,7 @@ mod tests {
     #[test]
     fn import_a_copy_gets_new_ids_and_follows_them() {
         let (t, a, b, _) = sample();
-        let p = Package::export(&t, &[a], ExportOptions::default(), meta());
+        let p = Package::export(&t, &[a], ExportOptions::default(), meta(), None);
         let mut same = Tree::from_nodes(t.nodes().cloned());
         let roots = p.insert_into(&mut same, ROOT, 0, ImportOptions { fresh_ids: true, keep_completion: false });
         let copy = roots[0];
@@ -931,7 +987,7 @@ mod tests {
     #[test]
     fn impossible_mirrors_arrive_as_plain_bullets() {
         let (t, a, ..) = sample();
-        let mut p = Package::export(&t, &[a], ExportOptions::default(), meta());
+        let mut p = Package::export(&t, &[a], ExportOptions::default(), meta(), None);
         // A mirror of its own ancestor.
         let m = p.outline.nodes.iter_mut().find(|n| n.mirror_of.is_some()).unwrap();
         m.mirror_of = Some(a);
@@ -940,5 +996,46 @@ mod tests {
         let back = Package::read(&p.to_bytes()).unwrap();
         let m = back.outline.nodes.iter().find(|n| n.was_mirror).unwrap();
         assert_eq!(m.mirror_of, None);
+    }
+
+    #[test]
+    fn images_travel_in_the_package() {
+        let dir = ImageDir::new(std::env::temp_dir().join(format!("flowie-pkg-images-{}", NodeId::random())));
+        let png = crate::images::tests::png();
+        let name = dir.put(&png).unwrap().name;
+        let mut t = Tree::new();
+        let a = t.create_at(ROOT, 0, "trip");
+        let pic = t.create_at(a, 0, "a caption");
+        let lost = t.create_at(a, 1, "file gone");
+        for (id, image) in [(pic, name.clone()), (lost, format!("{}.png", "0".repeat(64)))] {
+            let mut n = t.node(id).clone();
+            n.kind = BlockKind::Image;
+            n.image = image;
+            t.put(n);
+        }
+        let p = Package::export(&t, &[a], ExportOptions::default(), meta(), Some(&dir));
+        assert_eq!(p.manifest.stats.images, 1);
+        assert_eq!(p.outline.nodes[2].kind, BlockKind::Bullet);
+        let back = Package::read(&p.to_bytes()).unwrap();
+        assert_eq!(back.images.get(&name), Some(&png));
+        assert_eq!(back.outline.nodes[1].image.as_deref(), Some(name.as_str()));
+
+        // An image whose bytes don't match its name is left out.
+        let mut bad = p.clone();
+        bad.images.insert(name.clone(), b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\x09\0\0\0\x09".to_vec());
+        let back = Package::read(&bad.to_bytes()).unwrap();
+        assert!(back.images.is_empty());
+        assert_eq!((back.outline.nodes[1].kind, back.outline.nodes[1].image.clone()), (BlockKind::Bullet, None));
+
+        let mut other = Tree::new();
+        let roots = Package::read(&p.to_bytes()).unwrap().insert_into(
+            &mut other,
+            ROOT,
+            0,
+            ImportOptions { fresh_ids: false, keep_completion: true },
+        );
+        let n = other.node(other.children(roots[0])[0]);
+        assert_eq!((n.kind, n.image.as_str()), (BlockKind::Image, name.as_str()));
+        std::fs::remove_dir_all(dir.root()).unwrap();
     }
 }

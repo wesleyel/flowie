@@ -9,6 +9,7 @@ mod editor;
 mod format_menu;
 mod i18n;
 mod icons;
+mod image;
 mod inline;
 mod keymap;
 mod menu;
@@ -108,18 +109,19 @@ fn main() {
         },
     };
 
-    let (tree, writer, db_path, meta, imports) = match stress {
-        Some(n) => (stress_tree(n), None, None, Vec::new(), Vec::new()),
+    let (tree, writer, db_path, meta, imports, blobs) = match stress {
+        Some(n) => (stress_tree(n), None, None, Vec::new(), Vec::new(), Vec::new()),
         None => {
             let path = data_path();
-            let loaded = store::open(&path).and_then(|c| Ok((store::load(&c)?, store::load_imports(&c)?)));
+            let loaded = store::open(&path).and_then(|c| Ok((store::load(&c)?, store::load_imports(&c)?, store::load_blobs(&c)?)));
             match loaded {
-                Ok(((nodes, meta), imports)) => {
-                    (Tree::from_nodes(nodes), Some(store::Writer::spawn(path.clone())), Some(path), meta, imports)
+                Ok(((nodes, meta), imports, blobs)) => {
+                    Outline::collect_images(&path);
+                    (Tree::from_nodes(nodes), Some(store::Writer::spawn(path.clone())), Some(path), meta, imports, blobs)
                 }
                 Err(e) => {
                     eprintln!("flowie: could not load {}: {e}", path.display());
-                    (Tree::new(), None, None, Vec::new(), Vec::new())
+                    (Tree::new(), None, None, Vec::new(), Vec::new(), Vec::new())
                 }
             }
         }
@@ -197,7 +199,7 @@ fn main() {
                     focus: !background,
                     ..Default::default()
                 },
-                |window, cx| cx.new(|cx| Outline::new(tree, writer, db_path, meta, imports, config, window, cx)),
+                |window, cx| cx.new(|cx| Outline::new(tree, writer, db_path, meta, imports, blobs, config, window, cx)),
             )
             .expect("open window");
         let view = window.update(cx, |_, _, cx| cx.entity()).unwrap();

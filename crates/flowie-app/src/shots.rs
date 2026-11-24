@@ -182,6 +182,11 @@ impl Outline {
                 self.import_package_now(cx);
                 Ok("imported".into())
             }
+            "image_preview" => {
+                let id = self.agent_node(p, "id")?;
+                self.open_image_preview(id, cx);
+                Ok("preview".into())
+            }
             // Write what the open export dialog's Export button would save.
             "package_write" => {
                 let path = s(p, "path").ok_or("missing `path`")?;
@@ -203,6 +208,7 @@ impl Outline {
         self.settings_return = None;
         self.package_export = None;
         self.package_import = None;
+        self.image_preview = None;
         self.trash = None;
         self.toast = None;
         // A fresh scroll position for the next popup (palette, `/` menu, `[[` menu).

@@ -647,7 +647,8 @@ impl Outline {
             p = ease_out(t);
         }
         let est_lines = 1.0 + (text_len as f32 / 90.0).floor();
-        let est_h = line_h * est_lines + top_pad + 3.0 + if has_note { 20.0 } else { 0.0 };
+        let image_h = self.row_image(id).map_or(0., |(_, info)| Self::image_box(info).1 + 6.);
+        let est_h = line_h * est_lines + top_pad + 3.0 + if has_note { 20.0 } else { 0.0 } + image_h;
 
         // Completed fade.
         let done_p = self.anims.t(id, Channel::Complete).map(ease_out).unwrap_or(1.0);
@@ -662,6 +663,7 @@ impl Outline {
         let note_el = (has_note || editing_note).then(|| self.render_text(id, true, window, cx));
         let marker = self.render_marker(id, line_h, cx);
         let references = self.render_reference_count(id, cx);
+        let picture = self.render_row_image(id, cx);
 
         let mut guides = Vec::new();
         for k in 0..d.row.depth {
@@ -716,6 +718,7 @@ impl Outline {
             .line_height(px(line_h))
             .when(kind == BlockKind::Quote, |d| d.border_l_2().border_color(theme.quote_bar).pl(px(10.)))
             .when(kind == BlockKind::Code, |d| d.bg(theme.code_bg).rounded_md().px_2().py(px(4.)))
+            .children(picture)
             .child(div().flex().items_start().child(div().flex_1().min_w_0().child(text_el)).children(references))
             .children(note_el.map(|n| div().text_size(px(13.)).line_height(px(20.)).child(n)));
 
@@ -742,6 +745,12 @@ impl Outline {
                     .child(content),
             )
             .children(drop_line)
+            // Image files dropped on a row go after it.
+            .on_drop(cx.listener(move |this, paths: &gpui::ExternalPaths, _, cx| {
+                let images: Vec<std::path::PathBuf> = paths.paths().iter().filter(|p| crate::image::is_image_path(p)).cloned().collect();
+                let (parent, index) = (this.tree.parent(id), this.tree.index_in_parent(id) + 1);
+                this.insert_image_files(&images, Some((parent, index)), cx);
+            }))
             .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
                 // Dragging a text selection onto another row selects whole bullets.
                 if ev.pressed_button != Some(MouseButton::Left) {
@@ -1121,6 +1130,7 @@ impl Render for Outline {
         let palette = self.render_palette(window, cx);
         let package_export = self.render_package_export(window, cx);
         let package_import = self.render_package_import(window, cx);
+        let image_preview = self.render_image_preview(cx);
         let settings = self.render_settings(window, cx);
         let inline = self.render_inline(cx);
         let calendar = self.render_calendar(cx);
@@ -1221,6 +1231,7 @@ impl Render for Outline {
             .on_action(cx.listener(Self::export_opml))
             .on_action(cx.listener(Self::export_markdown))
             .on_action(cx.listener(Self::export_package))
+            .on_action(cx.listener(Self::insert_image))
             .on_action(cx.listener(Self::export_text))
             .on_action(cx.listener(Self::show_trash))
             .on_action(cx.listener(Self::save_search))
@@ -1254,7 +1265,16 @@ impl Render for Outline {
             .on_action(cx.listener(Self::open_privacy_policy))
             .on_action(cx.listener(Self::open_terms))
             .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
-                if this.settings.is_some() {
+                if this.image_preview.is_some() {
+                    this.image_preview_key(ev, cx);
+                } else if !this.modal_open()
+                    && ev.keystroke.key == "space"
+                    && !ev.keystroke.modifiers.modified()
+                    && this.edit.is_none()
+                    && this.preview_selected_image(cx)
+                {
+                    cx.stop_propagation();
+                } else if this.settings.is_some() {
                     this.settings_key(ev, window, cx);
                 } else if this.palette.is_some() {
                     // A picker opened from a dialog ("Put in"): its keys are the outline's.
@@ -1311,6 +1331,7 @@ impl Render for Outline {
             .children(package_export)
             .children(package_import)
             .children(palette)
+            .children(image_preview)
             .children(settings)
             .children(toast)
     }

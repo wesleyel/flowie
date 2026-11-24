@@ -59,6 +59,11 @@ fn tools() -> Value {
             "annotations": {"destructiveHint": true}
         },
         {
+            "name": "attach_image",
+            "description": "Add an image bullet: PNG, JPEG, GIF or WebP bytes as base64 in `data`, with an optional caption, under `parent` (default Home) at `index` (default end), or right after `after`.",
+            "inputSchema": {"type": "object", "properties": {"data": {"type": "string", "description": "base64 image bytes"}, "caption": {"type": "string"}, "parent": id, "index": {"type": "integer"}, "after": id}, "required": ["data"]}
+        },
+        {
             "name": "journal",
             "description": "Append bullets (Markdown list) to the journal page of `date` (default today), creating the page if needed.",
             "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}, "date": {"type": "string", "description": "YYYY-MM-DD"}}, "required": ["markdown"]}

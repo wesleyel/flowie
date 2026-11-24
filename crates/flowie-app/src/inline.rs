@@ -60,6 +60,7 @@ pub(crate) const SLASH: &[Cmd] = &[
     Cmd { id: "link", aliases: "internal reference", icon: "link", action: || Action::OpenLink },
     Cmd { id: "mirror", aliases: "clone live copy", icon: "copy", action: || Action::OpenMirror },
     Cmd { id: "move", aliases: "relocate", icon: "corner-down-right", action: || Action::OpenMove },
+    Cmd { id: "image", aliases: "picture photo insert", icon: "image", action: || Action::InsertImage },
     Cmd { id: "export_package", aliases: "share send file", icon: "package", action: || Action::ExportPackage },
     Cmd { id: "complete", aliases: "done check", icon: "check", action: || Action::Complete },
     Cmd { id: "note", aliases: "description", icon: "notebook-pen", action: || Action::Note },
@@ -263,6 +264,7 @@ impl Outline {
             Action::OpenMirror => self.open_palette(Mode::Mirror { after: id }, cx),
             Action::OpenMove => self.open_palette(Mode::MoveTo(vec![id]), cx),
             Action::ExportPackage => self.open_package_export(vec![id], cx),
+            Action::InsertImage => self.pick_images(None, cx),
             Action::Node(n) => self.zoom_to(n, cx),
             Action::Search(q) => self.search_for(&q, cx),
             Action::NewPage(_) => {}

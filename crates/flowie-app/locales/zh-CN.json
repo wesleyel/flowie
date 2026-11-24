@@ -215,7 +215,8 @@
       "export_markdown": "导出为 Markdown…",
       "export_opml": "导出为 OPML…",
       "export_text": "导出为纯文本…",
-      "trash": "废纸篓"
+      "trash": "废纸篓",
+      "insert_image": "插入图片…"
     },
     "edit": {
       "title": "编辑",
@@ -375,7 +376,8 @@
     "export-package": "导出为分享包…",
     "trash": "废纸篓",
     "settings": "设置",
-    "quit": "退出"
+    "quit": "退出",
+    "insert-image": "插入图片…"
   },
   "slash": {
     "bullet": "项目符号",
@@ -407,7 +409,8 @@
     "move": "移动到…",
     "export_package": "导出为分享包",
     "complete": "完成",
-    "note": "添加备注"
+    "note": "添加备注",
+    "image": "图片"
   },
   "group": {
     "editing": "编辑",
@@ -475,5 +478,14 @@
       "damaged": "分享包已损坏，无法导入",
       "unreadable": "无法读取 {path}：{error}"
     }
+  },
+  "image": {
+    "prompt": "插入",
+    "no_folder": "需要已保存的大纲才能插入图片",
+    "unsupported": "Flowie 支持 PNG、JPEG、GIF 和 WebP 图片",
+    "too_large": "图片超过 50 MB",
+    "missing": "图片文件丢失",
+    "preview_hint": "按 Esc 或点击关闭",
+    "export_images_failed": "已导出文字，但图片未能导出：{error}"
   }
 }

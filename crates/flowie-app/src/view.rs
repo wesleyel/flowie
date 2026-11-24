@@ -202,7 +202,7 @@ impl Outline {
             }))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
                 let dragging = this.edit.as_ref().is_some_and(|e| e.selecting_with_mouse);
-                let link = if dragging { None } else { this.link_target_at_point(ev.position) };
+                let link = if dragging || this.page.is_some() { None } else { this.link_target_at_point(ev.position) };
                 this.popover_hover_at(link.map(PopoverKind::Link), ev.position, cx);
                 if dragging && ev.pressed_button == Some(MouseButton::Left) {
                     if let Some(ix) = this.index_for_point(ev.position) {
@@ -238,7 +238,7 @@ impl Outline {
 
     pub(crate) fn render_node_text(&mut self, id: NodeId, target: Target, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let temporary = matches!(target, Target::Field(Field::WhatsNew(_)));
-        let tree = if temporary { &self.whats_new.as_ref().unwrap().tree } else { &self.tree };
+        let tree = if temporary { &self.notes_page().unwrap().tree } else { &self.tree };
         let note = matches!(target, Target::Note(_));
         let bold_title = !note && id == self.zoom && id != ROOT;
         let kind = tree.node(id).kind;
@@ -325,8 +325,8 @@ impl Outline {
                 .cursor_text()
                 .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
                     let link = match hover.0.index_for_position(ev.position) {
-                        Ok(d) => link_target(&hover.1, d),
-                        Err(_) => None,
+                        Ok(d) if !temporary => link_target(&hover.1, d),
+                        _ => None,
                     };
                     this.popover_hover_at(link.map(PopoverKind::Link), ev.position, cx);
                 }))
@@ -381,8 +381,8 @@ impl Outline {
                                 .h(px(LINE_H))
                                 .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
                                     let link = match hover.0.index_for_position(ev.position) {
-                                        Ok(i) => link_target(&hover.1, start + i),
-                                        Err(_) => None,
+                                        Ok(i) if !temporary => link_target(&hover.1, start + i),
+                                        _ => None,
                                     };
                                     this.popover_hover_at(link.map(PopoverKind::Link), ev.position, cx);
                                 }))
@@ -1016,7 +1016,11 @@ impl Render for Outline {
 
         let mut kc = KeyContext::new_with_defaults(cx.platform_info().os);
         // While settings or a dialog are open, only global shortcuts apply (so keys can be recorded).
-        if !self.modal_open() {
+        let overlay = self.page.is_some();
+        if overlay && !self.modal_open() {
+            kc.add("Outline");
+        }
+        if !self.modal_open() && !overlay {
             kc.add("Outline");
             if self.edit.is_some() {
                 kc.add("editing");
@@ -1072,14 +1076,14 @@ impl Render for Outline {
                 cx,
             )))
             .child(tools.flex_none());
-        let overlay = self.trash.is_some() || self.whats_new.is_some();
         let title_el = if overlay { None } else { self.render_title(window, cx) };
 
         let entity = cx.entity();
-        let body: AnyElement = if self.whats_new.is_some() {
-            self.render_whats_new(window, cx)
-        } else if self.trash.is_some() {
-            self.render_trash(cx)
+        let body: AnyElement = if let Some(session) = &self.page {
+            match session.page {
+                crate::volatile_page::VolatilePage::WhatsNew(_) => self.render_whats_new(window, cx),
+                crate::volatile_page::VolatilePage::Trash(_) => self.render_trash(cx),
+            }
         } else {
             // A popover sits at fixed window coordinates: scrolling the page
             // under it closes it.
@@ -1160,7 +1164,7 @@ impl Render for Outline {
             crate::ui::surface::toast(theme, msg.clone().into(), o)
         });
 
-        let empty_hint = (self.rows.is_empty() && !self.query.is_empty())
+        let empty_hint = (!overlay && self.rows.is_empty() && !self.query.is_empty())
             .then(|| div().px(px(PAD_X + 24.)).py_4().text_color(theme.muted).child(t!("outline.no_match", query = self.query)));
 
         if self.is_animating() {
@@ -1179,108 +1183,132 @@ impl Render for Outline {
             .font_family(crate::theme::UI_FONT)
             .text_size(px(FONT_SIZE))
             .line_height(px(LINE_H))
-            .on_action(cx.listener(Self::newline))
-            .on_action(cx.listener(Self::toggle_note))
-            .on_action(cx.listener(Self::indent))
-            .on_action(cx.listener(Self::outdent))
-            .on_action(cx.listener(Self::backspace))
-            .on_action(cx.listener(Self::delete))
-            .on_action(cx.listener(Self::delete_word_left))
-            .on_action(cx.listener(Self::kill_line))
-            .on_action(cx.listener(Self::yank))
-            .on_action(cx.listener(Self::left))
-            .on_action(cx.listener(Self::right))
-            .on_action(cx.listener(Self::up))
-            .on_action(cx.listener(Self::down))
-            .on_action(cx.listener(Self::word_left))
-            .on_action(cx.listener(Self::word_right))
-            .on_action(cx.listener(Self::select_left))
-            .on_action(cx.listener(Self::select_right))
-            .on_action(cx.listener(Self::select_word_left))
-            .on_action(cx.listener(Self::select_word_right))
-            .on_action(cx.listener(Self::select_up))
-            .on_action(cx.listener(Self::select_down))
-            .on_action(cx.listener(Self::home))
-            .on_action(cx.listener(Self::end))
-            .on_action(cx.listener(Self::select_home))
-            .on_action(cx.listener(Self::select_end))
-            .on_action(cx.listener(Self::select_all))
-            .on_action(cx.listener(Self::toggle_complete))
-            .on_action(cx.listener(Self::collapse))
-            .on_action(cx.listener(Self::expand))
-            .on_action(cx.listener(Self::zoom_in))
-            .on_action(cx.listener(Self::zoom_out))
-            .on_action(cx.listener(Self::zoom_home))
-            .on_action(cx.listener(Self::page_back))
-            .on_action(cx.listener(Self::page_forward))
-            .on_action(cx.listener(Self::move_up))
-            .on_action(cx.listener(Self::move_down))
-            .on_action(cx.listener(Self::delete_node))
-            .on_action(cx.listener(Self::undo))
-            .on_action(cx.listener(Self::redo))
-            .on_action(cx.listener(Self::copy))
-            .on_action(cx.listener(Self::cut))
-            .on_action(cx.listener(Self::paste))
-            .on_action(cx.listener(Self::bold))
-            .on_action(cx.listener(Self::italic))
-            .on_action(cx.listener(Self::inline_code))
-            .on_action(cx.listener(Self::wrap_math))
-            .on_action(cx.listener(Self::insert_link))
-            .on_action(cx.listener(Self::find))
-            .on_action(cx.listener(Self::escape))
-            .on_action(cx.listener(Self::toggle_completed_visible))
-            .on_action(cx.listener(Self::jump))
-            .on_action(cx.listener(Self::move_to_action))
-            .on_action(cx.listener(Self::link_to_bullet))
-            .on_action(cx.listener(Self::mirror_bullet))
-            .on_action(cx.listener(Self::toggle_star))
-            .on_action(cx.listener(Self::expand_all))
-            .on_action(cx.listener(Self::level1))
-            .on_action(cx.listener(Self::level2))
-            .on_action(cx.listener(Self::level3))
-            .on_action(cx.listener(Self::level4))
-            .on_action(cx.listener(Self::import))
-            .on_action(cx.listener(Self::export_opml))
-            .on_action(cx.listener(Self::export_markdown))
-            .on_action(cx.listener(Self::export_package))
-            .on_action(cx.listener(Self::insert_image))
-            .on_action(cx.listener(Self::whats_new))
-            .on_action(cx.listener(Self::export_text))
-            .on_action(cx.listener(Self::show_trash))
-            .on_action(cx.listener(Self::save_search))
-            .on_action(cx.listener(Self::highlight))
-            .on_action(cx.listener(Self::color_red))
-            .on_action(cx.listener(Self::color_orange))
-            .on_action(cx.listener(Self::color_yellow))
-            .on_action(cx.listener(Self::color_green))
-            .on_action(cx.listener(Self::color_blue))
-            .on_action(cx.listener(Self::color_purple))
-            .on_action(cx.listener(Self::color_gray))
-            .on_action(cx.listener(Self::color_none))
-            .on_action(cx.listener(Self::cycle_color))
-            .on_action(cx.listener(Self::kind_bullet))
-            .on_action(cx.listener(Self::kind_h1))
-            .on_action(cx.listener(Self::kind_h2))
-            .on_action(cx.listener(Self::kind_h3))
-            .on_action(cx.listener(Self::kind_paragraph))
-            .on_action(cx.listener(Self::kind_todo))
-            .on_action(cx.listener(Self::kind_numbered))
-            .on_action(cx.listener(Self::kind_quote))
-            .on_action(cx.listener(Self::kind_code))
-            .on_action(cx.listener(Self::today))
-            .on_action(cx.listener(Self::next_match))
-            .on_action(cx.listener(Self::prev_match))
-            .on_action(cx.listener(Self::show_calendar))
+            .when(!overlay, |outline| {
+                outline
+                    .on_action(cx.listener(Self::newline))
+                    .on_action(cx.listener(Self::toggle_note))
+                    .on_action(cx.listener(Self::indent))
+                    .on_action(cx.listener(Self::outdent))
+                    .on_action(cx.listener(Self::backspace))
+                    .on_action(cx.listener(Self::delete))
+                    .on_action(cx.listener(Self::delete_word_left))
+                    .on_action(cx.listener(Self::kill_line))
+                    .on_action(cx.listener(Self::yank))
+                    .on_action(cx.listener(Self::left))
+                    .on_action(cx.listener(Self::right))
+                    .on_action(cx.listener(Self::up))
+                    .on_action(cx.listener(Self::down))
+                    .on_action(cx.listener(Self::word_left))
+                    .on_action(cx.listener(Self::word_right))
+                    .on_action(cx.listener(Self::select_left))
+                    .on_action(cx.listener(Self::select_right))
+                    .on_action(cx.listener(Self::select_word_left))
+                    .on_action(cx.listener(Self::select_word_right))
+                    .on_action(cx.listener(Self::select_up))
+                    .on_action(cx.listener(Self::select_down))
+                    .on_action(cx.listener(Self::home))
+                    .on_action(cx.listener(Self::end))
+                    .on_action(cx.listener(Self::select_home))
+                    .on_action(cx.listener(Self::select_end))
+                    .on_action(cx.listener(Self::select_all))
+                    .on_action(cx.listener(Self::toggle_complete))
+                    .on_action(cx.listener(Self::collapse))
+                    .on_action(cx.listener(Self::expand))
+                    .on_action(cx.listener(Self::zoom_in))
+                    .on_action(cx.listener(Self::zoom_out))
+                    .on_action(cx.listener(Self::zoom_home))
+                    .on_action(cx.listener(Self::page_back))
+                    .on_action(cx.listener(Self::page_forward))
+                    .on_action(cx.listener(Self::move_up))
+                    .on_action(cx.listener(Self::move_down))
+                    .on_action(cx.listener(Self::delete_node))
+                    .on_action(cx.listener(Self::undo))
+                    .on_action(cx.listener(Self::redo))
+                    .on_action(cx.listener(Self::copy))
+                    .on_action(cx.listener(Self::cut))
+                    .on_action(cx.listener(Self::paste))
+                    .on_action(cx.listener(Self::bold))
+                    .on_action(cx.listener(Self::italic))
+                    .on_action(cx.listener(Self::inline_code))
+                    .on_action(cx.listener(Self::wrap_math))
+                    .on_action(cx.listener(Self::insert_link))
+                    .on_action(cx.listener(Self::find))
+                    .on_action(cx.listener(Self::escape))
+                    .on_action(cx.listener(Self::toggle_completed_visible))
+                    .on_action(cx.listener(Self::jump))
+                    .on_action(cx.listener(Self::move_to_action))
+                    .on_action(cx.listener(Self::link_to_bullet))
+                    .on_action(cx.listener(Self::mirror_bullet))
+                    .on_action(cx.listener(Self::toggle_star))
+                    .on_action(cx.listener(Self::expand_all))
+                    .on_action(cx.listener(Self::level1))
+                    .on_action(cx.listener(Self::level2))
+                    .on_action(cx.listener(Self::level3))
+                    .on_action(cx.listener(Self::level4))
+                    .on_action(cx.listener(Self::import))
+                    .on_action(cx.listener(Self::export_opml))
+                    .on_action(cx.listener(Self::export_markdown))
+                    .on_action(cx.listener(Self::export_package))
+                    .on_action(cx.listener(Self::insert_image))
+                    .on_action(cx.listener(Self::whats_new))
+                    .on_action(cx.listener(Self::export_text))
+                    .on_action(cx.listener(Self::show_trash))
+                    .on_action(cx.listener(Self::save_search))
+                    .on_action(cx.listener(Self::highlight))
+                    .on_action(cx.listener(Self::color_red))
+                    .on_action(cx.listener(Self::color_orange))
+                    .on_action(cx.listener(Self::color_yellow))
+                    .on_action(cx.listener(Self::color_green))
+                    .on_action(cx.listener(Self::color_blue))
+                    .on_action(cx.listener(Self::color_purple))
+                    .on_action(cx.listener(Self::color_gray))
+                    .on_action(cx.listener(Self::color_none))
+                    .on_action(cx.listener(Self::cycle_color))
+                    .on_action(cx.listener(Self::kind_bullet))
+                    .on_action(cx.listener(Self::kind_h1))
+                    .on_action(cx.listener(Self::kind_h2))
+                    .on_action(cx.listener(Self::kind_h3))
+                    .on_action(cx.listener(Self::kind_paragraph))
+                    .on_action(cx.listener(Self::kind_todo))
+                    .on_action(cx.listener(Self::kind_numbered))
+                    .on_action(cx.listener(Self::kind_quote))
+                    .on_action(cx.listener(Self::kind_code))
+                    .on_action(cx.listener(Self::today))
+                    .on_action(cx.listener(Self::next_match))
+                    .on_action(cx.listener(Self::prev_match))
+                    .on_action(cx.listener(Self::show_calendar))
+            })
+            .when(overlay, |page| {
+                let page = page
+                    .on_action(cx.listener(Self::escape))
+                    .on_action(cx.listener(Self::page_back))
+                    .on_action(cx.listener(Self::whats_new))
+                    .on_action(cx.listener(Self::show_trash))
+                    .on_action(cx.listener(|this, _: &Undo, window, cx| this.escape(&Escape, window, cx)));
+                if self.edit.as_ref().is_some_and(|edit| matches!(edit.target, Target::Field(Field::WhatsNew(_)))) {
+                    page.on_action(cx.listener(Self::select_all))
+                        .on_action(cx.listener(Self::copy))
+                        .on_action(cx.listener(Self::cut))
+                        .on_action(cx.listener(Self::paste))
+                } else {
+                    page
+                }
+            })
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::open_about))
             .on_action(cx.listener(Self::send_feedback))
             .on_action(cx.listener(Self::open_tutorial))
             .on_action(cx.listener(Self::open_privacy_policy))
             .on_action(cx.listener(Self::open_terms))
-            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
+            .on_key_down(cx.listener(move |this, ev: &gpui::KeyDownEvent, window, cx| {
                 if this.image_preview.is_some() {
                     this.image_preview_key(ev, cx);
-                } else if !this.modal_open()
+                    if overlay && ev.keystroke.key == "escape" {
+                        this.leave_volatile_page(true, cx);
+                        cx.notify();
+                    }
+                } else if !overlay
+                    && !this.modal_open()
                     && ev.keystroke.key == "space"
                     && !ev.keystroke.modifiers.modified()
                     && this.edit.is_none()
@@ -1295,6 +1323,17 @@ impl Render for Outline {
                     this.package_export_key(ev, window, cx);
                 } else if this.package_import.is_some() {
                     this.package_import_key(ev, window, cx);
+                } else if overlay {
+                    let key = &ev.keystroke;
+                    let primary =
+                        if crate::platform::OS == crate::platform::Os::Mac { key.modifiers.platform } else { key.modifiers.control };
+                    if key.key == "escape" || (primary && key.key == "z" && !key.modifiers.shift) {
+                        this.escape(&Escape, window, cx);
+                    } else if !this.field_key(key, window, cx) {
+                        return;
+                    }
+                    cx.stop_propagation();
+                    cx.notify();
                 }
             }))
             .on_mouse_down(
@@ -1322,7 +1361,7 @@ impl Render for Outline {
             )
             .relative()
             .children(app_menu_bar)
-            .child(header)
+            .when(!overlay, |page| page.child(header))
             .child(
                 div()
                     .id("page")
@@ -1335,7 +1374,7 @@ impl Render for Outline {
                     .children(title_el)
                     .children(empty_hint)
                     .child(div().flex_1().min_h_0().child(body))
-                    .on_drop(cx.listener(|this, drag: &DragNode, _, cx| this.perform_drop(drag.id, cx))),
+                    .when(!overlay, |page| page.on_drop(cx.listener(|this, drag: &DragNode, _, cx| this.perform_drop(drag.id, cx)))),
             )
             .children(inline)
             .children(calendar)
@@ -1354,9 +1393,10 @@ impl Outline {
     fn render_trash(&mut self, cx: &mut Context<Self>) -> AnyElement {
         use crate::ui::button::{button, Variant};
         let theme = self.theme;
-        let entries = self.trash.clone().unwrap_or_default();
+        let entries = self.trash_entries().unwrap();
+        let scroll = self.page.as_ref().unwrap().scroll.clone();
         let ago = crate::menu::ago;
-        let rows = entries.into_iter().map(|e| {
+        let rows = entries.iter().map(|e| {
             let seq = e.seq;
             let count = e.nodes.len();
             div()
@@ -1389,12 +1429,12 @@ impl Outline {
                         .on_click(cx.listener(move |this, _, _, cx| this.purge_trash(seq, cx))),
                 )
         });
-        let empty = self.trash.as_ref().is_some_and(|t| t.is_empty());
+        let empty = entries.is_empty();
         let page = div()
             .id("trash")
             .size_full()
             .overflow_y_scroll()
-            .track_scroll(&self.page_scroll)
+            .track_scroll(&scroll)
             .px(px(PAD_X + 24.))
             .child(
                 div()
@@ -1409,21 +1449,24 @@ impl Outline {
                             .child(crate::icons::icon("arrow-left", crate::icons::SM, Variant::Plain.fg(theme)))
                             .child(t!("common.back"))
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.trash = None;
-                                cx.notify();
+                                this.leave_volatile_page(true, cx);
                             })),
                     ),
             )
             .child(div().text_size(px(12.)).text_color(theme.muted).pb_2().child(t!("trash.retention")))
             .when(empty, |d| d.child(div().py_4().text_color(theme.muted).child(t!("trash.empty"))))
             .children(rows);
-        crate::ui::scrollbar::area("trash-bar", &self.page_scroll, theme, page).size_full().into_any_element()
+        crate::ui::scrollbar::area("trash-bar", &scroll, theme, page).size_full().into_any_element()
     }
 }
 
 fn window_title(o: &Outline) -> String {
-    if o.whats_new.is_some() {
-        format!("{} — Flowie", t!("whats_new.title"))
+    if let Some(session) = &o.page {
+        let title = match session.page {
+            crate::volatile_page::VolatilePage::Trash(_) => t!("trash.title"),
+            crate::volatile_page::VolatilePage::WhatsNew(_) => t!("whats_new.title"),
+        };
+        format!("{title} — Flowie")
     } else if o.zoom == ROOT {
         "Flowie".into()
     } else {

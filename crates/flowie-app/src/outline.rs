@@ -244,7 +244,7 @@ pub struct Outline {
     pub starred: Vec<NodeId>,
     pub saved_searches: Vec<String>,
     /// Trash page contents while it is open.
-    pub trash: Option<Vec<flowie_core::store::TrashEntry>>,
+    pub page: Option<crate::volatile_page::PageSession>,
     pub db_path: Option<std::path::PathBuf>,
     pub calendar: Option<crate::calendar::Calendar>,
     pub journal_id: Option<NodeId>,
@@ -257,7 +257,6 @@ pub struct Outline {
     /// Scroll position of the open popup list (palette or inline menu).
     pub popup_scroll: gpui::ScrollHandle,
     /// Scroll positions of the trash page, the link popover and the open menu.
-    pub page_scroll: gpui::ScrollHandle,
     /// Short ids shown to agents, rebuilt when the tree changes.
     pub short_ids: std::cell::RefCell<flowie_core::ShortIds>,
     pub popover_scroll: gpui::ScrollHandle,
@@ -295,7 +294,6 @@ pub struct Outline {
     /// The image shown full-window (Space on an image bullet).
     pub image_preview: Option<NodeId>,
     /// The What's New page, while open (it and Trash replace each other).
-    pub whats_new: Option<crate::whats_new::WhatsNewPage>,
     /// What's New to show once the window is (after a background launch).
     pub whats_new_pending: Option<Option<String>>,
     /// Roots imported from share packages, by root id.
@@ -366,7 +364,7 @@ impl Outline {
             block_saved: None,
             starred,
             saved_searches,
-            trash: None,
+            page: None,
             db_path,
             calendar: None,
             journal_id: meta.iter().find(|(k, _)| k == "journal").and_then(|(_, v)| v.parse().ok()),
@@ -383,14 +381,12 @@ impl Outline {
             image_dir: db_path_for_images.as_deref().map(flowie_core::images::ImageDir::beside),
             blobs: blobs.into_iter().map(|b| (b.name.clone(), b)).collect(),
             image_preview: None,
-            whats_new: None,
             whats_new_pending: None,
             imports: imports.into_iter().map(|r| (r.root, r)).collect(),
             kill_buffer: String::new(),
             mouse_block: false,
             ghosts: Default::default(),
             popup_scroll: gpui::ScrollHandle::new(),
-            page_scroll: gpui::ScrollHandle::new(),
             short_ids: Default::default(),
             popover_scroll: gpui::ScrollHandle::new(),
             menu_scroll: gpui::ScrollHandle::new(),
@@ -1469,7 +1465,10 @@ impl Outline {
             return;
         }
         // Back from What's New returns to where the user was; it's not a step in the history.
-        if direction == gpui::NavigationDirection::Back && self.close_whats_new(true, cx) {
+        if self.page.is_some() {
+            if direction == gpui::NavigationDirection::Back {
+                self.leave_volatile_page(true, cx);
+            }
             return;
         }
         let pages = match direction {
@@ -1491,7 +1490,6 @@ impl Outline {
         self.palette = None;
         self.inline = None;
         self.calendar = None;
-        self.trash = None;
         self.show_page(location.zoom, cx);
         let item_ix = location.top_row.and_then(|id| self.display_index(id)).unwrap_or(location.scroll.item_ix.min(self.display.len()));
         self.list.scroll_to(gpui::ListOffset { item_ix, offset_in_item: location.scroll.offset_in_item });
@@ -1543,8 +1541,7 @@ impl Outline {
         self.zoom = id;
         self.see_around(id);
         // Going anywhere closes What's New (and Trash) without putting the caret back.
-        self.close_whats_new(false, cx);
-        self.trash = None;
+        self.leave_volatile_page(false, cx);
         self.block = None;
         self.history.seal();
         self.anims.clear();
@@ -1647,7 +1644,7 @@ impl Outline {
 
     pub fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
         // ⌘Z first closes What's New, then undoes in the outline.
-        if self.close_whats_new(true, cx) {
+        if self.leave_volatile_page(true, cx) {
             return;
         }
         if let Some(caret) = self.history.undo(&mut self.tree) {
@@ -1714,8 +1711,8 @@ impl Outline {
 
     pub fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else { return };
-        if self.whats_new.is_some() && matches!(self.edit_target(), Some(Target::Field(Field::WhatsNew(_)))) {
-            if let Some(text) = item.text() {
+        if self.page.is_some() || matches!(self.edit_target(), Some(Target::Field(_))) {
+            if let Some(text) = item.text().filter(|_| matches!(self.edit_target(), Some(Target::Field(_)))) {
                 self.replace_edit_text(self.edit.as_ref().unwrap().sel.clone(), &text, false, cx);
             }
             return;
@@ -1815,6 +1812,9 @@ impl Outline {
     }
 
     pub fn insert_link(&mut self, _: &InsertLink, _: &mut Window, cx: &mut Context<Self>) {
+        if self.editing_node().is_none() {
+            return;
+        }
         let Some(e) = self.edit.as_ref() else { return };
         let r = e.sel.clone();
         let label = self.edit_text()[r.clone()].to_string();
@@ -1887,7 +1887,7 @@ impl Outline {
             cx.notify();
             return;
         }
-        if self.trash.take().is_some() || self.close_whats_new(true, cx) {
+        if self.leave_volatile_page(true, cx) {
             cx.notify();
             return;
         }

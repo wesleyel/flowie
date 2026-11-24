@@ -219,7 +219,10 @@ impl Outline {
         self.package_export = None;
         self.package_import = None;
         self.image_preview = None;
-        self.trash = None;
+        if self.page.take().is_some() {
+            self.edit = None;
+            self.block = None;
+        }
         self.toast = None;
         // A fresh scroll position for the next popup (palette, `/` menu, `[[` menu).
         self.popup_scroll = gpui::ScrollHandle::new();

@@ -382,6 +382,26 @@ fn opml_mirrors_and_links_round_trip_and_follow_a_reimported_copy() {
 }
 
 #[test]
+fn opml_duplicate_ids_do_not_remap_ambiguous_links_or_mirrors() {
+    let duplicate = NodeId::random();
+    let reference = Item { text: format!("[ambiguous](flowie:{duplicate})"), ..Item::new("ref") };
+    let mirror = Item { id: Some(NodeId::random()), mirror_of: Some(duplicate), ..Item::new("snapshot") };
+    let items = [
+        Item { id: Some(duplicate), ..Item::new("first") },
+        Item { children: vec![reference], ..Item::new("parent") },
+        Item { id: Some(duplicate), ..Item::new("second") },
+        mirror,
+    ];
+    let mut tree = Tree::new();
+    let roots = tree.insert_items(ROOT, 0, &items);
+    assert_eq!(tree.node(roots[1]).text, "parent");
+    let link = tree.children(roots[1])[0];
+    assert_eq!(tree.node(link).text, "ambiguous");
+    assert_eq!(tree.node(roots[3]).mirror, ROOT);
+    assert_eq!(tree.node(roots[3]).text, "snapshot");
+}
+
+#[test]
 fn opml_mirror_alone_uses_existing_source_or_snapshot() {
     let mut original = Tree::new();
     let source = original.create_at(ROOT, 0, "单独导出");

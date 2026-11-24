@@ -156,6 +156,25 @@ pub struct EditMap {
 }
 
 impl EditMap {
+    pub fn column(&self, raw: &str, offset: usize) -> usize {
+        let display = self.to_display(offset);
+        self.segs
+            .iter()
+            .map(|&(start, source, length)| raw[source..source + display.saturating_sub(start).min(length)].chars().count())
+            .sum()
+    }
+
+    pub fn offset_for_column(&self, raw: &str, mut column: usize) -> usize {
+        for &(start, source, length) in &self.segs {
+            let segment = &raw[source..source + length];
+            if let Some((offset, _)) = segment.char_indices().nth(column) {
+                return self.to_raw(start + offset);
+            }
+            column -= segment.chars().count();
+        }
+        raw.len()
+    }
+
     pub fn new(raw: &str, code: bool) -> EditMap {
         let links = if code { Vec::new() } else { internal_links(raw) };
         let mut segs = Vec::new();
@@ -382,6 +401,16 @@ mod tests {
     use super::*;
 
     const ID: &str = "c239e043175d4aa28788a118eaf4eb92";
+
+    #[test]
+    fn vertical_columns_ignore_hidden_link_syntax() {
+        let raw = format!("前[中文](flowie:{:032x})后", 1);
+        let map = EditMap::new(&raw, false);
+        let end = raw.find('后').unwrap();
+        assert_eq!(map.column(&raw, end), 3);
+        assert_eq!(map.offset_for_column(&raw, 3), end);
+        assert_eq!(map.offset_for_column(&raw, 2), "前".len());
+    }
 
     #[test]
     fn internal_links_show_their_label_and_act_as_one_character() {

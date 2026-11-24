@@ -851,11 +851,12 @@ impl Outline {
 
     fn char_col(&self) -> usize {
         let Some(e) = &self.edit else { return 0 };
-        self.edit_text()[..e.caret().min(self.edit_text().len())].chars().count()
+        self.edit_map().column(self.edit_text(), e.caret())
     }
 
-    fn offset_for_col(text: &str, col: usize) -> usize {
-        text.char_indices().nth(col).map(|(i, _)| i).unwrap_or(text.len())
+    fn offset_for_col(&self, row: NodeId, col: usize) -> usize {
+        let text = &self.tree.node(self.tree.source(row)).text;
+        crate::rich::EditMap::new(text, self.tree.node(row).kind == flowie_core::BlockKind::Code).offset_for_column(text, col)
     }
 
     // ---------------------------------------------------------- actions
@@ -1269,7 +1270,7 @@ impl Outline {
                     (self.zoom != ROOT && self.rows.first().map(|r| r.id) == Some(id)).then_some(self.zoom)
                 });
                 if let Some(prev) = prev {
-                    let off = Self::offset_for_col(&self.tree.node(prev).text, col);
+                    let off = self.offset_for_col(prev, col);
                     self.start_edit(Target::Text(prev), off, cx);
                 }
             }
@@ -1299,7 +1300,7 @@ impl Outline {
             Some(Target::Text(id)) => {
                 let next = if id == self.zoom { self.rows.first().map(|r| r.id) } else { self.neighbor(id, 1) };
                 if let Some(next) = next {
-                    let off = Self::offset_for_col(&self.tree.node(next).text, col);
+                    let off = self.offset_for_col(next, col);
                     self.start_edit(Target::Text(next), off, cx);
                 }
             }

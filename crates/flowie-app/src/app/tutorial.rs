@@ -5,6 +5,8 @@
 //! - `{{#name}}` names the bullet; `[label](flowie:@name)` links to it
 //! - `{{mirror name}}` (alone on a bullet) becomes a mirror of that bullet
 //! - `{{collapsed}}`, `{{text}}`, `{{code}}`, `{{star}}`
+//! - `{{image <name>}}` makes the bullet an image bullet showing `IMAGES[name]`,
+//!   with the bullet's text as its caption
 //!
 //! and a few placeholders anywhere, filled in before parsing:
 //!
@@ -21,6 +23,9 @@ use gpui::{Context, Window};
 use crate::outline::{OpenTutorial, Outline};
 
 const TUTORIALS: &[(&str, &str)] = &[("en", include_str!("../../tutorial/en.md")), ("zh-CN", include_str!("../../tutorial/zh-CN.md"))];
+
+/// Pictures the tutorial shows, by `{{image <name>}}` name.
+const IMAGES: &[(&str, &[u8])] = &[("icon", include_bytes!("../../../../assets/icon.png"))];
 
 /// The saved search the "Finding things" lesson points at.
 const SAVED_SEARCH: &str = "is:todo is:open";
@@ -95,6 +100,13 @@ impl Outline {
                             names.insert(name.to_string(), id);
                         } else if let Some(name) = d.strip_prefix("mirror ") {
                             mirrors.push((id, name.trim().to_string()));
+                        } else if let Some(name) = d.strip_prefix("image ") {
+                            // Without an image folder (or on a write error) it stays a plain bullet.
+                            let bytes = IMAGES.iter().find(|(n, _)| *n == name.trim()).map(|(_, b)| *b);
+                            if let Some(stored) = bytes.and_then(|b| self.store_image(b).ok()) {
+                                node.kind = BlockKind::Image;
+                                node.image = stored;
+                            }
                         }
                     }
                 }
@@ -153,6 +165,11 @@ mod tests {
                 let rest = &md[i + 9..];
                 let name = &rest[..rest.find(')').unwrap()];
                 assert!(names.contains(&name), "{code}: link to unknown {name}");
+            }
+            for (i, _) in md.match_indices("{{image ") {
+                let rest = &md[i + 8..];
+                let name = &rest[..rest.find("}}").unwrap()];
+                assert!(super::IMAGES.iter().any(|(n, _)| *n == name), "{code}: unknown image {name}");
             }
             for (i, _) in md.match_indices("{{mirror ") {
                 let rest = &md[i + 9..];

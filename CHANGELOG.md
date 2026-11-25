@@ -10,6 +10,7 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ### Added
 
+- **Tutorial**: rewritten in three parts: a short Getting started, three examples to adapt (a project, a to-do list and reading notes), and a Manual with every feature, its lessons collapsed. The Images lesson shows an example image.
 - **Pages**: the page title now scrolls with the page and collapses into the top bar. The path there then switches from the page's parents to a Home icon followed by the page and the parents of the topmost visible bullet, and the page's reference count moves next to the star. A title left half collapsed snaps open or shut when you stop scrolling.
 - **MCP**: add the `batch` tool, which applies many `create`, `journal`, `update`, `complete`, `move` and `delete` operations in one call, all or nothing and as a single undo step. A `create` can carry a `key` so later operations in the batch can refer to the bullet it created.
 - **MCP**: `read` and `move` accept `ids` to read several subtrees, or move several bullets in order, in one call.

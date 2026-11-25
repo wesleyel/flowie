@@ -8,6 +8,8 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+## [1.0.0-rc.6] - 2026-11-25
+
 ### Added
 
 - **Tutorial**: rewritten in three parts: a short Getting started, three examples to adapt (a project, a to-do list and reading notes), and a Manual with every feature, its lessons collapsed. The Images lesson shows an example image.
@@ -156,7 +158,9 @@ Flowie 1.0.0's first release candidate, free software under GPL-3.0-or-later. Th
 
 - **Dependencies**: bundle SQLite 3.54.1 through rusqlite 0.43 to fix CVE-2026-119375.
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.4...HEAD
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.6...HEAD
+[1.0.0-rc.6]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.5...v1.0.0-rc.6
+[1.0.0-rc.5]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.4...v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.3...v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.2...v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.1...v1.0.0-rc.2

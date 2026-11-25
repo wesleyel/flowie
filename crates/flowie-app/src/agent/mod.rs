@@ -142,7 +142,7 @@ fn serve(stream: LocalSocketStream, tx: futures::channel::mpsc::UnboundedSender<
     }
 }
 
-const WRITES: [&str; 7] = ["create", "update", "move", "delete", "journal", "complete", "attach_image"];
+const WRITES: [&str; 8] = ["create", "update", "move", "delete", "journal", "complete", "attach_image", "batch"];
 
 impl Outline {
     pub fn handle_agent(&mut self, method: &str, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
@@ -172,6 +172,7 @@ impl Outline {
             "delete" => self.agent_delete(p, cx),
             "journal" => self.agent_journal(p, cx),
             "attach_image" => self.agent_attach_image(p, cx),
+            "batch" => self.agent_batch(p, cx),
             _ => Err(format!("unknown method {method}")),
         };
         cx.notify();

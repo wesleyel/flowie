@@ -28,8 +28,8 @@ fn tools() -> Value {
         },
         {
             "name": "read",
-            "description": "Read an outline as Markdown with [id:…] after every bullet (a short id; any unique prefix of 4+ hex digits works as input). Without `id`, reads Home. Deeper levels are summarized; read that id to expand.",
-            "inputSchema": {"type": "object", "properties": {"id": id, "depth": {"type": "integer", "default": 3, "minimum": 1, "maximum": 20}}},
+            "description": "Read an outline as Markdown with [id:…] after every bullet (a short id; any unique prefix of 4+ hex digits works as input). Without `id`, reads Home; pass `ids` to read several subtrees in one call. Deeper levels are summarized; read that id to expand.",
+            "inputSchema": {"type": "object", "properties": {"id": id, "ids": {"type": "array", "items": id}, "depth": {"type": "integer", "default": 3, "minimum": 1, "maximum": 20}}},
             "annotations": {"readOnlyHint": true}
         },
         {
@@ -55,14 +55,19 @@ fn tools() -> Value {
         },
         {
             "name": "move",
-            "description": "Move a bullet (with its children) under `parent` at `index` (default end), or right after `after`.",
-            "inputSchema": {"type": "object", "properties": {"id": id, "parent": id, "index": {"type": "integer"}, "after": id}, "required": ["id"]}
+            "description": "Move a bullet (with its children), or every bullet in `ids` in that order, under `parent` at `index` (default end), or right after `after`.",
+            "inputSchema": {"type": "object", "properties": {"id": id, "ids": {"type": "array", "items": id}, "parent": id, "index": {"type": "integer"}, "after": id}}
         },
         {
             "name": "delete",
             "description": "Delete bullets and their children. They go to Flowie's Trash and can be restored for 30 days.",
             "inputSchema": {"type": "object", "properties": {"ids": {"type": "array", "items": id}}, "required": ["ids"]},
             "annotations": {"destructiveHint": true}
+        },
+        {
+            "name": "batch",
+            "description": "Apply several writes in one call: an array of ops, each {\"op\": \"create\" | \"journal\" | \"update\" | \"complete\" | \"move\" | \"delete\", ...the same arguments as that tool}. All or nothing: if any op fails, nothing changes and the error names the op. The whole batch is one undo step for the user. A create or journal op may carry a `key`; later ops can then name its first new bullet as \"$key\" in id, ids, parent or after. Prefer one batch over many single calls whenever you change more than one bullet.",
+            "inputSchema": {"type": "object", "properties": {"ops": {"type": "array", "maxItems": 500, "items": {"type": "object", "properties": {"op": {"type": "string", "enum": ["create", "journal", "update", "complete", "move", "delete"]}, "key": {"type": "string"}}, "required": ["op"]}}}, "required": ["ops"]}
         },
         {
             "name": "attach_image",
@@ -211,7 +216,7 @@ pub fn run(db: &Path) {
                     "protocolVersion": version,
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": "flowie", "title": "Flowie outliner", "version": env!("CARGO_PKG_VERSION")},
-                    "instructions": "Flowie is the user's outliner. Use `current` to see the page and bullet the user is currently looking at (and pass `id: \"current\"` to read or write there), `read` (no id = Home) and `search` to find bullets; every bullet is shown with a short id like [id:3f9a1c], which any tool takes as `id`; link to a bullet with [label](flowie:3f9a1c). Write with `create` (Markdown lists), `update`, `move`, `complete`, `delete` (to Trash) and `journal`, and navigate the window with `open`. Each write call is one undo step for the user. Writing needs the user to allow it in Flowie → Settings → Agent."
+                    "instructions": "Flowie is the user's outliner. Use `current` to see the page and bullet the user is currently looking at (and pass `id: \"current\"` to read or write there), `read` (no id = Home) and `search` to find bullets; every bullet is shown with a short id like [id:3f9a1c], which any tool takes as `id`; link to a bullet with [label](flowie:3f9a1c). Write with `create` (Markdown lists), `update`, `move`, `complete`, `delete` (to Trash) and `journal`, and navigate the window with `open`. Each write call is one undo step for the user, so when a change touches more than one bullet, send all of it as one `batch` (all or nothing, one undo step) instead of many single calls; `read` and `move` also take `ids`. Writing needs the user to allow it in Flowie → Settings → Agent."
                 }))
             }
             "ping" => Ok(json!({})),

@@ -434,6 +434,21 @@ impl Tree {
         self.journal.is_empty()
     }
 
+    /// A point in the journal to roll back to with `rollback_to`.
+    pub fn journal_mark(&self) -> usize {
+        self.journal.len()
+    }
+
+    /// Undo every change made since `mark` and drop it from the journal, as if
+    /// it never happened (an all-or-nothing group of edits that failed midway).
+    pub fn rollback_to(&mut self, mark: usize) {
+        if mark >= self.journal.len() {
+            return;
+        }
+        let changes = self.journal.split_off(mark);
+        self.revert(&changes);
+    }
+
     /// Ids changed since last call, split into (present nodes, deleted ids).
     pub fn take_dirty(&mut self) -> (Vec<Node>, Vec<NodeId>) {
         let mut upserts = Vec::new();

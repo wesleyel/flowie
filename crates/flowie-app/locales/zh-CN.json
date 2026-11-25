@@ -196,7 +196,7 @@
         "hint": "Agent 修改条目时自动跳转并滚动到改动位置。"
       },
       "other_clients": "其他 MCP 客户端",
-      "tools": "工具：current、search、read、starred、create、update、complete、move、delete、attach_image、journal、open。"
+      "tools": "工具：current、search、read、starred、create、update、complete、move、delete、attach_image、journal、batch、open。"
     },
     "about": {
       "tagline": "用列表思考的快速大纲工具。",

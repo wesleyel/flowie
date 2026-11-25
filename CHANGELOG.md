@@ -10,11 +10,17 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ### Added
 
+- **MCP**: add the `batch` tool, which applies many `create`, `journal`, `update`, `complete`, `move` and `delete` operations in one call, all or nothing and as a single undo step. A `create` can carry a `key` so later operations in the batch can refer to the bullet it created.
+- **MCP**: `read` and `move` accept `ids` to read several subtrees, or move several bullets in order, in one call.
 - **macOS**: add a Window menu with Minimize, Zoom and Bring All to Front. macOS adds its own window items to it, including Fill, Center, Move & Resize, and moving the window to another display or an iPad.
 
 ### Changed
 
 - **macOS**: What's New is now only in the Help menu, not in the Flowie menu.
+
+### Fixed
+
+- **MCP**: a write that fails partway no longer leaves part of its changes behind, such as a journal page created for a `journal` call whose Markdown was invalid.
 
 ## [1.0.0-rc.5] - 2026-11-24
 

@@ -223,7 +223,7 @@
         "hint": "Jump and scroll to bullets as an agent changes them."
       },
       "other_clients": "Other MCP clients",
-      "tools": "Tools: current, search, read, starred, create, update, complete, move, delete, attach_image, journal, open."
+      "tools": "Tools: current, search, read, starred, create, update, complete, move, delete, attach_image, journal, batch, open."
     },
     "about": {
       "tagline": "A fast outliner for thinking in lists.",

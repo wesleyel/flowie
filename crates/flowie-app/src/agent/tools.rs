@@ -192,6 +192,17 @@ impl Outline {
     }
 
     pub(super) fn agent_read(&mut self, p: &Value) -> Result<String, String> {
+        if let Some(ids) = p.get("ids") {
+            let ids = Self::id_list(&json!({ "ids": ids }))?;
+            let mut parts = Vec::new();
+            for id in ids {
+                let mut one = p.clone();
+                one.as_object_mut().map(|o| o.remove("ids"));
+                one["id"] = id;
+                parts.push(self.agent_read(&one)?);
+            }
+            return Ok(parts.join("\n---\n\n"));
+        }
         let id = if p.get("id").is_some() { self.agent_existing_node(p, "id")? } else { ROOT };
         let depth = n(p, "depth").unwrap_or(3).clamp(1, 20) as usize;
         let mut out = String::new();
@@ -416,30 +427,70 @@ impl Outline {
         let data = data.split_once("base64,").map_or(data, |(_, d)| d);
         let bytes = crate::image::decode_base64(data).ok_or("`data` is not base64")?;
         let name = self.store_image(&bytes)?;
-        let (parent, index) = if p.get("after").is_some() {
+        self.agent_write(cx, |this| {
+            let (parent, index) = this.agent_place(p, true)?;
+            let caption = this.expand_links(s(p, "caption").unwrap_or(""))?;
+            let id = this.tree.create_at(parent, index, &caption.replace('\n', " "));
+            let mut node = this.tree.node(id).clone();
+            node.kind = BlockKind::Image;
+            node.image = name;
+            this.tree.put(node);
+            if parent != ROOT && this.tree.node(parent).collapsed {
+                this.tree.set_collapsed(parent, false);
+            }
+            let info = this.blobs.get(&this.tree.node(id).image);
+            let msg = format!("Added image [id:{}] ({}×{})", this.sid(id), info.map_or(0, |b| b.width), info.map_or(0, |b| b.height));
+            Ok(Applied { msg, touched: vec![id], created: vec![id], ..Applied::default() })
+        })
+    }
+
+    /// Where new or moved bullets go: right after `after`, or under `parent`
+    /// (default Home when `parent_optional`) at `index` (default the end).
+    fn agent_place(&mut self, p: &Value, parent_optional: bool) -> Result<(NodeId, usize), String> {
+        if p.get("after").is_some() {
             let after = self.agent_node(p, "after")?;
-            (self.tree.parent(after), self.tree.index_in_parent(after) + 1)
-        } else {
-            let parent = if p.get("parent").is_some() { self.agent_node(p, "parent")? } else { ROOT };
-            let parent = self.tree.source(parent);
-            let len = self.tree.children(parent).len();
-            (parent, n(p, "index").map(|i| (i as usize).min(len)).unwrap_or(len))
-        };
-        let caption = self.expand_links(s(p, "caption").unwrap_or(""))?;
-        let id = self.tree.create_at(parent, index, &caption.replace('\n', " "));
-        let mut node = self.tree.node(id).clone();
-        node.kind = BlockKind::Image;
-        node.image = name;
-        self.tree.put(node);
-        if parent != ROOT && self.tree.node(parent).collapsed {
-            self.tree.set_collapsed(parent, false);
+            if after == ROOT {
+                return Err("can't place bullets after Home; use `parent`".into());
+            }
+            return Ok((self.tree.parent(after), self.tree.index_in_parent(after) + 1));
         }
-        self.agent_commit(&[id], None, cx);
-        let info = self.blobs.get(&self.tree.node(id).image);
-        Ok(format!("Added image [id:{}] ({}×{})", self.sid(id), info.map_or(0, |b| b.width), info.map_or(0, |b| b.height)))
+        let parent = if p.get("parent").is_some() || !parent_optional { self.agent_node(p, "parent")? } else { ROOT };
+        let parent = self.tree.source(parent);
+        let len = self.tree.children(parent).len();
+        Ok((parent, n(p, "index").map(|i| (i as usize).min(len)).unwrap_or(len)))
+    }
+
+    /// Run one agent edit all-or-nothing: if `apply` fails, every change it
+    /// made is rolled back; otherwise it becomes one undo step.
+    fn agent_write(&mut self, cx: &mut Context<Self>, apply: impl FnOnce(&mut Self) -> Result<Applied, String>) -> Result<String, String> {
+        let mark = self.tree.journal_mark();
+        match apply(self) {
+            Err(e) => {
+                self.tree.rollback_to(mark);
+                Err(e)
+            }
+            Ok(done) => {
+                if self.tree.journal_mark() == mark && done.trash.is_empty() {
+                    return Ok(done.msg);
+                }
+                // Trash only learns of deletions that are kept.
+                self.write_trash(done.trash);
+                self.agent_commit(&done.touched, done.fallback, cx);
+                for id in done.completed {
+                    if self.tree.contains(id) {
+                        self.anims.start(id, Channel::Complete, anim::FLAG);
+                    }
+                }
+                Ok(done.msg)
+            }
+        }
     }
 
     pub(super) fn agent_create(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
+        self.agent_write(cx, |this| this.apply_create(p))
+    }
+
+    fn apply_create(&mut self, p: &Value) -> Result<Applied, String> {
         let markdown = self.expand_links(s(p, "markdown").ok_or("missing `markdown`")?)?;
         let mut items = io::parse_any(&markdown);
         // The sandboxed `flowie mcp` can't read the agent's files: images come through `attach_image`.
@@ -447,16 +498,7 @@ impl Outline {
         if items.is_empty() {
             return Err("`markdown` contained no bullets".into());
         }
-        let (parent, index) = if p.get("after").is_some() {
-            let after = self.agent_node(p, "after")?;
-            (self.tree.parent(after), self.tree.index_in_parent(after) + 1)
-        } else {
-            let parent = if p.get("parent").is_some() { self.agent_node(p, "parent")? } else { ROOT };
-            let parent = self.tree.source(parent);
-            let len = self.tree.children(parent).len();
-            let index = n(p, "index").map(|i| (i as usize).min(len)).unwrap_or(len);
-            (parent, index)
-        };
+        let (parent, index) = self.agent_place(p, true)?;
         // Drop a lone empty placeholder bullet (e.g. a fresh journal day).
         let kids = self.tree.children(parent).to_vec();
         let placeholder = (kids.len() == 1 && self.is_blank_placeholder(kids[0])).then(|| kids[0]);
@@ -474,17 +516,16 @@ impl Outline {
             all.push(t);
             all.extend(self.tree.descendants(t));
         }
-        self.agent_commit(&all, None, cx);
-        let mut out = format!(
+        let mut msg = format!(
             "Created {} bullet{} under {}:\n",
             all.len(),
             if all.len() == 1 { "" } else { "s" },
             if parent == ROOT { "Home".to_string() } else { format!("id:{}", self.sid(parent)) }
         );
         for &t in &top {
-            self.write_tree(t, 0, 20, &mut out);
+            self.write_tree(t, 0, 20, &mut msg);
         }
-        Ok(out)
+        Ok(Applied { msg: msg.trim_end().to_string(), touched: all, created: top, ..Applied::default() })
     }
 
     /// A plain bullet with nothing in it: no text, note, image, children, and not a mirror.
@@ -499,11 +540,14 @@ impl Outline {
     }
 
     pub(super) fn agent_update(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
+        self.agent_write(cx, |this| this.apply_update(p))
+    }
+
+    fn apply_update(&mut self, p: &Value) -> Result<Applied, String> {
         let id = self.agent_node(p, "id")?;
         if id == ROOT {
             return Err("Home can't be edited".into());
         }
-        // Validate everything before changing anything.
         let kind = match s(p, "kind") {
             Some(k) => Some(
                 BlockKind::from_name(k)
@@ -516,6 +560,7 @@ impl Outline {
         }
         let text = s(p, "text").map(|t| self.expand_links(&t.replace('\n', " "))).transpose()?;
         let note = s(p, "note").map(|n| self.expand_links(n)).transpose()?;
+        let mark = self.tree.journal_mark();
         let src = self.tree.source(id);
         if let Some(t) = text {
             self.tree.set_text(src, &t);
@@ -532,54 +577,81 @@ impl Outline {
         if let Some(c) = p.get("collapsed").and_then(Value::as_bool) {
             self.tree.set_collapsed(id, c);
         }
-        if self.tree.journal_is_empty() {
-            return Ok(format!("Nothing changed: {}", self.line_for(id)));
+        if self.tree.journal_mark() == mark {
+            return Ok(Applied { msg: format!("Nothing changed: {}", self.line_for(id)), ..Applied::default() });
         }
-        self.agent_commit(&[id], None, cx);
-        Ok(format!("Updated: {}", self.line_for(id)))
+        Ok(Applied { msg: format!("Updated: {}", self.line_for(id)), touched: vec![id], ..Applied::default() })
     }
 
     pub(super) fn agent_complete(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
+        self.agent_write(cx, |this| this.apply_complete(p))
+    }
+
+    fn apply_complete(&mut self, p: &Value) -> Result<Applied, String> {
         let id = self.agent_node(p, "id")?;
         if id == ROOT {
             return Err("Home can't be completed".into());
         }
         let done = p.get("completed").and_then(Value::as_bool).unwrap_or(true);
         self.tree.set_completed(self.tree.source(id), done);
-        self.agent_commit(&[id], None, cx);
-        self.anims.start(id, Channel::Complete, anim::FLAG);
-        Ok(format!("{}: {}", if done { "Completed" } else { "Reopened" }, self.line_for(id)))
+        let msg = format!("{}: {}", if done { "Completed" } else { "Reopened" }, self.line_for(id));
+        Ok(Applied { msg, touched: vec![id], completed: vec![id], ..Applied::default() })
+    }
+
+    /// `ids` (or `id`) as a list of raw values.
+    fn id_list(p: &Value) -> Result<Vec<Value>, String> {
+        match p.get("ids").or_else(|| p.get("id")) {
+            Some(Value::Array(a)) if !a.is_empty() => Ok(a.clone()),
+            Some(Value::Array(_)) => Err("`ids` is empty".into()),
+            Some(v) => Ok(vec![v.clone()]),
+            None => Err("missing `ids`".into()),
+        }
     }
 
     pub(super) fn agent_move(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
-        let id = self.agent_node(p, "id")?;
-        let (parent, index) = if p.get("after").is_some() {
-            let after = self.agent_node(p, "after")?;
-            (self.tree.parent(after), self.tree.index_in_parent(after) + 1)
-        } else {
-            let parent = self.agent_node(p, "parent")?;
-            let parent = self.tree.source(parent);
-            let len = self.tree.children(parent).len();
-            (parent, n(p, "index").map(|i| (i as usize).min(len)).unwrap_or(len))
-        };
-        if !self.tree.move_to(id, parent, index) {
-            return Err("can't move a bullet into itself".into());
+        self.agent_write(cx, |this| this.apply_move(p))
+    }
+
+    /// Move `id` or every bullet in `ids`, in that order, to one place.
+    fn apply_move(&mut self, p: &Value) -> Result<Applied, String> {
+        let ids = Self::id_list(p)?.into_iter().map(|v| self.agent_node(&json!({ "id": v }), "id")).collect::<Result<Vec<_>, _>>()?;
+        if ids.contains(&ROOT) {
+            return Err("Home can't be moved".into());
         }
-        self.tree.set_collapsed(parent, false);
-        self.agent_commit(&[id], None, cx);
-        Ok(format!("Moved {} to {}", self.line_for(id), self.path_of(id)))
+        let (parent, index) = self.agent_place(p, false)?;
+        let mut prev: Option<NodeId> = None;
+        for &id in &ids {
+            // Each next bullet goes right after the one moved before it.
+            let (to, at) = match prev {
+                None => (parent, index),
+                Some(prev) => (self.tree.parent(prev), self.tree.index_in_parent(prev) + 1),
+            };
+            if !self.tree.move_to(id, to, at) {
+                return Err(format!("can't move id:{} into itself", self.sid(id)));
+            }
+            prev = Some(id);
+        }
+        if parent != ROOT {
+            self.tree.set_collapsed(parent, false);
+        }
+        let msg = match ids.as_slice() {
+            [id] => format!("Moved {} to {}", self.line_for(*id), self.path_of(*id)),
+            _ => format!("Moved {} bullets to {}", ids.len(), self.path_of(ids[0])),
+        };
+        Ok(Applied { msg, touched: ids, ..Applied::default() })
     }
 
     pub(super) fn agent_delete(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
-        let ids: Vec<Value> = match p.get("ids").or_else(|| p.get("id")) {
-            Some(Value::Array(a)) => a.clone(),
-            Some(v) => vec![v.clone()],
-            None => return Err("missing `ids`".into()),
-        };
-        // Resolve every id before deleting anything, so a bad one changes nothing.
-        let ids = ids.into_iter().map(|v| self.agent_existing_node(&json!({ "id": v }), "id")).collect::<Result<Vec<_>, _>>()?;
+        self.agent_write(cx, |this| this.apply_delete(p))
+    }
+
+    fn apply_delete(&mut self, p: &Value) -> Result<Applied, String> {
+        // Resolve every id before deleting anything.
+        let ids =
+            Self::id_list(p)?.into_iter().map(|v| self.agent_existing_node(&json!({ "id": v }), "id")).collect::<Result<Vec<_>, _>>()?;
         let mut fallback_chain = Vec::new();
         let mut done = Vec::new();
+        let mut trash = Vec::new();
         for id in ids {
             // Skip Home, and bullets already gone with an earlier id's subtree.
             if id == ROOT || !self.tree.contains(id) {
@@ -590,17 +662,20 @@ impl Outline {
                 fallback_chain.reverse();
                 fallback_chain.push(ROOT);
             }
-            let label = self.line_for(id);
-            self.send_to_trash(id);
+            done.push(self.line_for(id));
+            trash.push(self.trash_entry(id));
             self.tree.delete(id);
-            done.push(label);
         }
         let fallback = fallback_chain.into_iter().find(|&a| a == ROOT || self.tree.contains(a));
-        self.agent_commit(&[], fallback, cx);
-        Ok(format!("Moved {} bullet(s) to Trash (restorable from File → Trash):\n- {}", done.len(), done.join("\n- ")))
+        let msg = format!("Moved {} bullet(s) to Trash (restorable from File → Trash):\n- {}", done.len(), done.join("\n- "));
+        Ok(Applied { msg, trash, fallback, ..Applied::default() })
     }
 
     pub(super) fn agent_journal(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
+        self.agent_write(cx, |this| this.apply_journal(p))
+    }
+
+    fn apply_journal(&mut self, p: &Value) -> Result<Applied, String> {
         let date = s(p, "date").map(String::from).unwrap_or_else(today);
         if markup::date_len(&date) != Some(10) {
             return Err("`date` must be YYYY-MM-DD".into());
@@ -609,6 +684,107 @@ impl Outline {
         let mut params = p.clone();
         params["parent"] = json!(day);
         params.as_object_mut().map(|o| o.remove("after"));
-        self.agent_create(&params, cx)
+        self.apply_create(&params)
     }
+
+    /// Several writes as one all-or-nothing call and one undo step. A
+    /// `create`/`journal` op with a `key` lets later ops name its first new
+    /// bullet as `"$key"` in `id`, `ids`, `parent` or `after`.
+    pub(super) fn agent_batch(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
+        let ops = p.get("ops").and_then(Value::as_array).ok_or("missing `ops` (an array of operations)")?;
+        if ops.is_empty() {
+            return Err("`ops` is empty".into());
+        }
+        if ops.len() > MAX_BATCH {
+            return Err(format!("too many ops ({}); send at most {MAX_BATCH} per batch", ops.len()));
+        }
+        self.agent_write(cx, |this| {
+            let mut keys: Vec<(String, NodeId)> = Vec::new();
+            let mut all = Applied::default();
+            let mut lines = Vec::new();
+            for (i, op) in ops.iter().enumerate() {
+                let name = op.get("op").and_then(Value::as_str).unwrap_or("");
+                let fail =
+                    |e: String| format!("op {} ({}) failed: {e}. Nothing was changed.", i + 1, if name.is_empty() { "?" } else { name });
+                let args = substitute_keys(op, &keys).map_err(fail)?;
+                let done = match name {
+                    "create" => this.apply_create(&args),
+                    "journal" => this.apply_journal(&args),
+                    "update" => this.apply_update(&args),
+                    "complete" => this.apply_complete(&args),
+                    "move" => this.apply_move(&args),
+                    "delete" => this.apply_delete(&args),
+                    "" => Err("missing `op`".into()),
+                    other => Err(format!("unknown op {other:?}; use create, journal, update, complete, move or delete")),
+                }
+                .map_err(fail)?;
+                if let Some(key) = s(op, "key") {
+                    let first = *done.created.first().ok_or_else(|| fail("`key` only applies to create and journal".into()))?;
+                    keys.retain(|(k, _)| k != key);
+                    keys.push((key.to_string(), first));
+                }
+                lines.push(format!("{}. {}", i + 1, done.msg));
+                all.touched.extend(done.touched);
+                all.completed.extend(done.completed);
+                all.trash.extend(done.trash);
+                all.fallback = all.fallback.or(done.fallback);
+            }
+            all.touched.retain(|id| this.tree.contains(*id));
+            let mut msg =
+                format!("Applied {} op{} (one undo step):\n{}", ops.len(), if ops.len() == 1 { "" } else { "s" }, lines.join("\n"));
+            if !keys.is_empty() {
+                let list: Vec<String> =
+                    keys.iter().filter(|(_, id)| this.tree.contains(*id)).map(|(k, id)| format!("${k} = id:{}", this.sid(*id))).collect();
+                msg.push_str(&format!("\nKeys: {}", list.join(", ")));
+            }
+            all.msg = msg;
+            Ok(all)
+        })
+    }
+}
+
+/// Most ops one `batch` call takes.
+const MAX_BATCH: usize = 500;
+
+/// What one write did, for `agent_write` to finish.
+#[derive(Default)]
+struct Applied {
+    /// The reply to the agent.
+    msg: String,
+    /// Bullets to flash and, with follow-edits on, to focus.
+    touched: Vec<NodeId>,
+    /// Top-level bullets created (what a batch `key` names).
+    created: Vec<NodeId>,
+    /// Bullets that were completed or reopened (they get the check animation).
+    completed: Vec<NodeId>,
+    /// Deleted subtrees to record in Trash once the edit is kept.
+    trash: Vec<(NodeId, String, Vec<flowie_core::Node>)>,
+    /// Where to go if the bullet in focus was deleted.
+    fallback: Option<NodeId>,
+}
+
+/// An op with `"$key"` references in its id fields replaced by the bullets
+/// created earlier in the same batch.
+fn substitute_keys(op: &Value, keys: &[(String, NodeId)]) -> Result<Value, String> {
+    let resolve = |v: &Value| -> Result<Value, String> {
+        match v.as_str().and_then(|s| s.strip_prefix('$')) {
+            Some(key) => keys
+                .iter()
+                .rev()
+                .find(|(k, _)| k == key)
+                .map(|(_, id)| json!(id.to_string()))
+                .ok_or_else(|| format!("no earlier op in this batch has key {key:?}")),
+            None => Ok(v.clone()),
+        }
+    };
+    let mut out = op.clone();
+    for field in ["id", "parent", "after"] {
+        if let Some(v) = op.get(field) {
+            out[field] = resolve(v)?;
+        }
+    }
+    if let Some(Value::Array(ids)) = op.get("ids") {
+        out["ids"] = Value::Array(ids.iter().map(resolve).collect::<Result<_, _>>()?);
+    }
+    Ok(out)
 }

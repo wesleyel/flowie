@@ -80,9 +80,21 @@ impl Outline {
     }
 
     pub fn send_to_trash(&mut self, id: NodeId) {
+        let entry = self.trash_entry(id);
+        self.write_trash(vec![entry]);
+    }
+
+    /// What Trash keeps of a bullet about to be deleted: its id, a label and
+    /// its subtree. Taken before the delete; written with `write_trash`.
+    pub fn trash_entry(&self, id: NodeId) -> (NodeId, String, Vec<flowie_core::Node>) {
+        (id, node_label(self, id).chars().take(80).collect(), self.tree.subtree_nodes(id))
+    }
+
+    pub fn write_trash(&self, entries: Vec<(NodeId, String, Vec<flowie_core::Node>)>) {
         if let Some(w) = &self.writer {
-            let label: String = node_label(self, id).chars().take(80).collect();
-            w.trash(id, &label, self.tree.subtree_nodes(id));
+            for (id, label, nodes) in entries {
+                w.trash(id, &label, nodes);
+            }
         }
     }
 

@@ -154,6 +154,22 @@ fn many_inserts_between_trigger_renumber() {
 }
 
 #[test]
+fn rollback_to_mark_keeps_earlier_changes() {
+    let (mut t, [a, b, c, _d]) = sample();
+    t.set_text(a, "A");
+    let mark = t.journal_mark();
+    t.set_text(c, "c1");
+    t.set_text(c, "c2");
+    t.move_to(c, b, 0);
+    let e = t.create_at(ROOT, 0, "e");
+    t.delete(b);
+    t.rollback_to(mark);
+    assert_eq!(outline(&t, ROOT), "A\nb\n  d\nc");
+    assert!(!t.contains(e));
+    assert_eq!(t.journal_mark(), mark);
+}
+
+#[test]
 fn undo_redo_roundtrip() {
     let (mut t, [a, b, c, d]) = sample();
     let mut h = History::new();

@@ -379,7 +379,6 @@ fn menus_for(os: Os) -> Vec<AppMenu> {
             name: "Flowie",
             items: vec![
                 item::<OpenAbout>(t!("menu.app.about"), None),
-                item::<WhatsNew>(t!("menu.app.whats_new"), None),
                 AppMenuItem::Separator,
                 item::<OpenSettings>(t!("menu.app.settings"), Some("settings")),
                 AppMenuItem::Separator,
@@ -495,6 +494,7 @@ pub fn set_menus(cx: &mut App) {
         })
         .collect();
     cx.set_menus(menus);
+    platform::install_window_menu();
 }
 
 #[cfg(test)]

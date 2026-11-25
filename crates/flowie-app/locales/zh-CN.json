@@ -217,8 +217,13 @@
     "app": {
       "about": "关于 Flowie",
       "settings": "设置…",
-      "quit": "退出 Flowie",
-      "whats_new": "新功能…"
+      "quit": "退出 Flowie"
+    },
+    "window": {
+      "title": "窗口",
+      "minimize": "最小化",
+      "zoom": "缩放",
+      "bring_all_to_front": "前置全部窗口"
     },
     "help": {
       "title": "帮助",

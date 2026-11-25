@@ -249,6 +249,56 @@ fn key_text_on(os: Os, keys: &str) -> String {
     strokes.collect::<Vec<_>>().join(" ")
 }
 
+/// Adds the standard Window menu before Help and registers it as the app's
+/// Windows menu, so macOS fills in its own items (Fill, Center, Move & Resize,
+/// Move to another display or iPad, the window list). GPUI only does this for a
+/// menu titled exactly "Window", which a localized title isn't. The items use
+/// AppKit's own selectors, so they reach the key window through the responder
+/// chain. Call after every `cx.set_menus`, which replaces the whole menu bar.
+#[cfg(target_os = "macos")]
+pub fn install_window_menu() {
+    use objc2::{sel, MainThreadMarker, MainThreadOnly};
+    use objc2_app_kit::{NSApplication, NSMenu, NSMenuItem};
+    use objc2_foundation::NSString;
+
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let app = NSApplication::sharedApplication(mtm);
+    let Some(bar) = app.mainMenu() else { return };
+    let title = NSString::from_str(t!("menu.window.title"));
+    let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &title);
+    let items = [
+        Some((t!("menu.window.minimize"), sel!(performMiniaturize:))),
+        Some((t!("menu.window.zoom"), sel!(performZoom:))),
+        None,
+        Some((t!("menu.window.bring_all_to_front"), sel!(arrangeInFront:))),
+    ];
+    for item in items {
+        let item = match item {
+            // SAFETY: a plain menu item with a nil target; AppKit sends the action
+            // down the responder chain, where NSWindow / NSApplication implement it.
+            Some((label, action)) => unsafe {
+                NSMenuItem::initWithTitle_action_keyEquivalent(
+                    NSMenuItem::alloc(mtm),
+                    &NSString::from_str(label),
+                    Some(action),
+                    &NSString::new(),
+                )
+            },
+            None => NSMenuItem::separatorItem(mtm),
+        };
+        menu.addItem(&item);
+    }
+    let entry = NSMenuItem::new(mtm);
+    entry.setTitle(&title);
+    entry.setSubmenu(Some(&menu));
+    // Just before Help, which macOS expects last.
+    bar.insertItem_atIndex(&entry, (bar.numberOfItems() - 1).max(0));
+    app.setWindowsMenu(Some(&menu));
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn install_window_menu() {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

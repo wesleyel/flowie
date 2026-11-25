@@ -244,8 +244,13 @@
     "app": {
       "about": "About Flowie",
       "settings": "Settings…",
-      "quit": "Quit Flowie",
-      "whats_new": "What's New…"
+      "quit": "Quit Flowie"
+    },
+    "window": {
+      "title": "Window",
+      "minimize": "Minimize",
+      "zoom": "Zoom",
+      "bring_all_to_front": "Bring All to Front"
     },
     "help": {
       "title": "Help",

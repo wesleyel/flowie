@@ -8,6 +8,14 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+### Added
+
+- **macOS**: add a Window menu with Minimize, Zoom and Bring All to Front. macOS adds its own window items to it, including Fill, Center, Move & Resize, and moving the window to another display or an iPad.
+
+### Changed
+
+- **macOS**: What's New is now only in the Help menu, not in the Flowie menu.
+
 ## [1.0.0-rc.5] - 2026-11-24
 
 ### Added

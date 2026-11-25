@@ -254,8 +254,8 @@ impl Outline {
         for &root in &roots {
             self.anims.start(root, crate::ui::anim::Channel::Flash, crate::ui::anim::FLASH);
         }
-        if let Some(ix) = roots.first().and_then(|r| self.display_index(*r)) {
-            self.list.scroll_to_reveal_item(ix);
+        if let Some(&root) = roots.first() {
+            self.reveal(root);
         }
         self.toast(t!("toast.package_imported", count = p.package.outline.nodes.len(), title = m.title));
         cx.notify();

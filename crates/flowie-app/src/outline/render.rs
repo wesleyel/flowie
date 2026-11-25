@@ -6,6 +6,7 @@ use gpui::{
     ScrollEvent, Window,
 };
 
+use super::navigation::{SEARCH_CLOSED_W, SEARCH_OPEN_W};
 use super::structure::DragNode;
 use super::*;
 use crate::app::i18n::t;
@@ -13,6 +14,8 @@ use crate::overlays::popover::PopoverKind;
 use crate::ui::anim::ease_out;
 
 pub const TITLE_SIZE: f32 = 26.0;
+/// Scrolling this far collapses the page title into the top bar.
+const TITLE_COLLAPSE: f32 = 44.0;
 
 impl Outline {
     /// A node's location as one line: `Home › … › parent`. Levels that
@@ -20,33 +23,58 @@ impl Outline {
     /// truncated level) lists the hidden levels / full text, and pressing
     /// "…" pins that list. Every level is clickable.
     pub(crate) fn render_path(&self, id: NodeId, width: f32, popovers: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let mut levels = vec![ROOT];
+        levels.extend(self.tree.ancestors(id));
+        self.render_crumbs(&levels, "path-part", self.theme.muted, width, popovers, false, window, cx)
+    }
+
+    /// `levels` as one line of clickable crumbs, folded to fit `width` (see
+    /// `render_path`). `key` keeps element ids apart when several show at once;
+    /// with `home_icon`, Home is a house icon instead of its name.
+    #[allow(clippy::too_many_arguments)]
+    fn render_crumbs(
+        &self,
+        levels: &[NodeId],
+        key: &'static str,
+        color: gpui::Hsla,
+        width: f32,
+        popovers: bool,
+        home_icon: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         const MAX: f32 = 180.;
+        const ICON_W: f32 = crate::ui::icons::SM + 8.;
+        let home_icon = home_icon && levels.first() == Some(&ROOT);
         const SEP: f32 = 18.;
         const ELLIPSIS: f32 = 44.;
         let theme = self.theme;
-        let mut levels = vec![ROOT];
-        levels.extend(self.tree.ancestors(id));
         let labels: Vec<String> = levels.iter().map(|&l| self.crumb_label(l)).collect();
         let font = window.text_style().font();
         let widths: Vec<f32> = labels
             .iter()
             .map(|t| {
-                let run = gpui::TextRun {
-                    len: t.len(),
-                    font: font.clone(),
-                    color: theme.muted,
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
-                };
+                let run =
+                    gpui::TextRun { len: t.len(), font: font.clone(), color, background_color: None, underline: None, strikethrough: None };
                 f32::from(window.text_system().shape_line(t.clone().into(), px(13.), &[run], None).width) + 8.
             })
             .collect();
+        let mut widths = widths;
+        if home_icon {
+            widths[0] = ICON_W;
+        }
         let width = width.max(80.);
-        // Keep Home and as many trailing levels as fit; the last always shows.
+        // Everything fits at full length: show it all, untruncated.
+        let full = widths.iter().sum::<f32>() + SEP * (levels.len() - 1) as f32;
+        let fits = full <= width;
+        // Otherwise keep Home and as many trailing levels as fit; the last always shows.
         let mut tail = 1;
         let mut used = widths[0];
         for ix in (1..levels.len()).rev() {
+            if fits {
+                tail = 1;
+                break;
+            }
             let reserve = if ix > 1 { ELLIPSIS } else { 0. };
             if ix == levels.len() - 1 || used + widths[ix].min(MAX) + SEP + reserve <= width {
                 used += widths[ix].min(MAX) + SEP;
@@ -62,7 +90,13 @@ impl Outline {
         }
         let last_max = (width - 58. - if tail > 1 { ELLIPSIS } else { 0. }).clamp(24., MAX);
         for ix in tail..levels.len() {
-            let max = if ix + 1 == levels.len() && levels.len() > 1 { last_max } else { MAX };
+            let max = if fits {
+                widths[ix] + 1.
+            } else if ix + 1 == levels.len() && levels.len() > 1 {
+                last_max
+            } else {
+                MAX
+            };
             let truncated = widths[ix] > max;
             slots.push((Some(levels[ix]), labels[ix].clone(), max, truncated.then(|| vec![levels[ix]])));
         }
@@ -72,7 +106,7 @@ impl Outline {
             .enumerate()
             .map(|(ix, (target, label, max, hidden))| {
                 let mut crumb = div()
-                    .id(("path-part", ix))
+                    .id((key, ix))
                     .min_w_0()
                     .max_w(px(max))
                     .px_1()
@@ -81,8 +115,12 @@ impl Outline {
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_ellipsis()
-                    .hover(|s| s.bg(theme.hover).text_color(theme.text))
-                    .child(label);
+                    .hover(|s| s.bg(theme.hover).text_color(theme.text));
+                crumb = if ix == 0 && home_icon {
+                    crumb.flex().items_center().h(px(20.)).child(crate::ui::icons::icon("house", crate::ui::icons::SM, color))
+                } else {
+                    crumb.child(label)
+                };
                 if let (true, Some(levels)) = (popovers, hidden) {
                     crumb = self.popover_anchor(crumb, PopoverKind::Path(levels), target.is_none(), cx);
                 }
@@ -115,12 +153,116 @@ impl Outline {
             .gap_1()
             .text_size(px(13.))
             .line_height(px(20.))
-            .text_color(theme.muted)
+            .text_color(color)
             .children(children)
             .into_any_element()
     }
 
-    fn render_title(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+    /// The page header, the list's first item: the zoomed node's title (with
+    /// its note and reference count), fading as it scrolls under the top bar,
+    /// and the no-match hint of a search. Empty on Home.
+    pub(super) fn render_page_header(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let title = self.render_title(window, cx);
+        let empty_hint = (self.rows.is_empty() && !self.query.is_empty())
+            .then(|| div().px(px(PAD_X + 24.)).py_4().text_color(self.theme.muted).child(t!("outline.no_match", query = self.query)));
+        div().children(title).children(empty_hint).into_any_element()
+    }
+
+    /// How far the page title has collapsed into the top bar: 0 (shown in
+    /// full) to 1 (scrolled away), following the scroll position.
+    pub(super) fn title_collapse(&self) -> f32 {
+        if self.zoom == ROOT || self.is_auxiliary_page_open() {
+            return 0.;
+        }
+        (self.scroll_px() / TITLE_COLLAPSE).clamp(0., 1.)
+    }
+
+    fn scroll_px(&self) -> f32 {
+        f32::from(-self.list.scroll_px_offset_for_scrollbar().y).max(0.)
+    }
+
+    /// After each scroll, wait for it to stop; then a title left half
+    /// collapsed snaps open or shut, like a large title on iOS.
+    fn watch_title_scroll(&mut self, cx: &mut Context<Self>) {
+        let s = self.scroll_px();
+        if (s - self.title_scroll).abs() < 0.5 {
+            return;
+        }
+        self.title_scroll = s;
+        if self.zoom == ROOT || s <= 0. || s >= TITLE_COLLAPSE {
+            self.title_settle = None;
+            return;
+        }
+        self.title_settle = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(180)).await;
+            this.update(cx, |this, cx| this.settle_title(cx)).ok();
+        }));
+    }
+
+    fn settle_title(&mut self, cx: &mut Context<Self>) {
+        self.title_settle = None;
+        let s = self.scroll_px();
+        if self.zoom == ROOT || self.wheel.running() || s <= 0. || s >= TITLE_COLLAPSE {
+            return;
+        }
+        let target = if s < TITLE_COLLAPSE / 2. { 0. } else { TITLE_COLLAPSE };
+        if self.config.smooth_scroll {
+            self.wheel.push(px(target - s));
+        } else {
+            self.list.set_offset_from_scrollbar(gpui::point(Pixels::ZERO, px(-target)));
+        }
+        cx.notify();
+    }
+
+    /// The top bar's path. In full: `Home › … › parent of this page`. As
+    /// the title collapses, it fades into `⌂ › … › this page › … › parent of
+    /// the topmost visible bullet`, which takes over from the title.
+    fn render_header_path(&self, collapse: f32, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let color = self.theme.text;
+        let mut levels = vec![ROOT];
+        levels.extend(self.tree.ancestors(self.zoom));
+        let full = (collapse < 1.).then(|| self.render_crumbs(&levels, "path-part", color, width, true, false, window, cx));
+        let collapsed = (collapse > 0.).then(|| {
+            levels.push(self.zoom);
+            levels.extend(self.top_row_path());
+            self.render_crumbs(&levels, "title-path-part", color, width, true, true, window, cx)
+        });
+        let overlap = full.is_some();
+        div()
+            .relative()
+            .w_full()
+            .min_w_0()
+            .font_weight(FontWeight::MEDIUM)
+            .children(full.map(|p| div().opacity(1. - collapse).child(p)))
+            .children(collapsed.map(|p| {
+                let layer = div().opacity(collapse).child(p);
+                if overlap {
+                    layer.absolute().top_0().left_0().right_0()
+                } else {
+                    layer
+                }
+            }))
+            .into_any_element()
+    }
+
+    /// The levels between this page and the topmost visible bullet: this
+    /// page's descendants down to that bullet's parent.
+    fn top_row_path(&self) -> Vec<NodeId> {
+        let view = self.list.viewport_bounds();
+        let first = self.list.logical_scroll_top().item_ix.saturating_sub(HEAD);
+        let top_row = (first..self.display.len().min(first + 8))
+            .find(|&ix| self.list.bounds_for_item(ix + HEAD).is_some_and(|b| b.bottom() > view.top()))
+            .map(|ix| self.tree.resolve(self.display[ix].row.id))
+            .filter(|r| self.tree.contains(*r));
+        let Some(row) = top_row else { return Vec::new() };
+        let chain = self.tree.ancestors(row);
+        match chain.iter().position(|&a| a == self.zoom) {
+            Some(at) => chain[at + 1..].to_vec(),
+            None => Vec::new(),
+        }
+    }
+
+    pub(super) fn render_title(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.zoom == ROOT {
             return None;
         }
@@ -137,6 +279,9 @@ impl Outline {
                 .pb_3()
                 .child(
                     div()
+                        // The heading fades into the top bar; the note just scrolls.
+                        // (`title_collapsed`, not `title_collapse()`: the list is laying out its items.)
+                        .opacity(1.0 - self.title_collapsed)
                         .text_size(px(TITLE_SIZE))
                         .line_height(px(TITLE_SIZE * 1.35))
                         .font_weight(FontWeight::BOLD)
@@ -175,6 +320,12 @@ impl Render for Outline {
         let title = window_title(self);
         window.set_window_title(&title);
 
+        let collapse = if overlay { 0. } else { self.title_collapse() };
+        self.title_collapsed = collapse;
+        // Once the title (and its reference count) scrolls away, the count shows in the top bar.
+        let references = (collapse > 0.).then(|| self.render_reference_count(self.zoom, cx)).flatten();
+        let has_references = references.is_some().then(|| self.tree.link_count(self.tree.source(self.zoom)));
+        let search_open = self.search_openness();
         let zoom_p = self.zoom_tween.map(|t| ease_out(t.t())).unwrap_or(1.0);
         let starred = self.zoom != ROOT && self.starred.contains(&self.zoom);
         let tool = |id: &'static str, icon: &'static str, color: gpui::Hsla| crate::ui::button::tool_button(theme, id, icon, color);
@@ -183,6 +334,7 @@ impl Render for Outline {
             .flex()
             .items_center()
             .gap_1()
+            .children(references.map(|r| div().opacity(collapse).child(r)))
             .when(self.zoom != ROOT, |d| {
                 d.child(tool("star", "star", if starred { theme.star } else { theme.muted }).on_click(cx.listener(|this, _, _, cx| {
                     let z = this.zoom;
@@ -199,26 +351,43 @@ impl Render for Outline {
                 tool("calendar", "calendar", theme.muted)
                     .on_click(cx.listener(|this, _, window, cx| this.show_calendar(&ShowCalendar, window, cx))),
             )
-            .child(div().w(px(6.)))
-            .child(self.render_search(window, cx));
+            // The search box sits a little apart; its icon spaces like the other tools.
+            .when(search_open > 0., |d| d.child(div().w(px(6. * search_open))))
+            .child(self.render_search(search_open, window, cx));
+        // What the path has to fit in: the bar's width less its padding, the gap and the tools shown.
+        let path_width = {
+            const TOOL: f32 = 28.;
+            const GAP: f32 = 4.;
+            let mut widths = vec![TOOL]; // calendar
+            if self.zoom != ROOT {
+                widths.push(TOOL);
+            }
+            if !self.query.trim().is_empty() {
+                widths.push(TOOL);
+            }
+            if let Some(count) = has_references {
+                // Margin, padding, link icon, gap, digits.
+                widths.push(8. + 8. + crate::ui::icons::SM + 4. + 8. * count.to_string().len() as f32);
+            }
+            if search_open > 0. {
+                widths.push(6. * search_open);
+            }
+            widths.push(SEARCH_CLOSED_W + (SEARCH_OPEN_W - SEARCH_CLOSED_W) * search_open);
+            let tools: f32 = widths.iter().sum::<f32>() + GAP * (widths.len() - 1) as f32;
+            f32::from(window.viewport_size().width) - (PAD_X + 20.) - PAD_X - 12. - tools
+        };
         let header = div()
             .flex()
             .items_center()
             .justify_between()
-            .pl(px(PAD_X + 40.))
+            // Crumb text (inside 4px of padding) lines up with the title and row text.
+            .pl(px(PAD_X + 20.))
             .pr(px(PAD_X))
             .pt(px(10.))
             .pb(px(6.))
             .gap_3()
-            .child(div().flex_1().min_w_0().child(self.render_path(
-                self.zoom,
-                f32::from(window.viewport_size().width) - 520.,
-                true,
-                window,
-                cx,
-            )))
+            .child(div().flex_1().min_w_0().child(self.render_header_path(collapse, path_width, window, cx)))
             .child(tools.flex_none());
-        let title_el = if overlay { None } else { self.render_title(window, cx) };
 
         let entity = cx.entity();
         let body: AnyElement = if let Some(page) = self.render_whats_new(window, cx).or_else(|| self.render_trash(cx)) {
@@ -227,6 +396,7 @@ impl Render for Outline {
             // A popover sits at fixed window coordinates: scrolling the page
             // under it closes it.
             self.wheel.step(&self.list);
+            self.watch_title_scroll(cx);
             let wheel_target = cx.entity();
             div()
                 .relative()
@@ -302,9 +472,6 @@ impl Render for Outline {
             };
             crate::ui::surface::toast(theme, msg.clone().into(), o)
         });
-
-        let empty_hint = (!overlay && self.rows.is_empty() && !self.query.is_empty())
-            .then(|| div().px(px(PAD_X + 24.)).py_4().text_color(theme.muted).child(t!("outline.no_match", query = self.query)));
 
         if self.is_animating() {
             window.request_animation_frame();
@@ -543,8 +710,6 @@ impl Render for Outline {
                     .flex_col()
                     .opacity(zoom_p)
                     .mt(px((1.0 - zoom_p) * 14.0))
-                    .children(title_el)
-                    .children(empty_hint)
                     .child(div().flex_1().min_h_0().child(body))
                     .when(!overlay, |page| page.on_drop(cx.listener(|this, drag: &DragNode, _, cx| this.perform_drop(drag.id, cx)))),
             )

@@ -10,12 +10,15 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ### Added
 
+- **Pages**: the page title now scrolls with the page and collapses into the top bar. The path there then switches from the page's parents to a Home icon followed by the page and the parents of the topmost visible bullet, and the page's reference count moves next to the star. A title left half collapsed snaps open or shut when you stop scrolling.
 - **MCP**: add the `batch` tool, which applies many `create`, `journal`, `update`, `complete`, `move` and `delete` operations in one call, all or nothing and as a single undo step. A `create` can carry a `key` so later operations in the batch can refer to the bullet it created.
 - **MCP**: `read` and `move` accept `ids` to read several subtrees, or move several bullets in order, in one call.
 - **macOS**: add a Window menu with Minimize, Zoom and Bring All to Front. macOS adds its own window items to it, including Fill, Center, Move & Resize, and moving the window to another display or an iPad.
 
 ### Changed
 
+- **Search**: the search box rests as a search icon in the top bar and widens into the full box when you click it or press Find; it narrows back once you leave it empty.
+- **Pages**: the top bar's path lines up with the page title and uses the same text color as the page.
 - **macOS**: What's New is now only in the Help menu, not in the Flowie menu.
 
 ### Fixed

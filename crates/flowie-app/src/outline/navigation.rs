@@ -47,7 +47,12 @@ impl Outline {
 
     fn page_location(&self) -> PageLocation {
         let scroll = self.list.logical_scroll_top();
-        PageLocation { zoom: self.zoom, query: self.query.clone(), top_row: self.display.get(scroll.item_ix).map(|d| d.row.id), scroll }
+        PageLocation {
+            zoom: self.zoom,
+            query: self.query.clone(),
+            top_row: scroll.item_ix.checked_sub(HEAD).and_then(|ix| self.display.get(ix)).map(|d| d.row.id),
+            scroll,
+        }
     }
 
     pub fn navigate_page(&mut self, direction: gpui::NavigationDirection, cx: &mut Context<Self>) {
@@ -81,7 +86,11 @@ impl Outline {
         self.inline = None;
         self.calendar = None;
         self.show_page(location.zoom, cx);
-        let item_ix = location.top_row.and_then(|id| self.display_index(id)).unwrap_or(location.scroll.item_ix.min(self.display.len()));
+        let item_ix = location
+            .top_row
+            .and_then(|id| self.display_index(id))
+            .map(|ix| ix + HEAD)
+            .unwrap_or(location.scroll.item_ix.min(self.display.len() + HEAD));
         self.list.scroll_to(gpui::ListOffset { item_ix, offset_in_item: location.scroll.offset_in_item });
     }
 
@@ -100,7 +109,7 @@ impl Outline {
             return;
         }
         let scroll = self.list.logical_scroll_top();
-        match self.display.get(scroll.item_ix) {
+        match scroll.item_ix.checked_sub(HEAD).and_then(|ix| self.display.get(ix)) {
             Some(d) => {
                 self.page_scrolls.insert(self.zoom, PageScroll { top_row: d.row.id, offset: scroll.offset_in_item });
             }
@@ -116,11 +125,11 @@ impl Outline {
             return None;
         }
         let s = *self.page_scrolls.get(&self.zoom)?;
-        let item_ix = self.display_index(s.top_row)?;
-        if item_ix == 0 && s.offset <= px(0.) {
+        let row = self.display_index(s.top_row)?;
+        if row == 0 && s.offset <= px(0.) {
             return None;
         }
-        self.list.scroll_to(gpui::ListOffset { item_ix, offset_in_item: s.offset });
+        self.list.scroll_to(gpui::ListOffset { item_ix: row + HEAD, offset_in_item: s.offset });
         Some(s.top_row)
     }
 
@@ -136,7 +145,7 @@ impl Outline {
         self.history.seal();
         self.anims.clear();
         self.refresh(false);
-        self.list.reset(self.display.len() + 1);
+        self.list.reset(self.display.len() + HEAD + 1);
         self.zoom_tween = Some(Tween::new(anim::ZOOM));
         self.set_meta("zoom", &id.to_string());
         let top = self.restore_scroll();
@@ -247,7 +256,7 @@ impl Outline {
         }
         self.query = q;
         self.refresh(false);
-        self.list.reset(self.display.len() + 1);
+        self.list.reset(self.display.len() + HEAD + 1);
         self.restore_scroll();
     }
 
@@ -309,9 +318,38 @@ impl Outline {
         self.jump_match(-1, cx);
     }
 
-    pub(super) fn render_search(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    /// How open the search box is: 0 is its icon, 1 the full box. It opens
+    /// while it's being typed in or holds a search, and otherwise rests as an
+    /// icon; clicking the icon or the Find shortcut opens it. Call once per
+    /// frame before drawing the top bar: it starts the transition.
+    pub(super) fn search_openness(&mut self) -> f32 {
+        let open = !self.query.is_empty() || self.edit.as_ref().is_some_and(|e| e.target == Target::Search);
+        if open != self.search_open {
+            let from = self.current_search_openness();
+            self.search_open = open;
+            self.search_tween = Some((Tween::new(anim::SEARCH), from));
+        }
+        self.current_search_openness()
+    }
+
+    fn current_search_openness(&self) -> f32 {
+        let to = if self.search_open { 1. } else { 0. };
+        match self.search_tween {
+            Some((t, from)) => from + (to - from) * crate::ui::anim::ease_in_out(t.t()),
+            None => to,
+        }
+    }
+
+    /// The search box at `openness` (see `search_openness`): its icon when
+    /// closed, the box widening out of it as it opens.
+    pub(super) fn render_search(&mut self, openness: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let editing = self.edit.as_ref().is_some_and(|e| e.target == Target::Search);
+        if openness <= 0. {
+            return crate::ui::button::tool_button(theme, "search-icon", "search", theme.muted)
+                .on_click(cx.listener(|this, _, window, cx| this.find(&Find, window, cx)))
+                .into_any_element();
+        }
         let inner = if editing {
             let (font, _) = self.base_style(window, false);
             let run = gpui::TextRun {
@@ -339,10 +377,11 @@ impl Outline {
             div().text_color(theme.text).child(self.query.clone()).into_any_element()
         };
         crate::ui::controls::search_field(theme, "search", editing)
-            .w(px(240.))
+            .w(px(SEARCH_CLOSED_W + (SEARCH_OPEN_W - SEARCH_CLOSED_W) * openness))
+            .overflow_hidden()
             .child(crate::ui::icons::icon("search", 14., theme.muted))
-            .child(div().flex_1().min_w_0().child(inner))
-            .when(!self.query.is_empty(), |d| {
+            .child(div().flex_1().min_w_0().opacity(openness).child(inner))
+            .when(!self.query.is_empty() && openness >= 1., |d| {
                 d.child(
                     crate::ui::button::icon_button(theme, "search-clear", "circle-x", theme.muted)
                         .size(px(20.))
@@ -369,6 +408,10 @@ impl Outline {
             .into_any_element()
     }
 }
+
+/// The search box's width as an icon and fully open.
+pub(super) const SEARCH_CLOSED_W: f32 = 28.;
+pub(super) const SEARCH_OPEN_W: f32 = 240.;
 
 /// A mouse wheel scrolls in steps of whole lines; instead of jumping a step at once, the outline
 /// eases toward where the wheel has sent it, the way a trackpad scrolls.

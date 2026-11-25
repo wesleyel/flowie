@@ -209,6 +209,16 @@ pub struct Outline {
     pub block: Option<BlockSel>,
     pub anims: Anims,
     pub zoom_tween: Option<Tween>,
+    /// How far the page was scrolled last frame, and the timer that snaps a
+    /// half-collapsed title open or shut once scrolling stops.
+    title_scroll: f32,
+    /// `title_collapse()` as of this frame, for the page header to read.
+    title_collapsed: f32,
+    title_settle: Option<gpui::Task<()>>,
+    /// The search box opening from its icon or closing back to it: whether
+    /// it is (going) open, and how open it was when that last changed.
+    search_open: bool,
+    search_tween: Option<(Tween, f32)>,
     pub theme: Theme,
     pub drop: Option<DropTarget>,
     pub highlight_terms: Vec<String>,
@@ -278,6 +288,9 @@ pub struct Outline {
 
 pub const INDENT: f32 = 24.0;
 pub const PAD_X: f32 = 36.0;
+/// List items before the first row: the page header (title, note and
+/// no-match hint), which scrolls with the rows. Row `ix` is list item `ix + HEAD`.
+pub const HEAD: usize = 1;
 
 impl Outline {
     pub fn new(
@@ -331,6 +344,11 @@ impl Outline {
             block: None,
             anims: Anims::default(),
             zoom_tween: None,
+            title_scroll: 0.,
+            title_collapsed: 0.,
+            title_settle: None,
+            search_open: false,
+            search_tween: None,
             theme: Theme::build(window.appearance(), &config),
             drop: None,
             highlight_terms: Vec::new(),

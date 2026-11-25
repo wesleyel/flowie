@@ -9,6 +9,8 @@ use flowie_core::NodeId;
 pub const ROW_IN: Duration = Duration::from_millis(190);
 pub const ROW_OUT: Duration = Duration::from_millis(150);
 pub const ZOOM: Duration = Duration::from_millis(230);
+/// The search icon widening into the search box, and back.
+pub const SEARCH: Duration = Duration::from_millis(200);
 pub const FLAG: Duration = Duration::from_millis(200);
 /// Highlight on rows an agent just changed.
 pub const FLASH: Duration = Duration::from_millis(1600);

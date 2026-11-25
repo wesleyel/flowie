@@ -7,7 +7,7 @@ use gpui::{
 };
 
 use super::structure::DragNode;
-use super::{BlockSel, Outline, Target, INDENT, PAD_X};
+use super::{BlockSel, Outline, Target, HEAD, INDENT, PAD_X};
 use crate::app::i18n::t;
 use crate::overlays::popover::PopoverKind;
 use crate::ui::anim::{ease_in_out, ease_out, Channel};
@@ -282,6 +282,7 @@ impl Outline {
     }
 
     pub(super) fn render_row(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let Some(ix) = ix.checked_sub(HEAD) else { return self.render_page_header(window, cx) };
         if ix >= self.display.len() {
             return self.render_footer(window, cx);
         }

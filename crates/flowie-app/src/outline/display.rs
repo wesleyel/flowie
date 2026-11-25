@@ -10,6 +10,10 @@ impl Outline {
     /// Recompute visible rows. With `animate`, rows that appear grow in and
     /// rows that disappear shrink out.
     pub fn refresh(&mut self, animate: bool) {
+        // Never draw a page that no longer exists (deleted while zoomed into it).
+        if self.zoom != ROOT && !self.tree.contains(self.zoom) {
+            self.zoom = ROOT;
+        }
         let opts = self.view_options();
         self.highlight_terms = opts.query.as_ref().map(|q| q.highlight_terms()).unwrap_or_default();
         let (new_rows, virtuals) = flowie_core::flatten_mapped(&self.tree, self.zoom, &opts);

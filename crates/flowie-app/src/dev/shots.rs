@@ -28,6 +28,8 @@ impl Outline {
             // Delete everything (no Trash), stars, saved searches and the journal.
             "wipe" => {
                 self.shot_close_ui();
+                // Leave the page first: it's about to be deleted.
+                self.zoom_to(ROOT, cx);
                 for kid in self.tree.children(ROOT).to_vec() {
                     self.tree.delete(kid);
                 }
@@ -41,7 +43,6 @@ impl Outline {
                 self.set_meta("hide_completed", "0");
                 self.commit_structure(None, cx);
                 self.history.seal();
-                self.zoom_to(ROOT, cx);
                 Ok("wiped".into())
             }
             // Close every popup and leave no caret or selection.
@@ -94,6 +95,14 @@ impl Outline {
                 self.zoom_to(id, cx);
                 self.edit = None;
                 Ok("zoomed".into())
+            }
+            // Scroll the page so bullet `id` is the top row (the title collapses into the path).
+            "scroll" => {
+                let id = self.agent_node(p, "id")?;
+                let row = self.display_index(id).ok_or("that bullet isn't on this page")?;
+                self.list.scroll_to(gpui::ListOffset { item_ix: row + crate::outline::HEAD, offset_in_item: gpui::px(0.) });
+                cx.notify();
+                Ok("scrolled".into())
             }
             // Caret in a bullet's text (`offset` defaults to the end).
             "caret" => {

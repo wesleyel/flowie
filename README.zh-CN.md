@@ -18,7 +18,7 @@
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b> · <a href="https://wesleyel.github.io/flowie/">官网</a></p>
 
-<p align="center"><img src="website/images/01-outline-zh-Hans.jpg" width="820" alt="Flowie 中带有标题、待办和公式的大纲"></p>
+<p align="center"><img src="website/images/01-outline-zh-Hans.jpg" width="820" alt="Flowie 中带有标题、待办、提及和日期的项目页面"></p>
 
 ## 功能
 
@@ -32,11 +32,13 @@
 
 <p align="center">
   <img src="website/images/03-commands-zh-Hans.jpg" width="400" alt="/ 命令菜单">
-  <img src="website/images/06-bullet-menu-zh-Hans.jpg" width="400" alt="条目菜单">
+  <img src="website/images/06-focus-zh-Hans.jpg" width="400" alt="向下滚动后，标题收进顶部路径">
 </p>
 
 **数学公式**
 - 行内 `$…$` 与独立 `$$…$$` LaTeX 公式，原生实时渲染，编辑时在行下方预览。
+
+<p align="center"><img src="website/images/10-images-zh-Hans.jpg" width="640" alt="带公式和图表说明的研究笔记"></p>
 
 **连接想法**
 - 输入 `[[` 链接到任意条目。鼠标停在链接上就能预览，打开目标页面就能看到反向链接。
@@ -65,14 +67,9 @@
 - 把条目、子项和图片打包成 `.flowie` 文件发给别人。对方可以先预览，再选位置导入。收到新版分享包时，可以合并变更，保留自己的修改。用 `is:new` 查找未读条目。
 - 删除的条目在废纸篓保留 30 天。
 
-<p align="center">
-  <img src="website/images/10-images-zh-Hans.jpg" width="400" alt="京都旅行大纲里的路线图和图片说明">
-  <img src="website/images/11-share-package-zh-Hans.jpg" width="400" alt="导入前预览 Flowie 分享包">
-</p>
-
 **为键盘而生**
 - 每个操作都有快捷键，每个快捷键都能修改——鼠标侧键也可以绑定。
-- 内置教程，覆盖全部功能。
+- 内置教程：快速入门、三个可以直接改用的示例，以及覆盖全部功能的手册。
 - 浅色与深色主题、强调色，支持简体中文与英文。
 - 打开「帮助 → 新功能」，就能看到每个版本改了什么。
 

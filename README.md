@@ -18,7 +18,7 @@ Zoom into any bullet, link and mirror ideas, write math, and search your outline
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="https://wesleyel.github.io/flowie/">Website</a></p>
 
-<p align="center"><img src="website/images/01-outline-en-US.jpg" width="820" alt="An outline in Flowie with headings, to-dos and math"></p>
+<p align="center"><img src="website/images/01-outline-en-US.jpg" width="820" alt="A project page in Flowie with headings, to-dos, mentions and dates"></p>
 
 ## Features
 
@@ -32,11 +32,13 @@ Zoom into any bullet, link and mirror ideas, write math, and search your outline
 
 <p align="center">
   <img src="website/images/03-commands-en-US.jpg" width="400" alt="The / command menu">
-  <img src="website/images/06-bullet-menu-en-US.jpg" width="400" alt="The bullet menu">
+  <img src="website/images/06-focus-en-US.jpg" width="400" alt="A scrolled page: the title tucked into the path at the top">
 </p>
 
 **Math**
 - Inline `$…$` and display `$$…$$` LaTeX, rendered natively as you type, with a live preview while editing.
+
+<p align="center"><img src="website/images/10-images-en-US.jpg" width="640" alt="Research notes with formulas and a captioned chart"></p>
 
 **Connect ideas**
 - Link to any bullet with `[[`. Hover over an internal link to preview its target, or open the target to see backlinks.
@@ -65,14 +67,9 @@ Zoom into any bullet, link and mirror ideas, write math, and search your outline
 - Share a branch as a `.flowie` file. The recipient can preview it, choose where to import it, and merge later updates while keeping their own edits. Use `is:new` to find unread imports.
 - Deleted bullets stay in the Trash for 30 days.
 
-<p align="center">
-  <img src="website/images/10-images-en-US.jpg" width="400" alt="An image and caption in a Kyoto trip outline">
-  <img src="website/images/11-share-package-en-US.jpg" width="400" alt="Previewing a Flowie share package before importing it">
-</p>
-
 **Made for the keyboard**
 - Every action has a shortcut, and every shortcut can be changed — including mouse side buttons.
-- A built-in tutorial that covers every feature.
+- A built-in tutorial: a quick start, three examples to adapt and a manual covering every feature.
 - Light and dark themes, accent colors, English and 简体中文.
 - Read release notes in the app under **Help → What's New**.
 

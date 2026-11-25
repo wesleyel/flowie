@@ -7,7 +7,8 @@ the open-source build.
 appstore/
   fastlane/            Appfile, Deliverfile, Fastfile (lanes), .env (git-ignored)
     metadata/          listing text per locale, categories, copyright, review notes
-    screenshots/       2880×1800 screenshots per locale (scripts/screenshots.py)
+    screenshots-source/  2400×1500 app captures per locale (scripts/screenshots.py)
+    screenshots/       2880×1800 framed screenshots per locale (scripts/appstore-screenshots.py)
   macos/               sandbox entitlements, privacy manifest, cargo-about notices
                        (+ embedded.provisionprofile, git-ignored)
 ```
@@ -63,20 +64,26 @@ cp ~/Library/Application\ Support/Flowie/flowie.sqlite* ~/Library/Application\ S
 
 ## Screenshots
 
-`scripts/screenshots.py` retakes every screenshot from the current code: the App Store
-PNGs in `fastlane/screenshots/<locale>/` and the website's 1600×1000 JPEGs in
-`website/images/`. The share-package preview goes to the website only, so the App Store set
-stays at ten per language. The script builds Flowie with the `screenshots` feature (into
-`target/screenshots`), runs it on a throwaway database with a 1440×900 window, fills it
-with demo pages through the agent socket and captures each state with `screencapture`.
-The demo text and the list of shots are at the top of the script.
+Ten shots per language, in two steps. `scripts/screenshots.py` retakes the app captures
+from the current code: 2400×1500 PNGs in `fastlane/screenshots-source/<locale>/` and the
+website's 1600×1000 JPEGs in `website/images/`. It builds Flowie with the `screenshots`
+feature (into `target/screenshots`), runs it on a throwaway database with a 1200×750
+window, fills it with demo pages through the agent socket and captures each state with
+`screencapture`. The demo text and the list of shots are at the top of the script.
+`scripts/appstore-screenshots.py` then frames each capture under its headline as the
+2880×1800 App Store screenshots in `fastlane/screenshots/<locale>/`; the headlines are at
+the top of that script.
 
 ```bash
 scripts/screenshots.py
 ```
 
 ```bash
-scripts/screenshots.py --locale zh-Hans --only 03 bullet-menu
+scripts/screenshots.py --locale zh-Hans --only 03 focus
+```
+
+```bash
+scripts/appstore-screenshots.py
 ```
 
 It needs a Retina display and Screen Recording permission for the terminal, and the

@@ -1,16 +1,13 @@
 # Screenshots: images/<file>-<en-US|zh-Hans>.jpg, 1600×1000.
 - file: 10-images
-  en: An image and caption in a trip outline
-  zh: 旅行大纲里的路线图和图片说明
-- file: 11-share-package
-  en: Preview a share package before importing it
-  zh: 导入前预览分享包
+  en: Formulas and a captioned chart
+  zh: 公式和带说明的图表
 - file: 03-commands
   en: The / command menu
   zh: / 命令菜单
-- file: 06-bullet-menu
-  en: The bullet menu
-  zh: 条目菜单
+- file: 06-focus
+  en: The title tucks into the path as you scroll
+  zh: 滚动时标题收进顶部路径
 - file: 07-links
   en: Links between pages
   zh: 页面之间的链接
@@ -21,8 +18,8 @@
   en: Quick open
   zh: 快速跳转
 - file: 05-search
-  en: Search with filters
-  zh: 带条件的搜索
+  en: Every open to-do, from every page
+  zh: 所有页面里未完成的待办
 - file: 08-dark
   en: Dark theme and accent colors
   zh: 深色主题与强调色

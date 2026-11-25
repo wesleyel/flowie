@@ -79,11 +79,11 @@
     title: Keyboard and AI
     items:
       - "Every shortcut can be changed, mouse side buttons too"
-      - "A built-in tutorial covers every feature"
+      - "A built-in tutorial: a quick start, three examples and a full manual"
       - "An MCP server lets AI assistants read — and, if you allow it, edit — your outline"
   zh:
     title: 键盘与 AI
     items:
       - "所有快捷键都能修改，也支持鼠标侧键"
-      - "内置教程，覆盖全部功能"
+      - "内置教程：快速入门、三个示例和完整手册"
       - "MCP 服务器让 AI 助手读取你的大纲，允许后还能编辑"

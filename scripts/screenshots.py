@@ -7,12 +7,13 @@
     scripts/screenshots.py --no-build       # reuse the last screenshot build
 
 Builds Flowie with the `screenshots` feature (target/screenshots), starts it on a
-throwaway database with a 1440×900 window, fills it with demo pages through the
+throwaway database with a 1200×750 window, fills it with demo pages through the
 agent socket, puts the window into each state with the `shot.*` methods
 (crates/flowie-app/src/dev/shots.rs) and captures it with `screencapture -l`.
 
 Writes
-    appstore/fastlane/screenshots/<locale>/NN-name.png   2880×1800 (up to 10 per locale)
+    appstore/fastlane/screenshots-source/<locale>/NN-name.png   2400×1500 captures (10 per locale);
+        scripts/appstore-screenshots.py frames them as screenshots/<locale>/, 2880×1800
     website/images/NN-name-<locale>.jpg                  1600×1000 (website)
 
 Needs a Retina display (2× scale) and Screen Recording permission for the app
@@ -38,9 +39,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / "target" / "screenshots"
 BINARY = TARGET / "release" / "flowie"
-APPSTORE = ROOT / "appstore" / "fastlane" / "screenshots"
+APPSTORE = ROOT / "appstore" / "fastlane" / "screenshots-source"  # framed by appstore-screenshots.py
 WEBSITE = ROOT / "website" / "images"
-WINDOW = (1440, 900)  # points with the title bar; 2880×1800 pixels on a Retina display
+WINDOW = (1200, 750)  # points with the title bar; 2400×1500 pixels on a Retina display (16:10)
 TITLEBAR = 32  # points; FLOWIE_WINDOW_SIZE is the content size
 SETTLE = 1.6  # seconds for animations (zoom, flashes, popups, overlay scrollbars) to finish
 
@@ -84,19 +85,29 @@ EN = {
     - Compare against the `SM-2` scheduling algorithm #experiment
 """,
     "launch": f"""
-- Product launch plan
-  - # Before launch
-    - [x] Freeze features and write the release notes
-    - [x] Record the demo video
-    - [ ] Final pass on the App Store screenshots — due {day(2)}
-    - [ ] Press kit: icon, screenshots, one-paragraph pitch
-  - # Launch day
-    1. Publish the website and the blog post
-    2. Post to the mailing list at 9:00
-    3. Answer every comment for the first two hours
-  - # Ideas for v1.1
+- Website redesign
+  - ## Milestones
+    - [x] Pick colors and fonts #design
+    - [x] Wireframes for the home page — signed off by @Maya
+    - [ ] Rebuild the home page @Leo — due {day(3)}
+      - [x] Hero image and tagline
+      - [ ] Mobile layout
+    - [ ] Add analytics #dev
+    - [ ] Launch on {day(12)} — ==go / no-go call on Friday==
+  - ## Meeting notes
+    - {day(-1)} weekly sync
+      - Use a product screenshot as the hero image
+      - {{green}}Mobile numbers look good{{/}}: keep the single-column layout
+      - [ ] Ask @Maya for the final copy
+    - {day(-8)} kickoff
+      - Scope: home page, pricing and docs
+      - Budget: **two sprints**
+  - ## Open questions
+    - Should old links redirect to the new pages? #to-discuss
+    - {{red}}The pricing page still has no FAQ{{/}}
+    - > Make it simple, but not simpler.
+  - ## Ideas for later
     - Shared pages for small teams #idea
-    - Offline sync between Mac and iPad #idea
     - A weekly review that pulls in every open to-do @Maya
 """,
     "reading": """
@@ -120,7 +131,7 @@ EN = {
   - [ ] Check the cherry-blossom forecast in early March
   - Day trip to Nara #idea
 """,
-    # {research}, {reading}, {travel} are replaced with links to those pages.
+    # {research}, {reading}, {travel} and {project} are replaced with links to those pages.
     "today": """
 - Morning: outlined section 2 of the paper for {research}
 - Call with @Maya — she wants the draft by {due}
@@ -139,18 +150,17 @@ EN = {
         "Started the Kyoto itinerary #idea — see {travel}",
         "Ran the pilot study with 12 participants #experiment",
         "Coffee with @Leo about the retention model",
-        "Sketched the launch timeline",
+        "Sketched the timeline for {project}",
     ],
     "slash": "Check whether spacing helps motor skills too /",
     "journal_caret": "New idea",
     "link_text": "Booked the flights for ",
     "link_query": "[[Kyo",
     "palette": "read",
-    "search": "#idea",
-    "saved_search": "is:todo",
+    "search": "is:todo is:open",
+    "saved_search": "is:todo is:open",
     "author": "Maya Chen",
-    "image_caption": "Walking route for our first day in Kyoto",
-    "package_description": "Places to visit and things to book before the trip.",
+    "image_caption": "Retention with reviews (purple) and without (dashed)",
 }
 
 ZH = {
@@ -178,19 +188,29 @@ ZH = {
     - 和 `SM-2` 排程算法比较一下 #实验
 """,
     "launch": f"""
-- 产品发布计划
-  - # 发布前
-    - [x] 冻结功能，写好发布说明
-    - [x] 录制演示视频
-    - [ ] 最后检查一遍 App Store 截图 —— {day(2)} 截止
-    - [ ] 媒体资料包：图标、截图、一段话介绍
-  - # 发布当天
-    1. 上线网站和博客文章
-    2. 9:00 发邮件通讯
-    3. 前两小时回复每一条评论
-  - # v1.1 的想法
+- 网站改版
+  - ## 里程碑
+    - [x] 确定配色与字体 #设计
+    - [x] 首页线框图 —— @小林 已确认
+    - [ ] 首页重做 @老王 —— {day(3)} 截止
+      - [x] 头图与标语
+      - [ ] 移动端适配
+    - [ ] 接入统计 #开发
+    - [ ] {day(12)} 上线 —— ==周五决定是否如期==
+  - ## 会议记录
+    - {day(-1)} 周会
+      - 头图换成产品截图
+      - {{green}}移动端数据不错{{/}}：保留单栏布局
+      - [ ] 向 @小林 要最终文案
+    - {day(-8)} 启动会
+      - 范围：首页、价格页和文档
+      - 预算：**两个迭代**
+  - ## 待讨论
+    - 旧链接要不要跳转到新页面？ #待讨论
+    - {{red}}价格页还缺常见问题{{/}}
+    - > 尽量简单，但不要过于简单。
+  - ## 以后再做
     - 小团队共享页面 #想法
-    - Mac 与 iPad 离线同步 #想法
     - 每周回顾，自动汇总所有未完成的待办 @小林
 """,
     "reading": """
@@ -232,18 +252,17 @@ ZH = {
         "开始排京都行程 #想法 —— 见 {travel}",
         "完成 12 人的预实验 #实验",
         "和 @老王 喝咖啡聊保持率模型",
-        "画了发布时间线",
+        "画了 {project} 的时间线",
     ],
     "slash": "看看间隔练习对运动技能是否也有效 /",
     "journal_caret": "新想法",
     "link_text": "订好了机票：",
     "link_query": "[[京都",
     "palette": "阅读",
-    "search": "#想法",
-    "saved_search": "is:todo",
+    "search": "is:todo is:open",
+    "saved_search": "is:todo is:open",
     "author": "陈小林",
-    "image_caption": "抵达京都第一天的步行路线",
-    "package_description": "想去的地方，以及出发前要预订的事项。",
+    "image_caption": "按时复习（紫色）与不复习（虚线）的记忆保持率",
 }
 
 LOCALES = {"en-US": EN, "zh-Hans": ZH}
@@ -351,7 +370,8 @@ def seed(app, c):
         ids[key + "/all"] = made
     # Journal: earlier days of the month, then today.
     for d, text in zip(journal_days(), c["earlier"]):
-        app.call("journal", date=day(d), markdown="- " + text.format(travel=link(label_of(c["travel"]), ids["travel"])))
+        app.call("journal", date=day(d), markdown="- " + text.format(travel=link(label_of(c["travel"]), ids["travel"]),
+                                                                      project=link(label_of(c["launch"]), ids["launch"])))
     today = c["today"].format(research=link(label_of(c["research"]), ids["research"]),
                               reading=link(label_of(c["reading"]), ids["reading"]), due=day(1))
     ids["today/all"] = app.call("journal", date=day(0), markdown=today.strip("\n"))
@@ -388,8 +408,8 @@ def label_of(markdown):
 
 
 def shot_outline(app, c, ids):
-    app.call("shot.zoom", id=ids["research"])
-    app.call("shot.caret", id=first_id(ids["research/all"], "# "))
+    app.call("shot.zoom", id=ids["launch"])
+    app.call("shot.caret", id=first_id(ids["launch/all"], "Rebuild the home page" if c is EN else "首页重做"))
 
 
 def shot_quick_open(app, c, ids):
@@ -425,12 +445,10 @@ def shot_search(app, c, ids):
     app.call("shot.search", query=c["search"])
 
 
-def shot_bullet_menu(app, c, ids):
+def shot_focus(app, c, ids):
+    """Scrolled down a page: the title has tucked into the top bar's path."""
     app.call("shot.zoom", id=ids["launch"])
-    target = first_id(ids["launch/all"], "Final pass" if c is EN else "最后检查")
-    # Fourth row of the page (two done to-dos are above it); the menu opens at the
-    # pointer, just right of the to-do's checkbox.
-    app.call("shot.bullet_menu", id=target, x=80, y=232)
+    app.call("shot.scroll", id=first_id(ids["launch/all"], "Rebuild the home page" if c is EN else "首页重做"))
 
 
 def shot_links(app, c, ids):
@@ -454,48 +472,32 @@ def shot_agent(app, c, ids):
     app.call("shot.settings", tab="agent")
 
 
-def attach_route(app, content, parent):
-    image = app.dir / "kyoto-route.png"
-    subprocess.run(["sips", "-s", "format", "png", str(ROOT / "scripts" / "fixtures" / "kyoto-route.svg"),
+def shot_images(app, content, ids):
+    """Math and an image together: a chart under the forgetting-curve bullet."""
+    image = app.dir / "forgetting-curve.png"
+    subprocess.run(["sips", "-s", "format", "png", str(ROOT / "scripts" / "fixtures" / "forgetting-curve.svg"),
                     "--out", str(image)], check=True, capture_output=True)
+    parent = first_id(ids["research/all"], "Forgetting curve" if content is EN else "遗忘曲线")
     result = app.call("attach_image", parent=parent, caption=content["image_caption"],
                       data=base64.b64encode(image.read_bytes()).decode("ascii"))
-    return re.search(r"\[id:([0-9a-f]+)\]", result).group(1)
-
-
-def shot_images(app, content, ids):
-    image_id = attach_route(app, content, ids["travel"])
-    app.call("shot.zoom", id=ids["travel"])
+    image_id = re.search(r"\[id:([0-9a-f]+)\]", result).group(1)
+    app.call("shot.zoom", id=ids["research"])
     return lambda: app.call("delete", ids=[image_id])
 
 
-def shot_package(app, content, ids):
-    path = app.dir / "kyoto.flowie"
-    attach_route(app, content, ids["travel"])
-    app.call("shot.package_export", id=ids["travel"], description=content["package_description"])
-    app.call("shot.package_write", path=str(path))
-    app.call("shot.wipe")
-    for page in ("reading", "ideas", "research"):
-        created = app.create(content[page])
-        app.call("update", id=next(iter(created.values())), collapsed=True)
-    if app.call("shot.package_open", path=str(path)) != "dialog":
-        raise RuntimeError("Couldn't open the demo share package")
-
-
 # (file name, function, dark appearance)
-WEBSITE_ONLY = {"11-share-package"}
+WEBSITE_ONLY = set()
 SHOTS = [
     ("01-outline", shot_outline, False),
     ("02-quick-open", shot_quick_open, False),
     ("03-commands", shot_commands, False),
     ("04-journal-calendar", shot_journal, False),
     ("05-search", shot_search, False),
-    ("06-bullet-menu", shot_bullet_menu, False),
+    ("06-focus", shot_focus, False),
     ("07-links", shot_links, False),
     ("08-dark", shot_dark, True),
     ("09-agent", shot_agent, False),
     ("10-images", shot_images, False),
-    ("11-share-package", shot_package, False),
 ]
 
 # --------------------------------------------------------------------- main

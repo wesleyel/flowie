@@ -3,11 +3,11 @@
 # requires-python = ">=3.10"
 # dependencies = ["Pillow>=11.0.0"]
 # ///
-"""Compose bilingual App Store screenshots from the existing app captures."""
+"""Frame the app captures (screenshots-source/, from scripts/screenshots.py) as bilingual
+App Store screenshots (screenshots/, 2880×1800): a centered headline over the window."""
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -18,7 +18,6 @@ SOURCES = ROOT / "appstore/fastlane/screenshots-source"
 SIZE = (2880, 1800)
 EN_FONT = "/System/Library/Fonts/Supplemental/Avenir Next.ttc"
 ZH_FONT = "/System/Library/Fonts/Hiragino Sans GB.ttc"
-ICON = ROOT / "website/images/icon.png"
 
 COPY = {
     "en-US": {
@@ -26,24 +25,24 @@ COPY = {
         "02-quick-open": ("Your next idea,", "one shortcut away.", "Jump to any page or start a new one with ⌘P."),
         "03-commands": ("Stay in flow.", "Leave the menus behind.", "Create, format and organize without reaching for the mouse."),
         "04-journal-calendar": ("A little more", "intentional, daily.", "Your journal and calendar, connected to everything else."),
-        "05-search": ("Find the thought", "behind the words.", "Search by tags, tasks, dates and the details you remember."),
-        "06-bullet-menu": ("Ideas change.", "Your outline can too.", "Move, shape and reorganize thoughts as they take form."),
+        "05-search": ("Every open to-do,", "from every page.", "Search by tags, tasks, dates and the details you remember."),
+        "06-focus": ("Go deep,", "never lose your place.", "The title tucks away as you scroll, and the path shows where you are."),
         "07-links": ("One thought", "leads to another.", "Connect pages and follow the links between your ideas."),
         "08-dark": ("A workspace", "that feels like yours.", "Set the mood with dark mode and a color you love."),
         "09-agent": ("Bring AI into", "your train of thought.", "Connect an assistant. You decide what it can access."),
-        "10-images": ("Keep the whole", "story together.", "Add images and captions right where the idea lives."),
+        "10-images": ("Formulas and pictures,", "right in your notes.", "LaTeX math and captioned images, next to the idea they explain."),
     },
     "zh-Hans": {
         "01-outline": ("把思路展开，", "看见全貌。", "清晰灵活的大纲，让想法各有位置。"),
         "02-quick-open": ("下一条想法，", "一键就出现。", "⌘P 直达任意页面，也可以马上开始新想法。"),
         "03-commands": ("思路不停，", "双手不离键盘。", "创建、排版、整理，不必切换到鼠标。"),
         "04-journal-calendar": ("每天留一点，", "给自己的时间。", "日记与日历相连，也与所有想法相连。"),
-        "05-search": ("搜到关键词，", "也搜到那件事。", "按标签、待办、日期和记得的细节筛选。"),
-        "06-bullet-menu": ("想法在变化，", "大纲也能跟上。", "随时移动、调整、重组正在成形的思路。"),
+        "05-search": ("所有未完成的待办，", "一次全部找到。", "按标签、待办、日期和记得的细节筛选。"),
+        "06-focus": ("越钻越深，", "也不会迷路。", "滚动时标题收进顶栏，路径告诉你身在何处。"),
         "07-links": ("一个想法，", "自然连向另一个。", "连接页面，沿着思路之间的线索继续探索。"),
         "08-dark": ("工作空间，", "就该合你心意。", "深色模式与喜欢的强调色，营造专属氛围。"),
         "09-agent": ("让 AI 加入，", "由你掌握边界。", "连接智能助手，并决定它可以访问什么。"),
-        "10-images": ("让想法的故事，", "完整留在一起。", "在内容旁添加图片与说明，让细节不丢失。"),
+        "10-images": ("公式和图片，", "就在笔记里。", "LaTeX 公式与带说明的图片，紧挨着它们解释的想法。"),
     },
 }
 
@@ -82,16 +81,18 @@ def wrap_text(text: str, draw: ImageDraw.ImageDraw, selected_font: ImageFont.Fre
     return lines
 
 
-def rounded_window(image: Image.Image, tilt: float, dark: bool, size: tuple[int, int]) -> Image.Image:
-    image = image.resize(size, Image.Resampling.LANCZOS)
+def rounded_window(image: Image.Image, dark: bool, width: int) -> Image.Image:
+    """The capture scaled to `width`, with rounded corners and a hairline edge."""
+    height = round(image.height * width / image.width)
+    image = image.resize((width, height), Image.Resampling.LANCZOS)
+    radius = 30
     mask = Image.new("L", image.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, *image.size), radius=26, fill=255)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, *image.size), radius=radius, fill=255)
     framed = Image.new("RGBA", image.size, (255, 255, 255, 0))
     framed.paste(image.convert("RGBA"), (0, 0), mask)
-    edge = ImageDraw.Draw(framed)
-    edge.rounded_rectangle((1, 1, image.width - 2, image.height - 2), radius=26,
-                           outline=(166, 184, 200, 170) if dark else (255, 255, 255, 220), width=3)
-    return framed.rotate(tilt, resample=Image.Resampling.BICUBIC, expand=True)
+    ImageDraw.Draw(framed).rounded_rectangle((1, 1, width - 2, height - 2), radius=radius,
+                                             outline=(120, 132, 150, 150) if dark else (20, 30, 40, 40), width=2)
+    return framed
 
 
 def compose(source: Path, destination: Path, locale: str, key: str, index: int) -> None:
@@ -100,76 +101,38 @@ def compose(source: Path, destination: Path, locale: str, key: str, index: int) 
     dark = key == "08-dark"
     background, accent = PALETTES[index % len(PALETTES)]
     if dark:
-        background, accent = (25, 29, 38), (49, 77, 91)
-    canvas = Image.new("RGB", SIZE, background)
+        background, accent = (24, 27, 36), (167, 139, 250)
+    ink = (246, 247, 250) if dark else (23, 35, 39)
+    secondary = (190, 198, 210) if dark else (72, 86, 90)
+    # Demi Bold / W6 headline, Regular / W3 subtitle.
+    display = font(ZH_FONT if chinese else EN_FONT, 100 if chinese else 96, 2)
+    detail = font(ZH_FONT if chinese else EN_FONT, 42 if chinese else 40, 0 if chinese else 7)
+
+    canvas = Image.new("RGBA", SIZE, background + (255,))
     draw = ImageDraw.Draw(canvas)
-    display = font(ZH_FONT if chinese else EN_FONT, 104 if chinese else 100)
-    detail = font(ZH_FONT if chinese else EN_FONT, 39 if chinese else 37)
-    wordmark = font(EN_FONT, 58)
-    ink = (248, 248, 250) if dark else (23, 35, 39)
-    secondary = (198, 207, 218) if dark else (65, 82, 84)
+    # Headline: two centered lines, the second in the accent color, then the subtitle.
+    center = SIZE[0] // 2
+    draw.text((center, 120), title_a, font=display, fill=ink, anchor="ma")
+    draw.text((center, 240), title_b, font=display, fill=accent, anchor="ma")
+    draw.text((center, 384), subtitle, font=detail, fill=secondary, anchor="ma")
 
-    # A shallow angled masthead gives the composition motion without touching the headline.
-    masthead = (18, 22, 30) if dark else accent
-    draw.polygon([(0, 0), (SIZE[0], 0), (SIZE[0], 150), (0, 245)], fill=masthead)
-    brand_icon = Image.open(ICON).convert("RGBA").resize((88, 88), Image.Resampling.LANCZOS)
-    canvas.paste(brand_icon, (142, 48), brand_icon)
-    draw.text((250, 58), "FLOWIE", font=wordmark, fill=(255, 255, 255))
-
-    # Alternate balanced two-column compositions; keep the capture large and readable.
-    image_left = index % 2 == 0
-    tilt = 0.65 if index % 4 < 2 else -0.65
-    image_size = (1740, 1088)
-    window = rounded_window(Image.open(source), tilt, dark, image_size)
-    x = 85 if image_left else SIZE[0] - 85 - window.width
-    y = 510
-
-    text_width, text_height = 900, 760
-    text_layer = Image.new("RGBA", (text_width, text_height), (0, 0, 0, 0))
-    text_draw = ImageDraw.Draw(text_layer)
-    text_anchor = "ra" if not image_left else "la"
-    text_edge = text_width - 10 if not image_left else 10
-    text_top = 180
-    title_lines = wrap_text(title_a, text_draw, display, text_width - 40, chinese)
-    title_lines.extend(wrap_text(title_b, text_draw, display, text_width - 40, chinese))
-    title_y = text_top
-    for line in title_lines:
-        text_draw.text((text_edge, title_y), line, font=display, fill=ink, anchor=text_anchor)
-        title_y += 128
-    subtitle_y = title_y + 34
-    subtitle_lines = wrap_text(subtitle, text_draw, detail, text_width - 40, chinese)
-    text_draw.multiline_text((text_edge, subtitle_y), "\n".join(subtitle_lines), font=detail, fill=secondary,
-                             anchor=text_anchor, spacing=13, align="right" if not image_left else "left")
-    marker_left = text_edge - 78 if not image_left else text_edge
-    text_draw.rounded_rectangle((marker_left, subtitle_y + 125, marker_left + 78, subtitle_y + 135),
-                                radius=5, fill=accent)
-    text_layer = text_layer.rotate(tilt, resample=Image.Resampling.BICUBIC, expand=True)
-    text_x = SIZE[0] - 100 - text_layer.width if image_left else 100
-    text_y = 625
-
-    shadow = Image.new("RGBA", window.size, (16, 28, 36, 0))
-    shadow.putalpha(window.getchannel("A").filter(ImageFilter.GaussianBlur(42)).point(lambda p: int(p * 0.28)))
-    canvas_rgba = canvas.convert("RGBA")
-    canvas_rgba.alpha_composite(shadow, (x + 5, y + 20))
-    canvas_rgba.alpha_composite(window, (x, y))
-    canvas_rgba.alpha_composite(text_layer, (text_x, text_y))
-    canvas = canvas_rgba.convert("RGB")
-    canvas.save(destination, format="PNG", optimize=True)
+    # The window, large and centered, running off the bottom edge.
+    window = rounded_window(Image.open(source), dark, 2240)
+    x, y = (SIZE[0] - window.width) // 2, 500
+    shadow = Image.new("RGBA", window.size, (10, 20, 30, 0))
+    shadow.putalpha(window.getchannel("A").filter(ImageFilter.GaussianBlur(36)).point(lambda p: int(p * (0.45 if dark else 0.22))))
+    canvas.alpha_composite(shadow, (x, y + 16))
+    canvas.alpha_composite(window, (x, y))
+    canvas.convert("RGB").save(destination, format="PNG", optimize=True)
 
 
 def main() -> None:
     for locale, copy in COPY.items():
-        source_dir = SOURCES / locale
-        source_dir.mkdir(parents=True, exist_ok=True)
         output_dir = SCREENSHOTS / locale
-        for index, (key, _) in enumerate(copy.items()):
-            filename = f"{key}.png"
-            original = source_dir / filename
-            output = output_dir / filename
-            if not original.exists():
-                shutil.copy2(output, original)
-            compose(original, output, locale, key, index)
-            print(f"{locale}/{filename}")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for index, key in enumerate(copy):
+            compose(SOURCES / locale / f"{key}.png", output_dir / f"{key}.png", locale, key, index)
+            print(f"{locale}/{key}.png")
 
 
 if __name__ == "__main__":

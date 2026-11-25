@@ -1,7 +1,9 @@
 # Using Flowie
 
-The first launch opens a tutorial outline that covers every feature; Help → Flowie Tutorial
-adds a fresh copy. Its text lives in `crates/flowie-app/tutorial/<locale>.md`.
+The first launch opens a tutorial outline in three parts: Getting started (a few minutes), Examples
+(a project, a to-do list and reading notes to adapt) and a Manual covering every feature, its
+lessons collapsed. Help → Flowie Tutorial adds a fresh copy. Its text lives in
+`crates/flowie-app/tutorial/<locale>.md`.
 
 Settings (⌘,) hold the theme (system / light / dark), accent color, language and shortcuts.
 Click a shortcut to replace it, use `+` to add another keyboard or mouse side-button binding,

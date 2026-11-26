@@ -193,7 +193,7 @@ impl Outline {
         let theme = self.theme;
         let body: Vec<AnyElement> = match &kind {
             PopoverKind::References(id) => {
-                let ids: Vec<NodeId> = self.tree.links_to(*id).collect();
+                let ids: Vec<NodeId> = self.ws.tree.links_to(*id).collect();
                 if ids.is_empty() {
                     return None;
                 }
@@ -222,7 +222,7 @@ impl Outline {
             }
             PopoverKind::Path(ids) => ids
                 .iter()
-                .filter(|id| **id == ROOT || self.tree.contains(**id))
+                .filter(|id| **id == ROOT || self.ws.tree.contains(**id))
                 .map(|&id| {
                     crate::ui::list::hover_row(theme, ("popover-crumb", id.as_usize()))
                         .px_2()
@@ -236,12 +236,12 @@ impl Outline {
                 .collect(),
             PopoverKind::Link(id) => {
                 let id = *id;
-                if !self.tree.contains(id) {
+                if !self.ws.tree.contains(id) {
                     vec![div().p_2().text_color(theme.muted).child(t!("toast.bullet_deleted")).into_any_element()]
                 } else {
                     let (text, note) = self.plain_text_and_note(id);
-                    let src = self.tree.source(id);
-                    let kids = self.tree.children(src).to_vec();
+                    let src = self.ws.tree.source(id);
+                    let kids = self.ws.tree.children(src).to_vec();
                     let mut row = crate::ui::list::hover_row(theme, ("popover-link", id.as_usize()))
                         .py_2()
                         .px_2()
@@ -298,7 +298,7 @@ impl Outline {
 
     /// A node's text and note as plain text ("Untitled" for an empty text).
     pub fn plain_text_and_note(&self, id: NodeId) -> (String, String) {
-        let src = self.tree.node(self.tree.source(id));
+        let src = self.ws.tree.node(self.ws.tree.source(id));
         let text = markup::plain_text(&src.text);
         (if text.trim().is_empty() { t!("common.untitled").into() } else { text }, markup::plain_text(&src.note))
     }
@@ -308,7 +308,7 @@ impl Outline {
         if id == ROOT {
             return t!("common.home").into();
         }
-        let text = markup::plain_text(&self.tree.node(self.tree.source(id)).text).replace(['\n', '\r'], " ");
+        let text = markup::plain_text(&self.ws.tree.node(self.ws.tree.source(id)).text).replace(['\n', '\r'], " ");
         if text.trim().is_empty() {
             t!("common.untitled").into()
         } else {

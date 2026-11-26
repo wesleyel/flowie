@@ -18,8 +18,8 @@ impl Outline {
     }
 
     fn offset_for_col(&self, row: NodeId, col: usize) -> usize {
-        let text = &self.tree.node(self.tree.source(row)).text;
-        crate::text::rich::EditMap::new(text, self.tree.node(row).kind == flowie_core::BlockKind::Code).offset_for_column(text, col)
+        let text = &self.ws.tree.node(self.ws.tree.source(row)).text;
+        crate::text::rich::EditMap::new(text, self.ws.tree.node(row).kind == flowie_core::BlockKind::Code).offset_for_column(text, col)
     }
 
     pub fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
@@ -172,7 +172,7 @@ impl Outline {
         self.block?;
         let ids = self.block_ids();
         let set: std::collections::HashSet<NodeId> = ids.iter().copied().collect();
-        Some(ids.into_iter().filter(|id| !self.tree.ancestors(*id).iter().any(|a| set.contains(a))).collect())
+        Some(ids.into_iter().filter(|id| !self.ws.tree.ancestors(*id).iter().any(|a| set.contains(a))).collect())
     }
 
     /// Shift-click: select rows from the current row to `id`.
@@ -190,7 +190,7 @@ impl Outline {
         if self.block.is_some() {
             let ids = self.block_ids();
             let set: std::collections::HashSet<NodeId> = ids.iter().copied().collect();
-            return ids.into_iter().filter(|id| !self.tree.ancestors(*id).iter().any(|a| set.contains(a))).collect();
+            return ids.into_iter().filter(|id| !self.ws.tree.ancestors(*id).iter().any(|a| set.contains(a))).collect();
         }
         self.editing_node().filter(|id| *id != self.zoom).into_iter().collect()
     }

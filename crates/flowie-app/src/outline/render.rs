@@ -24,7 +24,7 @@ impl Outline {
     /// "…" pins that list. Every level is clickable.
     pub(crate) fn render_path(&self, id: NodeId, width: f32, popovers: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let mut levels = vec![ROOT];
-        levels.extend(self.tree.ancestors(id));
+        levels.extend(self.ws.tree.ancestors(id));
         self.render_crumbs(&levels, "path-part", self.theme.muted, width, popovers, false, window, cx)
     }
 
@@ -220,7 +220,7 @@ impl Outline {
     fn render_header_path(&self, collapse: f32, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let color = self.theme.text;
         let mut levels = vec![ROOT];
-        levels.extend(self.tree.ancestors(self.zoom));
+        levels.extend(self.ws.tree.ancestors(self.zoom));
         let full = (collapse < 1.).then(|| self.render_crumbs(&levels, "path-part", color, width, true, false, window, cx));
         let collapsed = (collapse > 0.).then(|| {
             levels.push(self.zoom);
@@ -252,10 +252,10 @@ impl Outline {
         let first = self.list.logical_scroll_top().item_ix.saturating_sub(HEAD);
         let top_row = (first..self.display.len().min(first + 8))
             .find(|&ix| self.list.bounds_for_item(ix + HEAD).is_some_and(|b| b.bottom() > view.top()))
-            .map(|ix| self.tree.resolve(self.display[ix].row.id))
-            .filter(|r| self.tree.contains(*r));
+            .map(|ix| self.ws.tree.resolve(self.display[ix].row.id))
+            .filter(|r| self.ws.tree.contains(*r));
         let Some(row) = top_row else { return Vec::new() };
-        let chain = self.tree.ancestors(row);
+        let chain = self.ws.tree.ancestors(row);
         match chain.iter().position(|&a| a == self.zoom) {
             Some(at) => chain[at + 1..].to_vec(),
             None => Vec::new(),
@@ -269,7 +269,7 @@ impl Outline {
         let id = self.zoom;
         let text = self.render_text(id, false, window, cx);
         let references = self.render_reference_count(id, cx);
-        let note = (!self.tree.node(self.tree.source(id)).note.is_empty()
+        let note = (!self.ws.tree.node(self.ws.tree.source(id)).note.is_empty()
             || self.edit.as_ref().is_some_and(|e| e.target == Target::Note(id)))
         .then(|| self.render_text(id, true, window, cx));
         Some(
@@ -324,7 +324,7 @@ impl Render for Outline {
         self.title_collapsed = collapse;
         // Once the title (and its reference count) scrolls away, the count shows in the top bar.
         let references = (collapse > 0.).then(|| self.render_reference_count(self.zoom, cx)).flatten();
-        let has_references = references.is_some().then(|| self.tree.link_count(self.tree.source(self.zoom)));
+        let has_references = references.is_some().then(|| self.ws.tree.link_count(self.ws.tree.source(self.zoom)));
         let search_open = self.search_openness();
         let zoom_p = self.zoom_tween.map(|t| ease_out(t.t())).unwrap_or(1.0);
         let starred = self.zoom != ROOT && self.starred.contains(&self.zoom);
@@ -695,7 +695,7 @@ impl Render for Outline {
                             .child(crate::ui::icons::icon("rotate-ccw", crate::ui::icons::SM, theme.accent))
                             .child(t!("outline.save_retry"))
                             .on_click(cx.listener(|this, _, _, _| {
-                                if let Some(w) = &this.writer {
+                                if let Some(w) = &this.ws.writer {
                                     w.retry_now();
                                 }
                             })),
@@ -730,7 +730,7 @@ fn window_title(o: &Outline) -> String {
     if o.zoom == ROOT {
         "Flowie".into()
     } else {
-        let text = markup::plain_text(&o.tree.node(o.zoom).text);
+        let text = markup::plain_text(&o.ws.tree.node(o.zoom).text);
         if text.is_empty() {
             format!("{} — Flowie", t!("common.untitled"))
         } else {

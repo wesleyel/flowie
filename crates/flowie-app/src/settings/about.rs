@@ -35,7 +35,7 @@ impl Outline {
         let commit = option_env!("FLOWIE_COMMIT").unwrap_or("dev");
         let db = self.db_path.clone();
         let db_label = db.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| t!("settings.about.in_memory").into());
-        let nodes = self.tree.len();
+        let nodes = self.ws.tree.len();
         let version_label = self.label("version", t!("settings.about.version", version = version, commit = commit), cx);
         let values = [
             (t!("settings.about.bullets"), self.label("bullets", format!("{nodes}"), cx)),

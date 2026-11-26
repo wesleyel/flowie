@@ -87,11 +87,11 @@ impl Outline {
     /// What Trash keeps of a bullet about to be deleted: its id, a label and
     /// its subtree. Taken before the delete; written with `write_trash`.
     pub fn trash_entry(&self, id: NodeId) -> (NodeId, String, Vec<flowie_core::Node>) {
-        (id, node_label(self, id).chars().take(80).collect(), self.tree.subtree_nodes(id))
+        (id, node_label(self, id).chars().take(80).collect(), self.ws.tree.subtree_nodes(id))
     }
 
     pub fn write_trash(&self, entries: Vec<(NodeId, String, Vec<flowie_core::Node>)>) {
-        if let Some(w) = &self.writer {
+        if let Some(w) = &self.ws.writer {
             for (id, label, nodes) in entries {
                 w.trash(id, &label, nodes);
             }
@@ -99,7 +99,7 @@ impl Outline {
     }
 
     pub fn show_trash(&mut self, _: &ShowTrash, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(writer) = &self.writer {
+        if let Some(writer) = &self.ws.writer {
             if let Err(error) = writer.flush() {
                 self.toast(t!("outline.save_error", error = error));
                 return cx.notify();
@@ -112,7 +112,7 @@ impl Outline {
         // keeps the entry, so undoing the restore brings it back here; show
         // only the newest entry for each bullet.
         let mut shown = std::collections::HashSet::new();
-        let entries = entries.into_iter().filter(|e| !self.tree.contains(e.root) && shown.insert(e.root)).collect();
+        let entries = entries.into_iter().filter(|e| !self.ws.tree.contains(e.root) && shown.insert(e.root)).collect();
         let selection = self.suspend_outline_selection();
         self.trash = Some(TrashPage { entries, scroll: ScrollHandle::new(), selection });
         cx.notify();
@@ -133,13 +133,13 @@ impl Outline {
         }
         // The entry stays in the database: undoing the restore deletes the
         // bullets again, and they must still be in Trash then.
-        if let Some(root) = self.tree.restore(&entry.nodes) {
+        if let Some(root) = self.ws.tree.restore(&entry.nodes) {
             self.toast(t!("toast.restored", name = entry.label));
             self.close_trash(false, cx);
-            let parent = self.tree.parent(root);
+            let parent = self.ws.tree.parent(root);
             self.commit_structure(None, cx);
             self.zoom_to(parent, cx);
-            let len = self.tree.node(root).text.len();
+            let len = self.ws.tree.node(root).text.len();
             self.start_edit(Target::Text(root), len, cx);
         } else {
             self.toast(t!("toast.trash_unrestorable"));
@@ -150,7 +150,7 @@ impl Outline {
     pub fn purge_trash(&mut self, seq: i64, cx: &mut Context<Self>) {
         let Some(root) = self.trash.as_ref().and_then(|trash| trash.entries.iter().find(|e| e.seq == seq)).map(|e| e.root) else { return };
         // Older entries for the same bullet go too, or they would take its place.
-        if let Some(w) = &self.writer {
+        if let Some(w) = &self.ws.writer {
             w.untrash_root(root);
         }
         if let Some(page) = self.trash.as_mut() {

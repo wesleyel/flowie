@@ -15,7 +15,8 @@ mod structure;
 
 use std::ops::Range;
 
-use flowie_core::{store::Writer, DisplayRow, History, NodeId, Row, Tree, ROOT};
+use flowie_core::{DisplayRow, NodeId, Row, ROOT};
+use flowie_doc::Workspace;
 use gpui::{actions, px, Bounds, Context, FocusHandle, ListAlignment, ListState, Pixels, TextLayout, Window};
 
 use crate::ui::{
@@ -190,9 +191,8 @@ pub struct BlockSel {
 
 pub struct Outline {
     pub focus: FocusHandle,
-    pub tree: Tree,
-    pub history: History,
-    pub writer: Option<Writer>,
+    /// The outline's data: tree, undo history, database writer, imports and images.
+    pub ws: Workspace,
     pub zoom: NodeId,
     back_pages: Vec<PageLocation>,
     forward_pages: Vec<PageLocation>,
@@ -271,16 +271,10 @@ pub struct Outline {
     pub package_export: Option<crate::share::PackageExport>,
     /// The open import dialog.
     pub package_import: Option<crate::share::PackageImport>,
-    /// Image files, beside the database (none without one).
-    pub image_dir: Option<flowie_core::images::ImageDir>,
-    /// What is known about each image file, by name.
-    pub blobs: std::collections::HashMap<String, flowie_core::images::BlobInfo>,
     /// The image shown full-window (Space on an image bullet).
     pub image_preview: Option<NodeId>,
     /// What's New to show once the window is (after a background launch).
     pub whats_new_pending: Option<Option<String>>,
-    /// Roots imported from share packages, by root id.
-    pub imports: std::collections::HashMap<NodeId, flowie_core::store::ImportRecord>,
     /// Set when the background database writer failed and is retrying.
     pub save_error: Option<String>,
     close_prompt_open: bool,
@@ -294,18 +288,14 @@ pub const HEAD: usize = 1;
 
 impl Outline {
     pub fn new(
-        tree: Tree,
-        writer: Option<Writer>,
+        ws: Workspace,
         db_path: Option<std::path::PathBuf>,
         meta: Vec<(String, String)>,
-        imports: Vec<flowie_core::store::ImportRecord>,
-        blobs: Vec<flowie_core::images::BlobInfo>,
         config: crate::settings::Config,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let db_path_for_config = db_path.clone();
-        let db_path_for_images = db_path.clone();
         let mut zoom = ROOT;
         let mut hide_completed = false;
         let mut starred = Vec::new();
@@ -321,14 +311,12 @@ impl Outline {
                 _ => {}
             }
         }
-        if !tree.contains(zoom) {
+        if !ws.tree.contains(zoom) {
             zoom = ROOT;
         }
         let mut this = Outline {
             focus: cx.focus_handle(),
-            tree,
-            history: History::new(),
-            writer,
+            ws,
             zoom,
             back_pages: Vec::new(),
             forward_pages: Vec::new(),
@@ -373,11 +361,8 @@ impl Outline {
             app_menu_scroll: gpui::ScrollHandle::new(),
             package_export: None,
             package_import: None,
-            image_dir: db_path_for_images.as_deref().map(flowie_core::images::ImageDir::beside),
-            blobs: blobs.into_iter().map(|b| (b.name.clone(), b)).collect(),
             image_preview: None,
             whats_new_pending: None,
-            imports: imports.into_iter().map(|r| (r.root, r)).collect(),
             save_error: None,
             close_prompt_open: false,
             kill_buffer: String::new(),
@@ -398,13 +383,13 @@ impl Outline {
             this.set_meta("device", &this.device_id.clone());
         }
         this.ensure_author();
-        if this.tree.children(ROOT).is_empty() {
+        if this.ws.tree.children(ROOT).is_empty() {
             this.seed_welcome();
         }
         this.refresh(false);
         let top = this.restore_scroll();
         if let Some(first) = top.or_else(|| this.rows.first().map(|r| r.id)) {
-            this.edit = Some(Edit::new(Target::Text(first), this.tree.node(first).text.len()));
+            this.edit = Some(Edit::new(Target::Text(first), this.ws.tree.node(first).text.len()));
         }
         let saved_place = meta.iter().find(|(k, _)| k == "window").and_then(|(_, v)| crate::app::window_place::Place::parse(v));
         this.window_place = crate::app::window_place::Place::observe(saved_place.as_ref(), window, cx);
@@ -429,8 +414,8 @@ impl Outline {
 
     fn seed_welcome(&mut self) {
         self.insert_tutorial(0);
-        self.tree.take_journal();
-        self.persist();
+        self.ws.tree.take_journal();
+        self.ws.persist();
     }
 
     pub fn toast(&mut self, msg: impl Into<String>) {
@@ -438,9 +423,7 @@ impl Outline {
     }
 
     pub fn set_meta(&self, key: &str, value: &str) {
-        if let Some(w) = &self.writer {
-            w.set_meta(key, value);
-        }
+        self.ws.set_meta(key, value);
     }
 
     /// Settings or a dialog is open: the outline's own shortcuts are off

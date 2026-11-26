@@ -17,7 +17,8 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use flowie_core::{store, Tree, ROOT};
+use flowie_core::{images::ImageDir, Tree, ROOT};
+use flowie_doc::Workspace;
 use gpui::{px, size, App, AppContext, AssetSource, Bounds, QuitMode, SharedString, TitlebarOptions, WindowBounds, WindowOptions};
 
 use app::{i18n, keymap, platform, window_place};
@@ -98,30 +99,25 @@ fn main() {
     };
 
     let (save_err_tx, mut save_err_rx) = futures::channel::mpsc::unbounded::<Option<String>>();
-    let (tree, writer, db_path, meta, imports, blobs) = match stress {
-        Some(n) => (stress_tree(n), None, None, Vec::new(), Vec::new(), Vec::new()),
+    let (ws, db_path, meta) = match stress {
+        Some(n) => (Workspace::new(stress_tree(n)), None, Vec::new()),
         None => {
             let path = data_path();
-            let loaded =
-                store::open(&path).and_then(|conn| Ok((store::load(&conn)?, store::load_imports(&conn)?, store::load_blobs(&conn)?, conn)));
-            match loaded {
-                Ok(((nodes, meta), imports, blobs, conn)) => {
-                    Outline::collect_images(&path);
-                    let err_tx = save_err_tx.clone();
-                    let writer = store::Writer::spawn_with_error_hook(conn, move |status| {
-                        let _ = err_tx.unbounded_send(status);
-                    });
-                    (Tree::from_nodes(nodes), Some(writer), Some(path), meta, imports, blobs)
-                }
+            let err_tx = save_err_tx.clone();
+            let opened = Workspace::open(&path, ImageDir::beside(&path), move |status| {
+                let _ = err_tx.unbounded_send(status);
+            });
+            match opened {
+                Ok((ws, meta)) => (ws, Some(path), meta),
                 Err(e) => {
                     eprintln!("flowie: could not load {}: {e}", path.display());
-                    (Tree::new(), None, None, Vec::new(), Vec::new(), Vec::new())
+                    (Workspace::new(Tree::new()), None, Vec::new())
                 }
             }
         }
     };
     drop(save_err_tx);
-    let n = tree.len();
+    let n = ws.tree.len();
     let config = settings::Config::load(&settings::Config::path(db_path.as_ref()));
     i18n::set(&config.language);
     // Without a loaded database there is nothing to serve.
@@ -130,11 +126,11 @@ fn main() {
     if stress.is_some() {
         // Rough timings for the hot paths on a big outline.
         let t = Instant::now();
-        let rows = flowie_core::flatten(&tree, ROOT, &Default::default());
+        let rows = flowie_core::flatten(&ws.tree, ROOT, &Default::default());
         let flat = t.elapsed();
         let t = Instant::now();
         let opts = flowie_core::ViewOptions { query: Some(flowie_core::Query::parse("gamma 笔记")), ..Default::default() };
-        let hits = flowie_core::flatten(&tree, ROOT, &opts);
+        let hits = flowie_core::flatten(&ws.tree, ROOT, &opts);
         let search = t.elapsed();
         eprintln!(
             "flowie: flatten {} rows in {:.2} ms; search -> {} rows in {:.2} ms",
@@ -194,7 +190,7 @@ fn main() {
                     focus: !background,
                     ..Default::default()
                 },
-                |window, cx| cx.new(|cx| Outline::new(tree, writer, db_path, meta, imports, blobs, config, window, cx)),
+                |window, cx| cx.new(|cx| Outline::new(ws, db_path, meta, config, window, cx)),
             )
             .expect("open window");
         window

@@ -80,12 +80,12 @@ pub struct Palette {
 }
 
 fn path_label(o: &Outline, id: NodeId) -> String {
-    let parts: Vec<String> = o
-        .tree
-        .ancestors(id)
-        .into_iter()
-        .map(|a| markup::plain_text(&o.tree.node(o.tree.source(a)).text).chars().take(24).collect::<String>())
-        .collect();
+    let parts: Vec<String> =
+        o.ws.tree
+            .ancestors(id)
+            .into_iter()
+            .map(|a| markup::plain_text(&o.ws.tree.node(o.ws.tree.source(a)).text).chars().take(24).collect::<String>())
+            .collect();
     if parts.is_empty() {
         t!("common.home").into()
     } else {
@@ -97,7 +97,7 @@ pub fn node_label(o: &Outline, id: NodeId) -> String {
     if id == ROOT {
         return t!("common.home").into();
     }
-    let t = markup::plain_text(&o.tree.node(o.tree.source(id)).text);
+    let t = markup::plain_text(&o.ws.tree.node(o.ws.tree.source(id)).text);
     if t.trim().is_empty() {
         t!("common.untitled").into()
     } else {
@@ -113,7 +113,7 @@ impl Outline {
             return None;
         }
         let lower = name.to_lowercase();
-        let exists = self.tree.nodes().any(|n| n.mirror == ROOT && markup::plain_text(&n.text).trim().to_lowercase() == lower);
+        let exists = self.ws.tree.nodes().any(|n| n.mirror == ROOT && markup::plain_text(&n.text).trim().to_lowercase() == lower);
         (!exists).then(|| Entry {
             label: t!("palette.new_page", name = name),
             detail: t!("palette.on_home").into(),
@@ -124,8 +124,8 @@ impl Outline {
 
     /// Append a bullet named `name` to Home (not committed).
     pub fn create_page(&mut self, name: &str) -> NodeId {
-        let n = self.tree.children(ROOT).len();
-        self.tree.create_at(ROOT, n, name)
+        let n = self.ws.tree.children(ROOT).len();
+        self.ws.tree.create_at(ROOT, n, name)
     }
 
     /// Link to a new page: one commit for the page, then the link text.
@@ -140,8 +140,8 @@ impl Outline {
     pub fn search_nodes(&self, query: &str, limit: usize, exclude: &[NodeId]) -> Vec<NodeId> {
         let words: Vec<String> = query.split_whitespace().map(|w| w.to_lowercase()).collect();
         let mut scored: Vec<(i64, NodeId)> = Vec::new();
-        for n in self.tree.nodes() {
-            if n.mirror != ROOT || exclude.iter().any(|e| *e == n.id || self.tree.is_ancestor(*e, n.id)) {
+        for n in self.ws.tree.nodes() {
+            if n.mirror != ROOT || exclude.iter().any(|e| *e == n.id || self.ws.tree.is_ancestor(*e, n.id)) {
                 continue;
             }
             if n.text.is_empty() {
@@ -160,7 +160,7 @@ impl Outline {
                     score -= 10_000;
                 }
             }
-            score += n.text.len() as i64 + self.tree.ancestors(n.id).len() as i64 * 8;
+            score += n.text.len() as i64 + self.ws.tree.ancestors(n.id).len() as i64 * 8;
             score -= (n.modified / 3_600_000) % 1000; // mild recency bias
             scored.push((score, n.id));
         }
@@ -193,7 +193,7 @@ impl Outline {
                         action: Action::Node(ROOT),
                     });
                     for &id in &self.starred {
-                        if self.tree.contains(id) {
+                        if self.ws.tree.contains(id) {
                             entries.push(Entry {
                                 label: node_label(self, id),
                                 detail: path_label(self, id),
@@ -271,11 +271,11 @@ impl Outline {
             }
             Mode::LinkTo { .. } | Mode::Mirror { .. } => {
                 let exclude: Vec<NodeId> = match &mode {
-                    Mode::Mirror { after } => self.tree.ancestors(*after),
+                    Mode::Mirror { after } => self.ws.tree.ancestors(*after),
                     _ => Vec::new(),
                 };
                 let ids = if q.trim().is_empty() {
-                    self.starred.iter().copied().filter(|id| self.tree.contains(*id)).collect()
+                    self.starred.iter().copied().filter(|id| self.ws.tree.contains(*id)).collect()
                 } else {
                     self.search_nodes(&q, 40, &[])
                 };
@@ -303,7 +303,7 @@ impl Outline {
             self.edit = p
                 .return_to
                 .filter(|(t, _)| match t {
-                    Target::Text(id) | Target::Note(id) => self.tree.contains(*id),
+                    Target::Text(id) | Target::Note(id) => self.ws.tree.contains(*id),
                     _ => true,
                 })
                 .map(|(t, off)| Edit::new(t, off));
@@ -363,19 +363,19 @@ impl Outline {
     fn run_palette(&mut self, mode: Mode, action: Action, window: &mut Window, cx: &mut Context<Self>) {
         match (mode, action) {
             (Mode::Jump, Action::Node(id)) => {
-                if id == ROOT || self.tree.has_children(self.tree.source(id)) || self.starred.contains(&id) {
+                if id == ROOT || self.ws.tree.has_children(self.ws.tree.source(id)) || self.starred.contains(&id) {
                     self.zoom_to(id, cx);
                 } else {
                     // Leaf: show it in its parent with the caret on it.
-                    let parent = self.tree.parent(id);
+                    let parent = self.ws.tree.parent(id);
                     self.zoom_to(parent, cx);
-                    let len = self.tree.node(id).text.len();
+                    let len = self.ws.tree.node(id).text.len();
                     self.start_edit(Target::Text(id), len, cx);
                 }
             }
             (Mode::Jump, Action::NewPage(name)) => {
                 let page = self.create_page(&name);
-                let blank = self.tree.create_at(page, 0, "");
+                let blank = self.ws.tree.create_at(page, 0, "");
                 self.commit_structure(None, cx);
                 self.zoom_to(page, cx);
                 self.start_edit(Target::Text(blank), 0, cx);

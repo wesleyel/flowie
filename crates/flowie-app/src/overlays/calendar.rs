@@ -30,7 +30,7 @@ impl Outline {
         }
         let now = Local::now();
         let mut counts: HashMap<String, usize> = HashMap::new();
-        for n in self.tree.nodes() {
+        for n in self.ws.tree.nodes() {
             if n.text.len() >= 10 && n.text.contains('-') {
                 for d in markup::dates(&n.text) {
                     *counts.entry(d.to_string()).or_default() += 1;
@@ -51,8 +51,8 @@ impl Outline {
     }
 
     fn journal_days(&self) -> Vec<String> {
-        match self.journal_id.filter(|j| self.tree.contains(*j)) {
-            Some(j) => self.tree.children(j).iter().map(|id| self.tree.node(*id).text.chars().take(10).collect()).collect(),
+        match self.journal_id.filter(|j| self.ws.tree.contains(*j)) {
+            Some(j) => self.ws.tree.children(j).iter().map(|id| self.ws.tree.node(*id).text.chars().take(10).collect()).collect(),
             None => Vec::new(),
         }
     }

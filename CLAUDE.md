@@ -10,20 +10,21 @@ solo project and the version is `1.0.0`, released as `1.0.0-rc.N` candidates.
 | Crate | What it holds |
 |---|---|
 | `crates/flowie-core` | Model and persistence, **no UI**: `tree/` (`NodeId` UUIDs, `Node`, `Tree`, edit ops, `rank` ordering), `store/` (SQLite schema in `store/mod.rs`, background `Writer` batching changes about every 200 ms, Trash, imports, image metadata), `history.rs` (undo), `flatten.rs` (tree → visible `Row`/`DisplayRow`), `markup.rs` (inline formatting), `search.rs`, `io/` (text/Markdown/OPML), `package/` (share packages, three-way merge), `images.rs` (sha256 content-addressed files) |
+| `crates/flowie-doc` | The document layer, **no GPUI**: `Workspace` owns the open outline's `tree`, `history` and `writer` (plus imports and image metadata), opens the database and runs the commit/undo path every edit takes |
 | `crates/flowie-math` | KaTeX-compatible math via RaTeX, plus a GPUI element |
 | `crates/flowie-app` | The GPUI app (binary `flowie`) |
 | `third_party/gpui-pre-macos` | GPUI's macOS backend with private AppKit calls removed for App Review (`FLOWIE-PATCH.md`). Keep the patch when bumping gpui-kit. |
 
 `crates/flowie-app/src`:
-- `outline/`: the main editor. `Outline` (in `outline/mod.rs`) owns `tree`, `history`, `writer`, zoom, rows and the edit state. It's split by concern: `editing`, `structure` (indent/move/drag), `blocks`, `selection`, `navigation`, `history`, `journal`, `rows`/`render`.
+- `outline/`: the main editor. `Outline` (in `outline/mod.rs`) owns a `Workspace` (`self.ws`), zoom, rows and the edit state. It's split by concern: `editing`, `structure` (indent/move/drag), `blocks`, `selection`, `navigation`, `history`, `journal`, `rows`/`render`.
 - `text/`: the text editor and rich-text layout. `ui/`: Flowie's own controls and theme, drawn in the macOS style (no component library).
 - `overlays/`: palette, popovers, menus. `pages/`: full-page views (Trash, What's New). `settings/`: one file per tab. `share/`: package dialogs.
 - `agent/`: MCP. `flowie mcp` is a stdio server that talks over a local socket (`ipc.rs`) to the running app, which runs the tools (`tools.rs`) on the `Outline`. Its tool docs are in `docs/mcp.md`.
 - `app/`: platform glue (`platform.rs`, `menu_bar.rs`, `keymap.rs`, `i18n.rs`, `tutorial.rs`, window placement).
 - `dev/`: screenshot tooling, behind the `screenshots` feature (`scripts/screenshots.py`).
 
-Data flow: an edit runs in `Outline`, which changes `Tree`, records `History` and queues the change on the
-`Writer`. Then `flatten` rebuilds the visible rows and GPUI re-renders.
+Data flow: an edit runs in `Outline`, which changes `ws.tree`, then commits through the `Workspace` (records
+`History`, queues the change on the `Writer`). Then `flatten` rebuilds the visible rows and GPUI re-renders.
 
 ## Commands
 

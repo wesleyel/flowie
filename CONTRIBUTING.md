@@ -43,6 +43,11 @@ package encoding, export, import tracking, and three-way updates. `store/`
 holds SQLite persistence for nodes, Trash, imports, and image metadata, plus
 the background writer. `images.rs` provides the content-addressed file store.
 
+`crates/flowie-doc` holds `Workspace`, which owns the tree, undo history and
+writer of an open outline: it opens the database and records and saves each
+edit. It doesn't depend on GPUI; `Outline` holds one as `ws` and does the UI
+part (rows, animation, caret) after each commit.
+
 ## Licensing of contributions
 
 Flowie is licensed under the GNU General Public License v3.0 or later (`LICENSE`).

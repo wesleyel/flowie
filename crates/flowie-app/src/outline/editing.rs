@@ -11,8 +11,8 @@ use super::*;
 impl Outline {
     pub fn edit_text(&self) -> &str {
         match self.edit.as_ref().map(|e| e.target) {
-            Some(Target::Text(id)) => self.tree.get(self.tree.source(id)).map(|n| n.text.as_str()).unwrap_or(""),
-            Some(Target::Note(id)) => self.tree.get(self.tree.source(id)).map(|n| n.note.as_str()).unwrap_or(""),
+            Some(Target::Text(id)) => self.ws.tree.get(self.ws.tree.source(id)).map(|n| n.text.as_str()).unwrap_or(""),
+            Some(Target::Note(id)) => self.ws.tree.get(self.ws.tree.source(id)).map(|n| n.note.as_str()).unwrap_or(""),
             Some(Target::Search) => &self.query,
             Some(Target::Palette) => self.palette.as_ref().map(|p| p.query.as_str()).unwrap_or(""),
             Some(Target::Field(f)) => self.field_text(f),
@@ -23,7 +23,7 @@ impl Outline {
     /// How the edited text maps to what the editor shows (internal links show their label only).
     pub fn edit_map(&self) -> crate::text::rich::EditMap {
         let code = match self.edit.as_ref().map(|e| e.target) {
-            Some(Target::Text(id)) => self.tree.get(id).is_some_and(|n| n.kind == flowie_core::BlockKind::Code),
+            Some(Target::Text(id)) => self.ws.tree.get(id).is_some_and(|n| n.kind == flowie_core::BlockKind::Code),
             Some(Target::Note(_) | Target::Field(Field::WhatsNew(_))) => false,
             _ => true,
         };
@@ -50,8 +50,8 @@ impl Outline {
         }
         match target {
             Target::Text(id) => {
-                let src = self.tree.source(id);
-                self.tree.set_text(src, &text);
+                let src = self.ws.tree.source(id);
+                self.ws.tree.set_text(src, &text);
                 self.commit_typing(src, before, cx);
                 if !mark {
                     self.check_inline(&new);
@@ -66,8 +66,8 @@ impl Outline {
                 cx.notify();
             }
             Target::Note(id) => {
-                let src = self.tree.source(id);
-                self.tree.set_note(src, &text);
+                let src = self.ws.tree.source(id);
+                self.ws.tree.set_note(src, &text);
                 self.commit_typing(src, before, cx);
             }
             Target::Search => {
@@ -90,14 +90,14 @@ impl Outline {
     pub fn begin_edit(&mut self, target: Target, offset: usize, reveal: bool, cx: &mut Context<Self>) {
         if let Some(e) = &self.edit {
             if e.target != target {
-                self.history.seal();
+                self.ws.history.seal();
             }
         }
         self.block = None;
         self.inline = None;
         let len = match target {
-            Target::Text(id) => self.tree.get(self.tree.source(id)).map_or(0, |n| n.text.len()),
-            Target::Note(id) => self.tree.get(self.tree.source(id)).map_or(0, |n| n.note.len()),
+            Target::Text(id) => self.ws.tree.get(self.ws.tree.source(id)).map_or(0, |n| n.text.len()),
+            Target::Note(id) => self.ws.tree.get(self.ws.tree.source(id)).map_or(0, |n| n.note.len()),
             Target::Search => self.query.len(),
             Target::Palette => self.palette.as_ref().map_or(0, |p| p.query.len()),
             Target::Field(f) => self.field_text(f).len(),
@@ -171,11 +171,11 @@ impl Outline {
     pub fn toggle_note(&mut self, _: &ToggleNote, _: &mut Window, cx: &mut Context<Self>) {
         match self.edit_target() {
             Some(Target::Text(id)) if id != self.zoom || self.zoom != ROOT => {
-                let len = self.tree.node(id).note.len();
+                let len = self.ws.tree.node(id).note.len();
                 self.start_edit(Target::Note(id), len, cx);
             }
             Some(Target::Note(id)) => {
-                let len = self.tree.node(id).text.len();
+                let len = self.ws.tree.node(id).text.len();
                 self.start_edit(Target::Text(id), len, cx);
             }
             _ => {}
@@ -206,27 +206,31 @@ impl Outline {
             }
             let before = self.caret();
             let Some(prev) = self.neighbor(id, -1) else { return };
-            let real = self.tree.resolve(id);
-            let node = self.tree.node(real);
+            let real = self.ws.tree.resolve(id);
+            let node = self.ws.tree.node(real);
             // Only a plain row with nothing in it goes away; notes, images and mirrors are preserved.
-            if node.mirror == ROOT && node.text.is_empty() && node.note.is_empty() && node.image.is_empty() && !self.tree.has_children(real)
+            if node.mirror == ROOT
+                && node.text.is_empty()
+                && node.note.is_empty()
+                && node.image.is_empty()
+                && !self.ws.tree.has_children(real)
             {
-                self.tree.delete(real);
-                let len = self.tree.node(self.tree.source(prev)).text.len();
+                self.ws.tree.delete(real);
+                let len = self.ws.tree.node(self.ws.tree.source(prev)).text.len();
                 self.edit = Some(Edit::new(Target::Text(prev), len));
                 self.commit_structure(before, cx);
                 return;
             }
-            if self.tree.has_children(id) && (prev == self.tree.parent(id) || self.tree.has_children(prev)) {
+            if self.ws.tree.has_children(id) && (prev == self.ws.tree.parent(id) || self.ws.tree.has_children(prev)) {
                 return;
             }
-            if let Some(off) = self.tree.merge_into(id, prev) {
+            if let Some(off) = self.ws.tree.merge_into(id, prev) {
                 self.edit = Some(Edit::new(Target::Text(prev), off));
                 self.commit_structure(before, cx);
             }
         } else if let Some(Target::Note(id)) = self.edit_target() {
-            if self.tree.node(id).note.is_empty() {
-                let len = self.tree.node(id).text.len();
+            if self.ws.tree.node(id).note.is_empty() {
+                let len = self.ws.tree.node(id).text.len();
                 self.start_edit(Target::Text(id), len, cx);
             }
         }
@@ -251,11 +255,11 @@ impl Outline {
         }
         if let Some(Target::Text(id)) = self.edit_target() {
             let Some(next) = self.neighbor(id, 1) else { return };
-            if self.tree.has_children(next) {
+            if self.ws.tree.has_children(next) {
                 return;
             }
             let before = self.caret();
-            if let Some(off) = self.tree.merge_into(next, id) {
+            if let Some(off) = self.ws.tree.merge_into(next, id) {
                 self.edit = Some(Edit::new(Target::Text(id), off));
                 self.commit_structure(before, cx);
             }
@@ -304,7 +308,7 @@ impl Outline {
         if caret == 0 {
             if let Some(Target::Text(id)) = self.edit_target() {
                 if let Some(prev) = self.neighbor(id, -1) {
-                    let len = self.tree.node(prev).text.len();
+                    let len = self.ws.tree.node(prev).text.len();
                     self.start_edit(Target::Text(prev), len, cx);
                 }
             }
@@ -506,12 +510,12 @@ impl Outline {
                 self.edit = self.rows.first().map(|r| Edit::new(Target::Text(r.id), 0));
             }
             Some(Target::Note(id)) => {
-                let len = self.tree.node(id).text.len();
+                let len = self.ws.tree.node(id).text.len();
                 self.start_edit(Target::Text(id), len, cx);
             }
             Some(Target::Text(id)) => {
                 if id != self.zoom {
-                    self.history.seal();
+                    self.ws.history.seal();
                     self.block = Some(BlockSel { anchor: id, head: id });
                     self.edit = None;
                 } else if !self.query.is_empty() {

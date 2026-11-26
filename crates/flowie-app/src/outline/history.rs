@@ -1,6 +1,6 @@
-//! Commit edits to the undo history and persist changes to the outline.
+//! Commit edits through the workspace, then update the view: rows, animation, caret.
 
-use flowie_core::{Caret, HistoryKind, NodeId, ROOT};
+use flowie_core::{Caret, NodeId, ROOT};
 use gpui::{Context, PromptButton, PromptLevel, Window};
 
 use super::{Edit, Outline, Redo, Target, Undo};
@@ -11,13 +11,6 @@ impl Outline {
         match self.edit.as_ref()?.target {
             Target::Text(id) | Target::Note(id) => Some(Caret { node: id, offset: self.edit.as_ref()?.caret() }),
             Target::Search | Target::Palette | Target::Field(_) => None,
-        }
-    }
-
-    pub(crate) fn persist(&mut self) {
-        let (up, del) = self.tree.take_dirty();
-        if let Some(w) = &self.writer {
-            w.write(up, del);
         }
     }
 
@@ -38,36 +31,16 @@ impl Outline {
     pub(crate) fn commit_with_imports_and_trash(
         &mut self,
         before: Option<Caret>,
-        mut imports: Option<(flowie_core::store::ImportState, flowie_core::store::ImportState)>,
+        imports: Option<(flowie_core::store::ImportState, flowie_core::store::ImportState)>,
         trash: Vec<(NodeId, String, Vec<flowie_core::Node>)>,
         cx: &mut Context<Self>,
     ) {
-        for n in self.tree.journal_removed() {
+        for n in self.ws.tree.journal_removed() {
             self.ghosts.insert(n.id, n);
         }
         let after = self.caret();
         let follow = after != before || before.is_some_and(|c| self.row_on_screen(c.node));
-        if let Some((previous, next)) = imports.as_mut() {
-            previous.trash_removed = trash.clone();
-            next.trash_added = trash.clone();
-        }
-        self.history.commit_with_imports(&mut self.tree, HistoryKind::Structure, before, after, imports.clone());
-        let (upserts, deletes) = self.tree.take_dirty();
-        if let Some((_, state)) = imports {
-            self.set_import_state(state.clone());
-            if let Some(writer) = &self.writer {
-                writer.import_batch(upserts, deletes, state);
-            }
-        } else {
-            if let Some(writer) = &self.writer {
-                writer.write(upserts, deletes);
-            }
-            if let Some(writer) = &self.writer {
-                for (root, label, nodes) in trash {
-                    writer.trash(root, &label, nodes);
-                }
-            }
-        }
+        self.ws.commit_with_imports_and_trash(before, after, imports, trash);
         self.refresh(true);
         if follow {
             self.reveal_edit();
@@ -78,8 +51,7 @@ impl Outline {
     pub(super) fn commit_typing(&mut self, id: NodeId, before: Option<Caret>, cx: &mut Context<Self>) {
         self.see_around(id);
         let after = self.caret();
-        self.history.commit(&mut self.tree, HistoryKind::Typing(id), before, after);
-        self.persist();
+        self.ws.commit_typing(id, before, after);
         if !self.query.is_empty() {
             self.refresh(false);
         }
@@ -87,7 +59,7 @@ impl Outline {
     }
 
     pub fn flush(&mut self) -> Result<(), String> {
-        self.persist();
+        self.ws.persist();
         self.remember_scroll();
         if let Some(s) = self.page_scrolls.get(&self.zoom) {
             self.set_meta("scroll", &s.encode(self.zoom));
@@ -95,7 +67,7 @@ impl Outline {
         if let Some(place) = &self.window_place {
             self.set_meta("window", &place.encode());
         }
-        self.writer.as_ref().map_or(Ok(()), |writer| writer.flush())
+        self.ws.flush()
     }
 
     pub fn request_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
@@ -130,44 +102,34 @@ impl Outline {
         if self.close_auxiliary_page(true, cx) {
             return;
         }
-        let imports = self.history.undo_imports().cloned();
-        if let Some(caret) = self.history.undo(&mut self.tree) {
-            self.after_history(caret, imports, cx);
+        if let Some(caret) = self.ws.undo() {
+            self.after_history(caret, cx);
         }
     }
 
     pub fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
-        let imports = self.history.redo_imports().cloned();
-        if let Some(caret) = self.history.redo(&mut self.tree) {
-            self.after_history(caret, imports, cx);
+        if let Some(caret) = self.ws.redo() {
+            self.after_history(caret, cx);
         }
     }
 
-    fn after_history(&mut self, caret: Option<Caret>, imports: Option<flowie_core::store::ImportState>, cx: &mut Context<Self>) {
-        if let Some(state) = imports {
-            self.set_import_state(state.clone());
-            let (upserts, deletes) = self.tree.take_dirty();
-            if let Some(writer) = &self.writer {
-                writer.import_batch(upserts, deletes, state);
-            }
-        } else {
-            self.persist();
-        }
-        if !self.tree.contains(self.zoom) {
+    /// Update the view after the workspace has undone or redone a step.
+    fn after_history(&mut self, caret: Option<Caret>, cx: &mut Context<Self>) {
+        if !self.ws.tree.contains(self.zoom) {
             self.zoom = ROOT;
         }
         self.block = None;
-        self.edit = caret.filter(|c| self.tree.contains(c.node)).map(|c| {
-            let len = self.tree.node(c.node).text.len();
+        self.edit = caret.filter(|c| self.ws.tree.contains(c.node)).map(|c| {
+            let len = self.ws.tree.node(c.node).text.len();
             Edit::new(Target::Text(c.node), c.offset.min(len))
         });
         // Make sure the caret's row is visible.
         if let Some(Target::Text(id)) = self.edit_target() {
-            for a in self.tree.ancestors(id) {
-                if self.tree.node(a).collapsed && self.tree.is_ancestor(self.zoom, a) {
-                    self.tree.set_collapsed(a, false);
-                    self.tree.take_journal();
-                    self.persist();
+            for a in self.ws.tree.ancestors(id) {
+                if self.ws.tree.node(a).collapsed && self.ws.tree.is_ancestor(self.zoom, a) {
+                    self.ws.tree.set_collapsed(a, false);
+                    self.ws.tree.take_journal();
+                    self.ws.persist();
                 }
             }
         }

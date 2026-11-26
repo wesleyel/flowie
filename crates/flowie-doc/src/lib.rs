@@ -4,12 +4,14 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+#[cfg(feature = "native")]
 pub use driver::{SyncDriver, SyncPhase};
 use flowie_core::images::{BlobInfo, ImageDir};
 use flowie_core::store::{self, ImportRecord, ImportState, Writer};
 use flowie_core::{Caret, History, HistoryKind, NodeId, Tree};
 pub use sync::{LostCopy, SyncState};
 
+#[cfg(feature = "native")]
 mod driver;
 mod sync;
 
@@ -251,6 +253,10 @@ impl Workspace {
 
 /// Delete image files no bullet (in the outline or the Trash) uses any more. Runs once at launch,
 /// off the calling thread, before this session adds any.
+#[cfg(not(feature = "native"))]
+fn collect_images(_db: &Path) {}
+
+#[cfg(feature = "native")]
 fn collect_images(db: &Path) {
     let db = db.to_path_buf();
     std::thread::Builder::new()

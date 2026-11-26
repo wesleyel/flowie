@@ -36,6 +36,8 @@
 
 mod blobs;
 mod imports;
+#[cfg(not(feature = "writer-thread"))]
+mod inline_writer;
 mod migrate;
 #[cfg(feature = "writer-thread")]
 mod writer;
@@ -50,6 +52,8 @@ use crate::tree::{Dirty, Node, NodeId};
 pub use crate::imports::{ImportRecord, ImportState};
 pub use blobs::{collect_unused_images, drop_blobs, image_names_in_use, load_blobs};
 pub use imports::{load_bases, load_imports, write_import_batch};
+#[cfg(not(feature = "writer-thread"))]
+pub use inline_writer::Writer;
 pub use migrate::{Migration, OpenError};
 #[cfg(feature = "writer-thread")]
 pub use writer::Writer;

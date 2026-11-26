@@ -4,7 +4,8 @@
 //! Features (both on by default):
 //! - `store`: SQLite persistence (`store`), share packages (`package`) and the image folder
 //!   (`images::ImageDir`).
-//! - `writer-thread`: `store::Writer`, the background thread that batches writes. Native only.
+//! - `writer-thread`: `store::Writer` as the background thread that batches writes. Native only;
+//!   without it, `store::Writer` saves each change at once on the calling thread (wasm).
 //!
 //! With neither, what's left is the model (tree, undo, flatten, search, markup, text and OPML
 //! import/export), which builds for `wasm32-unknown-unknown`.

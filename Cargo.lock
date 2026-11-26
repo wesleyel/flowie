@@ -1543,6 +1543,8 @@ name = "flowie-doc"
 version = "1.0.1"
 dependencies = [
  "flowie-core",
+ "flowie-sync",
+ "serde_json",
  "tempfile",
 ]
 

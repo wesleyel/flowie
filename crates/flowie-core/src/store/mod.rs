@@ -75,7 +75,6 @@ CREATE TABLE IF NOT EXISTS nodes (
     clocks     BLOB    NOT NULL DEFAULT x'', -- crate::hlc::Clocks; empty = derived from created/modified
     moved_from BLOB    NOT NULL DEFAULT x'', -- parent before the last move; empty = the parent
     extra      TEXT    NOT NULL DEFAULT '',  -- fields from a newer Flowie, as JSON; '' = none
-    sync_base  BLOB,                         -- the server's version last seen (sync)
     local_seq  INTEGER NOT NULL DEFAULT 0    -- order of writes here, for other processes to catch up
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS nodes_parent ON nodes(parent);
@@ -93,6 +92,11 @@ CREATE TABLE IF NOT EXISTS sync_state ( -- per sync backend: where pulling left 
     cursor  BLOB,
     account TEXT
 );
+CREATE TABLE IF NOT EXISTS bases (      -- the sync backend's version of each record last seen here
+    id     BLOB PRIMARY KEY,
+    etag   TEXT NOT NULL,
+    record TEXT NOT NULL                -- flowie_sync::NodeRecord as JSON
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS blobs (   -- image files in the image folder
     name    TEXT    PRIMARY KEY,     -- <sha256>.<ext>
     mime    TEXT    NOT NULL,
@@ -153,13 +157,13 @@ fn sync_columns(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<()> {
         "ALTER TABLE nodes ADD COLUMN clocks BLOB NOT NULL DEFAULT x'';
          ALTER TABLE nodes ADD COLUMN moved_from BLOB NOT NULL DEFAULT x'';
          ALTER TABLE nodes ADD COLUMN extra TEXT NOT NULL DEFAULT '';
-         ALTER TABLE nodes ADD COLUMN sync_base BLOB;
          ALTER TABLE nodes ADD COLUMN local_seq INTEGER NOT NULL DEFAULT 0;
          CREATE INDEX nodes_parent ON nodes(parent);
          CREATE INDEX nodes_local_seq ON nodes(local_seq);
          CREATE TABLE outbox (id BLOB PRIMARY KEY, dirty_mask INTEGER NOT NULL) WITHOUT ROWID;
          CREATE TABLE purged (id BLOB PRIMARY KEY, at BLOB NOT NULL) WITHOUT ROWID;
-         CREATE TABLE sync_state (remote TEXT PRIMARY KEY, cursor BLOB, account TEXT);",
+         CREATE TABLE sync_state (remote TEXT PRIMARY KEY, cursor BLOB, account TEXT);
+         CREATE TABLE bases (id BLOB PRIMARY KEY, etag TEXT NOT NULL, record TEXT NOT NULL) WITHOUT ROWID;",
     )
 }
 
@@ -248,6 +252,56 @@ pub fn reclaim_free_pages(conn: &Connection) -> rusqlite::Result<bool> {
     }
     conn.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE);")?;
     Ok(true)
+}
+
+/// What sync keeps between runs: the records waiting to be sent, the backend's version of
+/// each record last seen (etag, `flowie_sync::NodeRecord` JSON), and where pulling left off
+/// on each backend.
+#[derive(Debug, Default)]
+pub struct SyncRows {
+    pub outbox: Vec<NodeId>,
+    pub bases: Vec<(NodeId, String, String)>,
+    pub cursors: Vec<(String, String)>,
+}
+
+pub fn load_sync(conn: &Connection) -> rusqlite::Result<SyncRows> {
+    let mut stmt = conn.prepare("SELECT id FROM outbox")?;
+    let outbox = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let mut stmt = conn.prepare("SELECT id, etag, record FROM bases")?;
+    let bases = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+    let mut stmt = conn.prepare("SELECT remote, cursor FROM sync_state WHERE cursor IS NOT NULL")?;
+    let cursors = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)))?
+        .filter_map(|row| row.map(|(remote, c)| String::from_utf8(c).ok().map(|c| (remote, c))).transpose())
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(SyncRows { outbox, bases, cursors })
+}
+
+/// One change to what sync keeps (see [`SyncRows`]), saved by the writer in order with the
+/// records.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SyncWrite {
+    /// Nothing of the record is left to send.
+    Sent(NodeId),
+    /// The backend's version of a record: etag and record JSON.
+    Base(NodeId, String, String),
+    /// Where pulling from a backend left off.
+    Cursor { remote: String, cursor: String },
+}
+
+pub fn write_sync(conn: &Connection, write: &SyncWrite) -> rusqlite::Result<()> {
+    match write {
+        SyncWrite::Sent(id) => conn.execute("DELETE FROM outbox WHERE id = ?1", params![id]),
+        SyncWrite::Base(id, etag, record) => conn.execute(
+            "INSERT INTO bases (id, etag, record) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET etag = ?2, record = ?3",
+            params![id, etag, record],
+        ),
+        SyncWrite::Cursor { remote, cursor } => conn.execute(
+            "INSERT INTO sync_state (remote, cursor) VALUES (?1, ?2) ON CONFLICT(remote) DO UPDATE SET cursor = ?2",
+            params![remote, cursor.as_bytes()],
+        ),
+    }
+    .map(drop)
 }
 
 /// The records removed for good, with when (`Tree::set_purged`).

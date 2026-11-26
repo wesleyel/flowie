@@ -7,6 +7,9 @@ use std::path::Path;
 use flowie_core::images::{BlobInfo, ImageDir};
 use flowie_core::store::{self, ImportRecord, ImportState, Writer};
 use flowie_core::{Caret, History, HistoryKind, NodeId, Tree};
+pub use sync::SyncState;
+
+mod sync;
 
 /// An open outline and what saving it needs.
 pub struct Workspace {
@@ -22,6 +25,8 @@ pub struct Workspace {
     pub image_dir: Option<ImageDir>,
     /// Preferences that sync (`store::PREFS`), by key.
     pub prefs: HashMap<String, String>,
+    /// What sync has left to send and has seen of the backend.
+    pub sync: SyncState,
 }
 
 impl Workspace {
@@ -35,6 +40,7 @@ impl Workspace {
             blobs: HashMap::new(),
             image_dir: None,
             prefs: HashMap::new(),
+            sync: SyncState::default(),
         }
     }
 
@@ -54,6 +60,7 @@ impl Workspace {
             store::load_prefs(&conn)?,
             store::load_purged(&conn)?,
         );
+        let sync = store::load_sync(&conn)?;
         collect_images(db);
         let writer = Writer::spawn_with_error_hook(conn, on_save_status);
         let mut tree = Tree::from_nodes(nodes);
@@ -66,6 +73,7 @@ impl Workspace {
             blobs: blobs.into_iter().map(|b| (b.name.clone(), b)).collect(),
             image_dir: Some(images),
             prefs: prefs.into_iter().collect(),
+            sync: SyncState::load(sync),
         };
         let actor = meta.iter().find(|(k, _)| k == "actor.app").and_then(|(_, v)| v.parse::<u64>().ok()).filter(|a| *a != 0);
         let actor = actor.unwrap_or_else(|| {
@@ -78,9 +86,16 @@ impl Workspace {
         Ok((ws, meta))
     }
 
+    /// The tree's unsaved changes, noting what sync has to send.
+    fn take_dirty(&mut self) -> flowie_core::tree::Dirty {
+        let dirty = self.tree.take_dirty();
+        self.sync.note_unsent(dirty.unsent.iter().map(|(id, _)| *id));
+        dirty
+    }
+
     /// Send the tree's unsaved changes to the writer.
     pub fn persist(&mut self) {
-        let dirty = self.tree.take_dirty();
+        let dirty = self.take_dirty();
         if let Some(w) = &self.writer {
             w.write(dirty);
         }
@@ -138,7 +153,7 @@ impl Workspace {
     /// command's tree changes (`Tree::trash`, `Tree::untrash`).
     pub fn commit_with_imports(&mut self, before: Option<Caret>, after: Option<Caret>, imports: Option<(ImportState, ImportState)>) {
         self.history.commit_with_imports(&mut self.tree, HistoryKind::Structure, before, after, imports.clone());
-        let dirty = self.tree.take_dirty();
+        let dirty = self.take_dirty();
         if let Some((_, state)) = imports {
             self.set_import_state(state.clone());
             if let Some(writer) = &self.writer {
@@ -203,7 +218,7 @@ impl Workspace {
     fn save_history_step(&mut self, imports: Option<ImportState>) {
         if let Some(state) = imports {
             self.set_import_state(state.clone());
-            let dirty = self.tree.take_dirty();
+            let dirty = self.take_dirty();
             if let Some(writer) = &self.writer {
                 writer.import_batch(dirty, state);
             }

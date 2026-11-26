@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use rusqlite::{params, Connection};
 
 use super::imports::save_import_state;
-use super::{write_batch, write_import_batch, write_pref, ImportState, LOCAL_META, PREFS};
+use super::{write_batch, write_import_batch, write_pref, write_sync, ImportState, SyncWrite, LOCAL_META, PREFS};
 use crate::hlc::{Hlc, REMOVED};
 use crate::tree::{Dirty, Node, NodeId};
 
@@ -22,6 +22,7 @@ enum Msg {
     Blob(crate::images::BlobInfo),
     Seen { root: NodeId, at: i64 },
     Reclaim,
+    Sync(SyncWrite),
     Retry,
     Flush(Sender<Result<(), String>>),
 }
@@ -44,6 +45,7 @@ enum PendingOp {
     },
     /// `store::reclaim_free_pages`, after what was queued before it.
     Reclaim,
+    Sync(SyncWrite),
 }
 
 /// Handle to the background writer. Dropping it flushes and joins the thread.
@@ -115,6 +117,13 @@ impl Writer {
     pub fn import_batch(&self, dirty: Dirty, state: ImportState) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(Msg::ImportBatch { dirty, state });
+        }
+    }
+
+    /// Save a change to what sync keeps, after the record changes sent before it.
+    pub fn sync(&self, write: SyncWrite) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::Sync(write));
         }
     }
 
@@ -250,6 +259,7 @@ where
                     Msg::Blob(b) => PendingOp::Blob(b),
                     Msg::Seen { root, at } => PendingOp::Seen { root, at },
                     Msg::Reclaim => PendingOp::Reclaim,
+                    Msg::Sync(write) => PendingOp::Sync(write),
                     Msg::Write(_) | Msg::Meta(..) | Msg::Retry | Msg::Flush(_) => unreachable!(),
                 };
                 freeze_batch(&mut pending_ops, &mut pending, &mut pending_meta);
@@ -295,6 +305,7 @@ fn run_op(conn: &mut Connection, op: &PendingOp) -> rusqlite::Result<()> {
             )?;
             Ok(())
         }
+        PendingOp::Sync(write) => write_sync(conn, write),
         PendingOp::Seen { root, at } => {
             conn.execute("UPDATE imports SET seen_at = ?2 WHERE root = ?1", params![root, at])?;
             Ok(())

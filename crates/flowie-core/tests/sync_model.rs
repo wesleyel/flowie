@@ -195,18 +195,12 @@ impl View {
 
         // Deletion. A deleted subtree stays deleted unless something not itself deleted was
         // created under it after the deletion, by a device that hadn't seen it yet: then the
-        // subtree comes back rather than hide the new content.
-        let deleted: BTreeSet<Id> = records
-            .iter()
-            .filter(|(_, r)| r.deleted.val)
-            .filter(|&(&id, r)| {
-                !subtree(&children, id).iter().skip(1).any(|d| {
-                    let dr = &records[d];
-                    !dr.deleted.val && dr.created > r.deleted.at
-                })
-            })
-            .map(|(&id, _)| id)
-            .collect();
+        // subtree comes back rather than hide the new content. What a deletion that stands
+        // inside it hides doesn't count: nothing new would show.
+        let mut deleted = BTreeSet::new();
+        for top in [ROOT, SYNCING] {
+            newest_below(records, &children, top, &mut deleted);
+        }
 
         // Reachable: the path to the root passes no standing deletion and nothing waiting.
         let mut reachable = BTreeSet::new();
@@ -247,6 +241,27 @@ fn subtree(children: &BTreeMap<Id, Vec<Id>>, id: Id) -> Vec<Id> {
         i += 1;
     }
     out
+}
+
+/// The latest creation below `id` that no standing deletion hides, adding the deletions below
+/// `id` that stand to `deleted`. Bottom-up: a deleted node passes on what is below it if that
+/// revives it (its own creation doesn't count), and nothing otherwise.
+fn newest_below(records: &BTreeMap<Id, Rec>, children: &BTreeMap<Id, Vec<Id>>, id: Id, deleted: &mut BTreeSet<Id>) -> Option<Hlc> {
+    let mut newest = None;
+    for &c in children.get(&id).into_iter().flatten() {
+        let below = newest_below(records, children, c, deleted);
+        let r = &records[&c];
+        let up = if !r.deleted.val {
+            below.max(Some(r.created))
+        } else if below.is_some_and(|b| b > r.deleted.at) {
+            below
+        } else {
+            deleted.insert(c);
+            None
+        };
+        newest = newest.max(up);
+    }
+    newest
 }
 
 fn find_cycle(parent: &BTreeMap<Id, Id>) -> Option<Vec<Id>> {
@@ -486,7 +501,7 @@ impl Sim {
         for id in &self.created {
             assert!(first.records.contains_key(id) || first.purged.contains(id), "{id} was lost");
         }
-        // A hidden record is explained by a deletion on its path that came after it.
+        // A hidden record is explained by a deletion that stands on its path and came after it.
         for (&id, rec) in &first.records {
             if view.reachable.contains(&id) {
                 continue;
@@ -497,12 +512,25 @@ impl Sim {
                     break false;
                 }
                 let r = &first.records[&n];
-                if r.deleted.val && r.deleted.at > rec.created {
+                if view.deleted.contains(&n) && r.deleted.at > rec.created {
                     break true;
                 }
                 n = view.parent[&n];
             };
             assert!(explained, "{id} is hidden though nothing above it was deleted after it was created");
+        }
+        // A revived deletion is explained by something below it, not deleted itself, created after
+        // it, with no deletion that stands in between: what would show if it stayed deleted.
+        for (&id, rec) in first.records.iter().filter(|(id, r)| r.deleted.val && !view.deleted.contains(id)) {
+            let explained = view.subtree(id).into_iter().skip(1).any(|d| {
+                let dr = &first.records[&d];
+                let mut n = view.parent[&d];
+                while n != id && !view.deleted.contains(&n) {
+                    n = view.parent[&n];
+                }
+                !dr.deleted.val && dr.created > rec.deleted.at && n == id
+            });
+            assert!(explained, "{id} is revived though nothing new would show under it");
         }
     }
 }
@@ -651,6 +679,28 @@ fn a_record_waits_for_a_parent_that_hasnt_arrived() {
     let view = sim.replicas[1].view();
     assert_eq!(view.parent[&c], p);
     assert!(view.reachable.contains(&c));
+}
+
+/// What a nested deletion hides doesn't bring back the deletion around it: nothing new would
+/// show.
+#[test]
+fn content_hidden_by_a_nested_deletion_does_not_bring_back_the_outer_one() {
+    let mut sim = Sim::new(7, &[0, 0]);
+    let a = sim.create(0, ROOT);
+    let b = sim.create(0, a);
+    sim.sync_all();
+    sim.advance(1);
+    sim.set_deleted(0, a, true);
+    // The other device, away, adds under `b` and then deletes `b`.
+    sim.advance(1);
+    let c = sim.create(1, b);
+    sim.advance(1);
+    sim.set_deleted(1, b, true);
+    sim.sync_all();
+    sim.check_converged();
+    let view = sim.replicas[0].view();
+    assert_eq!(view.deleted, [a, b].into());
+    assert!([a, b, c].iter().all(|id| !view.reachable.contains(id)));
 }
 
 /// The limit of comparing clocks: a device whose clock runs slow can add under a parent that

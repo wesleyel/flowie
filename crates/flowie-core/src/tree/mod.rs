@@ -396,23 +396,41 @@ impl Tree {
         (node.sync.clocks.get(Reg::Position), node.id)
     }
 
-    /// Deleted records to show anyway: something below them in `children` that is not deleted
-    /// itself was created after they were deleted. A device that hadn't seen the deletion
-    /// added it, and hiding it would hide new content. Moves and edits under a deleted record
-    /// don't count: that content is in the Trash and comes back with it.
+    /// Deleted records to show anyway: something below them in `children`, not deleted itself
+    /// and not behind a deletion that stands, was created after they were deleted. A device
+    /// that hadn't seen the deletion added it, and hiding it would hide new content. Moves and
+    /// edits under a deleted record don't count: that content is in the Trash and comes back
+    /// with it. Nor does content a nested deletion keeps in the Trash: nothing new would show.
+    ///
+    /// Computed bottom-up, once per record: each subtree reports the latest creation in it that
+    /// no standing deletion hides. A deleted record passes on what is below it if that revives
+    /// it (its own creation doesn't count), and nothing otherwise.
     fn revivals(&self, children: &HashMap<NodeId, Vec<NodeId>>) -> HashSet<NodeId> {
         let mut out = HashSet::new();
-        for node in self.nodes.values() {
-            let Some(deleted_at) = node.deleted_at else { continue };
-            let mut stack: Vec<NodeId> = children.get(&node.id).cloned().unwrap_or_default();
-            while let Some(id) = stack.pop() {
-                let below = &self.nodes[&id];
-                if below.deleted_at.is_none() && below.created > deleted_at {
-                    out.insert(node.id);
-                    break;
-                }
-                stack.extend(children.get(&id).into_iter().flatten().copied());
+        // The latest creation each finished subtree reports, its root included.
+        let mut newest: HashMap<NodeId, Option<i64>> = HashMap::new();
+        // Every record hangs below the root or below a record that is missing (the view has
+        // no cycles), so walking down from those reaches them all.
+        let tops = children.keys().copied().filter(|id| *id == ROOT || !self.nodes.contains_key(id));
+        let mut stack: Vec<(NodeId, bool)> = tops.map(|id| (id, false)).collect();
+        while let Some((id, done)) = stack.pop() {
+            let kids = children.get(&id).into_iter().flatten();
+            if !done {
+                stack.push((id, true));
+                stack.extend(kids.map(|&c| (c, false)));
+                continue;
             }
+            let below = kids.filter_map(|c| newest.get(c).copied().flatten()).max();
+            let Some(node) = self.nodes.get(&id).filter(|_| id != ROOT) else { continue };
+            let up = match node.deleted_at {
+                Some(at) if below.is_some_and(|b| b > at) => {
+                    out.insert(id);
+                    below
+                }
+                Some(_) => None,
+                None => below.max(Some(node.created)),
+            };
+            newest.insert(id, up);
         }
         out
     }
@@ -589,15 +607,16 @@ impl Tree {
         self.put(node);
     }
 
-    /// Bring a subtree back from the Trash: clear its root's `deleted_at`. If its parent is
-    /// not in the outline any more (in the Trash itself, or gone), it goes to the end of the
-    /// top level. Recorded like any edit. False if `id` is not in the Trash.
+    /// Bring a subtree back from the Trash: clear its root's `deleted_at`. If the parent it
+    /// shows under is not in the outline any more (in the Trash itself, or gone), it goes to
+    /// the end of the top level. Recorded like any edit. False if `id` is not in the Trash
+    /// (a revived deletion isn't).
     pub fn untrash(&mut self, id: NodeId) -> bool {
         let id = self.resolve(id);
-        let Some(node) = self.nodes.get(&id).filter(|n| n.deleted_at.is_some()) else { return false };
+        let Some(node) = self.nodes.get(&id).filter(|n| self.is_deleted(n)) else { return false };
         let mut node = node.clone();
         node.deleted_at = None;
-        if !self.contains(node.parent) {
+        if !self.contains(self.view_parent(&node)) {
             node.rank = self.rank_at(ROOT, self.children(ROOT).len());
             node.parent = ROOT;
         }
@@ -605,13 +624,21 @@ impl Tree {
         true
     }
 
-    /// The Trash: roots of deleted subtrees, most recently deleted first. One deleted while
-    /// already inside another deleted subtree isn't listed: it is part of that entry, and
-    /// becomes an entry of its own when the outer one is restored.
+    /// The Trash: roots of deleted subtrees (deletions that stand), most recently deleted
+    /// first. One with another standing deletion above it, up to the root or to a missing
+    /// record it waits for, isn't listed: it is part of that entry, and becomes an entry of its
+    /// own when the outer one is restored.
     pub fn trashed(&self) -> Vec<NodeId> {
         let outermost = |n: &Node| {
-            let parent = self.view_parent(n);
-            !self.nodes.contains_key(&parent) || !self.index.hidden.contains(&parent)
+            let mut parent = self.view_parent(n);
+            while parent != ROOT && self.index.hidden.contains(&parent) {
+                let Some(p) = self.nodes.get(&parent) else { break };
+                if self.is_deleted(p) {
+                    return false;
+                }
+                parent = self.view_parent(p);
+            }
+            true
         };
         let mut roots: Vec<(i64, NodeId)> =
             self.nodes.values().filter(|n| self.is_deleted(n) && outermost(n)).filter_map(|n| Some((n.deleted_at?, n.id))).collect();
@@ -806,8 +833,10 @@ impl Tree {
         self.insert_sorted(&node);
         self.index.children.entry(node.id).or_default();
         self.sync_index(before.as_ref(), Some(&node));
-        let (id, new, parent) = (node.id, before.is_none(), node.parent);
-        let old_parent = before.as_ref().map(|b| b.parent).filter(|p| *p != parent);
+        // Where the view shows it, before and after (the same override applies to both: a
+        // change that could settle a cycle differently took the reindex above).
+        let (id, new, parent) = (node.id, before.is_none(), self.view_parent(&node));
+        let old_parent = before.as_ref().map(|b| self.view_parent(b)).filter(|p| *p != parent);
         self.journal_put(before.as_ref(), &node);
         self.dirty.insert(id);
         self.nodes.insert(id, node);
@@ -826,7 +855,16 @@ impl Tree {
     /// Whether changing a record from `before` to `after` can touch what is settled across
     /// the whole tree (cycles, revivals), which the incremental update in `put` doesn't
     /// handle. A rare path on one device: moves and edits in the outline stay incremental.
+    /// `created` is written once by the editor, but a record put as a whole (an import, a
+    /// sync) can change it, and with it what revives.
     fn needs_reindex(&self, before: Option<&Node>, after: &Node) -> bool {
+        if before.is_some_and(|b| b.created != after.created) {
+            return true;
+        }
+        // Any write to a position in a cycle can change which move is the latest.
+        if !self.index.moved.is_empty() && before.is_none_or(|b| b.parent != after.parent || b.rank != after.rank) {
+            return true;
+        }
         let structural = before.is_none_or(|b| b.parent != after.parent || b.deleted_at != after.deleted_at);
         structural
             && (!self.index.moved.is_empty()
@@ -898,13 +936,14 @@ impl Tree {
         std::mem::take(&mut self.journal)
     }
 
-    /// Nodes removed or moved to the Trash since the last `take_journal` (as they were).
+    /// Nodes removed or moved to the Trash since the last `take_journal` (as they were). A
+    /// revived deletion deleted again counts too: it was showing.
     pub fn journal_removed(&self) -> Vec<Node> {
         self.journal
             .iter()
             .filter_map(|c| match &c.edit {
                 Edit::Remove(node) => Some(node.clone()),
-                Edit::Set { before: Value::Deleted(None), after: Value::Deleted(Some(_)) } => {
+                Edit::Set { before: before @ Value::Deleted(_), after: after @ Value::Deleted(Some(_)) } if before != after => {
                     self.nodes.get(&c.id).map(|n| Node { deleted_at: None, ..n.clone() })
                 }
                 _ => None,
@@ -1250,6 +1289,24 @@ mod tests {
         assert_derived(&t);
     }
 
+    /// A record with the given parent, creation time and deletion.
+    fn record(id: NodeId, parent: NodeId, created: i64, deleted_at: Option<i64>) -> Node {
+        Node { created, deleted_at, ..Node::new(id, parent, "a0".into()) }
+    }
+
+    #[test]
+    fn reordering_a_node_the_view_moved_out_of_a_cycle_reorders_the_top_level() {
+        let (x, y, d) = (NodeId(3), NodeId(1), NodeId(2));
+        // `x` under `y` and `y` under `x`: `x` is the latest move and shows at the top, before `d`.
+        let mut t = Tree::from_nodes([Node::new(x, y, "a0".into()), Node::new(y, x, "a0".into()), Node::new(d, ROOT, "a1".into())]);
+        assert_eq!(t.children(ROOT), [x, d]);
+        let mut later = t.node(x).clone();
+        later.rank = "a2".into();
+        t.put(later);
+        assert_eq!(t.children(ROOT), [d, x]);
+        assert_derived(&t);
+    }
+
     #[test]
     fn an_undone_move_goes_back_under_the_parent_it_left() {
         let (mut t, [a, b, c, _d]) = sample();
@@ -1261,5 +1318,97 @@ mod tests {
         assert_eq!((t.parent(b), t.parent(c)), (a, b), "b shows back under a, not at the top level");
         assert_eq!(t.node(b).parent, c, "its record keeps the move");
         assert_derived(&t);
+    }
+
+    #[test]
+    fn content_hidden_by_a_nested_deletion_does_not_bring_back_the_outer_one() {
+        // `a` deleted at 100. A device that hadn't seen that added `c` under `b` at 200, then
+        // deleted `b` at 300: nothing new would show, so `a` stays deleted.
+        let (a, b, c) = (NodeId::random(), NodeId::random(), NodeId::random());
+        let t = Tree::from_nodes([record(a, ROOT, 50, Some(100)), record(b, a, 50, Some(300)), record(c, b, 200, None)]);
+        assert!(t.index.revived.is_empty());
+        assert!(!t.contains(a) && !t.contains(b) && !t.contains(c));
+        assert_eq!(t.trashed(), [a]);
+        assert_derived(&t);
+        // Created after both deletions, `c` brings both back.
+        let t = Tree::from_nodes([record(a, ROOT, 50, Some(100)), record(b, a, 50, Some(300)), record(c, b, 400, None)]);
+        assert!(t.contains(a) && t.contains(b) && t.contains(c));
+        assert!(t.trashed().is_empty());
+        assert_derived(&t);
+        // A revived deletion passes on what revives it, not its own creation: `c` (200) brings
+        // `b` (deleted at 100) back but not `a` (deleted at 300), though the record of `b` says
+        // it was created at 350.
+        let t = Tree::from_nodes([record(a, ROOT, 50, Some(300)), record(b, a, 350, Some(100)), record(c, b, 200, None)]);
+        assert_eq!(t.index.revived, [b].into());
+        assert!(!t.contains(a) && !t.contains(b) && !t.contains(c));
+        assert_eq!(t.trashed(), [a]);
+        assert_derived(&t);
+    }
+
+    #[test]
+    fn untrash_leaves_revived_and_cycled_records_alone() {
+        // A revived deletion isn't in the Trash: there is nothing to restore.
+        let (mut t, [a, b, _c, _d]) = sample();
+        t.trash(a);
+        let deleted_at = t.node(a).deleted_at;
+        t.put(record(NodeId::random(), b, deleted_at.unwrap() + 1, None));
+        assert!(t.contains(a));
+        assert!(!t.untrash(a));
+        assert_eq!(t.node(a).deleted_at, deleted_at);
+
+        // A deleted record the view moved out of a cycle is restored where it shows, and its
+        // record keeps its parent.
+        let (x, y) = (NodeId(2), NodeId(1));
+        let mut t = Tree::from_nodes([record(x, y, 1, None), record(y, x, 1, None)]);
+        t.trash(x);
+        assert_eq!(t.trashed(), [x]);
+        assert!(t.untrash(x));
+        assert_eq!(t.node(x).parent, y, "the record keeps its parent");
+        assert_eq!(t.parent(x), ROOT);
+        assert!(t.contains(x) && t.contains(y));
+        assert_derived(&t);
+    }
+
+    #[test]
+    fn changing_when_a_record_was_created_settles_revivals_again() {
+        let (mut t, [a, b, _c, _d]) = sample();
+        t.trash(a);
+        let deleted_at = t.node(a).deleted_at.unwrap();
+        let new = record(NodeId::random(), b, deleted_at + 1, None);
+        t.put(new.clone());
+        assert!(t.contains(a));
+        // Dated before the deletion, it no longer brings the subtree back.
+        t.put(Node { created: deleted_at - 1, ..new });
+        assert!(!t.contains(a));
+        assert_eq!(t.trashed(), [a]);
+        assert_derived(&t);
+    }
+
+    #[test]
+    fn deleting_a_revived_record_again_counts_as_a_removal() {
+        let (mut t, [a, ..]) = sample();
+        // Deleted before the nodes below it were created (by a device that hadn't seen them).
+        let mut node = t.node(a).clone();
+        node.deleted_at = Some(node.created - 10_000);
+        t.put(node);
+        assert!(t.contains(a));
+        t.take_journal();
+        t.trash(a);
+        assert!(!t.contains(a));
+        assert_eq!(t.journal_removed().iter().map(|n| n.id).collect::<Vec<_>>(), [a]);
+    }
+
+    #[test]
+    fn deletions_below_a_missing_ancestor_are_trash_entries() {
+        let (gone, p, d, inner, e) = (NodeId::random(), NodeId::random(), NodeId::random(), NodeId::random(), NodeId::random());
+        // `d` waits below `p`, which waits for `gone`; `e` waits for `gone` directly. `inner` is
+        // part of `d`'s entry.
+        let t = Tree::from_nodes([
+            record(p, gone, 1, None),
+            record(d, p, 1, Some(20)),
+            record(inner, d, 1, Some(30)),
+            record(e, gone, 1, Some(10)),
+        ]);
+        assert_eq!(t.trashed(), [d, e]);
     }
 }

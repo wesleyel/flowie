@@ -20,10 +20,10 @@ impl Package {
         self.outline.nodes.iter().map(move |node| (node.id, package_hash(node, id_map)))
     }
 
-    /// The content hash of `id` as `tree` has it now (`None` if it's gone).
+    /// The content hash of `id` as `tree` shows it now (`None` if it's gone).
     fn local_hash(tree: &Tree, id: NodeId, is_root: bool) -> Option<String> {
         let n = tree.get(id)?;
-        let parent = (!is_root).then_some(n.parent);
+        let parent = (!is_root).then(|| tree.parent(id));
         let mirror = (n.mirror != ROOT).then_some(n.mirror);
         let image = (!n.image.is_empty()).then_some(n.image.as_str());
         Some(content_hash(&n.text, &n.note, n.kind, n.completed, image, parent, mirror))

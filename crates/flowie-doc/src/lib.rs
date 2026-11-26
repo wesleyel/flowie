@@ -447,7 +447,7 @@ mod tests {
         // Back-date the deletion, and the nodes with it: a node created after its subtree
         // was deleted would bring that subtree back.
         let deleted_at = flowie_core::tree::now_millis() - flowie_core::tree::TRASH_DAYS * 86_400_000 - 1;
-        for id in [below, old] {
+        for id in [old, below] {
             let mut node = ws.tree.node(id).clone();
             node.created = deleted_at - 1;
             if id == old {
@@ -455,6 +455,8 @@ mod tests {
             }
             ws.tree.put(node);
         }
+        // Back-dating `below` after `old` settles it again: `old` no longer comes back.
+        assert_eq!(ws.tree.trashed(), [recent, old]);
         ws.commit_with_imports(None, None, None);
         ws.flush().unwrap();
         drop(ws);

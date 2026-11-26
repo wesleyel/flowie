@@ -427,3 +427,39 @@ fn copied_package_update_uses_saved_id_map_and_remaps_links() {
     let known = bases.keys().copied().collect();
     assert!(updated.plan_update_mapped(&local, &bases, &known, id_map).is_empty());
 }
+
+#[test]
+fn updates_compare_where_a_bullet_shows() {
+    // Version 1, imported: `b` under `a`.
+    let (a, b) = (NodeId(1), NodeId(2));
+    let mut sender = Tree::new();
+    for (id, parent, text) in [(a, ROOT, "a"), (b, a, "b")] {
+        let mut node = crate::tree::Node::new(id, parent, "a0".into());
+        node.text = text.into();
+        sender.put(node);
+    }
+    let v1 = Package::export(&sender, &[a], ExportOptions::default(), meta(), None);
+    let mut me = Tree::new();
+    v1.insert_into(&mut me, ROOT, 0, ImportOptions { fresh_ids: false, keep_completion: true });
+    let bases: HashMap<NodeId, String> = v1.base_hashes().into_iter().collect();
+    let known: HashSet<NodeId> = bases.keys().copied().collect();
+
+    // Here, a sync puts `a` under `b`, making a cycle that the view settles by undoing the
+    // latest move: `b` shows at the top level while its record keeps `a` as its parent.
+    let mut moved = me.node(a).clone();
+    moved.parent = b;
+    me.put(moved);
+    // `b` was reordered after that, so its position is the cycle's latest write, and it has
+    // no other parent to go back to.
+    let mut later = me.node(b).clone();
+    later.rank = "a1".into();
+    me.put(later);
+    assert_eq!((me.parent(b), me.node(b).parent), (ROOT, a));
+
+    // `b` changed in the package and, as shown, moved here: a conflict, not an update to take.
+    sender.set_text(b, "b2");
+    let v2 = Package::export(&sender, &[a], ExportOptions::default(), meta(), None);
+    let plan = v2.plan_update(&me, &bases, &known);
+    assert!(plan.changed.is_empty(), "{plan:?}");
+    assert_eq!(plan.conflicts, [b]);
+}

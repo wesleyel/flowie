@@ -177,7 +177,7 @@ impl View {
         // root when that parent is gone or it closes a cycle again.
         let mut undone: BTreeMap<Id, u32> = BTreeMap::new();
         while let Some(cycle) = find_cycle(&parent) {
-            let n = *cycle.iter().max_by_key(|&&n| records[&n].pos.at).unwrap();
+            let n = *cycle.iter().max_by_key(|&&n| (records[&n].pos.at, n)).unwrap();
             let times = undone.entry(n).or_insert(0);
             *times += 1;
             let from = records[&n].pos.val.from;

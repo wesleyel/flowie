@@ -408,7 +408,7 @@ impl Tree {
     fn revivals(&self, children: &HashMap<NodeId, Vec<NodeId>>) -> HashSet<NodeId> {
         let mut out = HashSet::new();
         // The latest creation each finished subtree reports, its root included.
-        let mut newest: HashMap<NodeId, Option<i64>> = HashMap::new();
+        let mut newest: HashMap<NodeId, Option<Hlc>> = HashMap::new();
         // Every record hangs below the root or below a record that is missing (the view has
         // no cycles), so walking down from those reaches them all.
         let tops = children.keys().copied().filter(|id| *id == ROOT || !self.nodes.contains_key(id));
@@ -422,13 +422,16 @@ impl Tree {
             }
             let below = kids.filter_map(|c| newest.get(c).copied().flatten()).max();
             let Some(node) = self.nodes.get(&id).filter(|_| id != ROOT) else { continue };
-            let up = match node.deleted_at {
+            // Clocks, not wall times: a device whose clock was set back can't make a deletion
+            // look older than what it deleted.
+            let deleted = node.deleted_at.map(|_| node.sync.clocks.get(Reg::Deleted));
+            let up = match deleted {
                 Some(at) if below.is_some_and(|b| b > at) => {
                     out.insert(id);
                     below
                 }
                 Some(_) => None,
-                None => below.max(Some(node.created)),
+                None => below.max(Some(node.sync.clocks.created)),
             };
             newest.insert(id, up);
         }
@@ -1262,14 +1265,8 @@ mod tests {
 
     #[test]
     fn something_created_before_the_deletion_stays_in_the_trash_with_it() {
-        let (mut t, [a, b, _c, _d]) = sample();
-        t.trash(a);
-        let deleted_at = t.node(a).deleted_at.unwrap();
-        let mut old = Node::new(NodeId::random(), b, "a5".into());
-        old.created = deleted_at - 1;
-        let id = old.id;
-        t.put(old);
-        let old = id;
+        let (a, b, old) = (NodeId::random(), NodeId::random(), NodeId::random());
+        let t = Tree::from_nodes([record(a, ROOT, 10, Some(100)), record(b, a, 10, None), record(old, b, 50, None)]);
         assert!(!t.contains(a) && !t.contains(old));
         assert_eq!(t.trashed(), [a]);
         assert_derived(&t);
@@ -1289,9 +1286,16 @@ mod tests {
         assert_derived(&t);
     }
 
-    /// A record with the given parent, creation time and deletion.
+    /// A record as another device could have written it: created at `created` and deleted at
+    /// `deleted_at` (both clocks and times), for `Tree::from_nodes`, since a local `put`
+    /// stamps the clocks of now.
     fn record(id: NodeId, parent: NodeId, created: i64, deleted_at: Option<i64>) -> Node {
-        Node { created, deleted_at, ..Node::new(id, parent, "a0".into()) }
+        let mut node = Node { created, deleted_at, ..Node::new(id, parent, "a0".into()) };
+        node.sync.clocks = Clocks::derived(created, created);
+        if let Some(at) = deleted_at {
+            node.sync.clocks.set(Reg::Deleted, Hlc::at_millis(at));
+        }
+        node
     }
 
     #[test]
@@ -1370,29 +1374,23 @@ mod tests {
     }
 
     #[test]
-    fn changing_when_a_record_was_created_settles_revivals_again() {
-        let (mut t, [a, b, _c, _d]) = sample();
-        t.trash(a);
-        let deleted_at = t.node(a).deleted_at.unwrap();
-        let new = record(NodeId::random(), b, deleted_at + 1, None);
-        t.put(new.clone());
+    fn revival_follows_the_clocks_not_the_recorded_times() {
+        let (a, c) = (NodeId::random(), NodeId::random());
+        let mut t = Tree::from_nodes([record(a, ROOT, 10, Some(100)), record(c, a, 200, None)]);
+        assert!(t.contains(a) && t.contains(c), "c's creation clock is after a's deletion");
+        // The creation time a record shows is just data: changing it changes nothing here.
+        let earlier = Node { created: 50, ..t.node(c).clone() };
+        t.put(earlier);
         assert!(t.contains(a));
-        // Dated before the deletion, it no longer brings the subtree back.
-        t.put(Node { created: deleted_at - 1, ..new });
-        assert!(!t.contains(a));
-        assert_eq!(t.trashed(), [a]);
         assert_derived(&t);
     }
 
     #[test]
     fn deleting_a_revived_record_again_counts_as_a_removal() {
-        let (mut t, [a, ..]) = sample();
-        // Deleted before the nodes below it were created (by a device that hadn't seen them).
-        let mut node = t.node(a).clone();
-        node.deleted_at = Some(node.created - 10_000);
-        t.put(node);
+        // `a` was deleted before `b` was created below it (by a device that hadn't seen that).
+        let (a, b) = (NodeId::random(), NodeId::random());
+        let mut t = Tree::from_nodes([record(a, ROOT, 10, Some(100)), record(b, a, 200, None)]);
         assert!(t.contains(a));
-        t.take_journal();
         t.trash(a);
         assert!(!t.contains(a));
         assert_eq!(t.journal_removed().iter().map(|n| n.id).collect::<Vec<_>>(), [a]);

@@ -1,0 +1,90 @@
+name: Test builds
+
+# Release builds of a pull request, uploaded as workflow artifacts (kept 7 days) for trying it out
+# on machines and VMs before it's merged: Windows x64, and the Linux preview for x86_64 and
+# aarch64 (Linux VMs on Apple silicon). Nothing is published.
+on:
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", "website/**", "appstore/fastlane/metadata/**", "appstore/fastlane/screenshots/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
+      - name: Build
+        run: cargo build --release --locked -p flowie-app --target x86_64-pc-windows-msvc
+      - name: Stage
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build\Flowie | Out-Null
+          Copy-Item target\x86_64-pc-windows-msvc\release\flowie.exe build\Flowie\Flowie.exe
+          Copy-Item LICENSE build\Flowie\LICENSE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowie-windows-x64
+          path: build/Flowie
+          retention-days: 7
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: System libraries and packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libfontconfig-dev libfreetype-dev \
+            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev \
+            imagemagick desktop-file-utils shared-mime-info
+      - name: Get appimagetool
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/appimagetool" \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.arch }}.AppImage"
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          echo "APPIMAGETOOL=$RUNNER_TEMP/appimagetool" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
+      - name: Build
+        run: cargo build --release --locked -p flowie-app
+      - name: Package
+        run: |
+          version=$(sed -nE '/^\[workspace.package\]/,/^\[/ s/^version = "(.*)"/\1/p' Cargo.toml)
+          FLOWIE_VERSION="$version-pr${{ github.event.pull_request.number || 'dev' }}" \
+            ARCH=${{ matrix.arch }} scripts/bundle-linux.sh target/release/flowie build
+          ls -l build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowie-linux-${{ matrix.arch }}
+          path: |
+            build/*.tar.gz
+            build/*.AppImage
+          retention-days: 7

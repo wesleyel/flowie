@@ -10,6 +10,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ### Fixed
 
+- **Math**: CJK characters and emoji inside math formulas now use the platform's default UI font instead of a macOS-only font name, so they fall back cleanly on Windows and Linux as well.
 - **Markdown import**: fenced code blocks (```` ``` ```` and `~~~`) now import line by line as code rows without turning `#` comments or `-` lines into headings or list items, and articles with headings and paragraphs (and no list markers) now import prose as joined paragraph rows instead of bullets.
 - **Scrolling**: editing text to the same length, changing an image, zooming between pages, or folding deeply nested rows no longer leaves the scrollbar height map out of sync, and large zoom or search switches no longer scan every row twice.
 

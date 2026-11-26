@@ -55,6 +55,8 @@ impl MathLayout {
     }
 }
 
+const MAX_CACHE_ENTRIES: usize = 4096;
+
 type LayoutCache = Mutex<HashMap<(String, bool), Result<Arc<MathLayout>, String>>>;
 
 fn layout_cache() -> &'static LayoutCache {
@@ -62,18 +64,25 @@ fn layout_cache() -> &'static LayoutCache {
     CACHE.get_or_init(Default::default)
 }
 
+fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn insert_bounded<K: Eq + std::hash::Hash, V>(cache: &mut HashMap<K, V>, key: K, value: V) {
+    if cache.len() >= MAX_CACHE_ENTRIES && !cache.contains_key(&key) {
+        cache.clear();
+    }
+    cache.insert(key, value);
+}
+
 /// Parse and lay out `source` (without `$` delimiters). Cached; cheap to call per frame.
 pub fn layout(source: &str, display: bool) -> Result<Arc<MathLayout>, String> {
     let key = (source.to_string(), display);
-    if let Some(hit) = layout_cache().lock().unwrap().get(&key) {
+    if let Some(hit) = lock_unpoisoned(layout_cache()).get(&key) {
         return hit.clone();
     }
     let result = layout_uncached(source, display);
-    let mut cache = layout_cache().lock().unwrap();
-    if cache.len() > 4096 {
-        cache.clear();
-    }
-    cache.insert(key, result.clone());
+    insert_bounded(&mut lock_unpoisoned(layout_cache()), key, result.clone());
     result
 }
 
@@ -89,7 +98,8 @@ fn layout_uncached(source: &str, display: bool) -> Result<Arc<MathLayout>, Strin
 fn font_for(name: &str) -> gpui::Font {
     let (family, style) = name.split_once('-').unwrap_or((name, "Regular"));
     let mut font = match family {
-        "CJK" | "Emoji" => gpui::font(".SystemUIFont"),
+        // Delegate to GPUI's default system UI font so platform glyph fallback handles CJK/emoji on macOS, Windows, and Linux.
+        "CJK" | "Emoji" => gpui::Font::default(),
         _ => gpui::font(SharedString::from(format!("KaTeX_{family}"))),
     };
     if style.contains("Bold") {
@@ -158,7 +168,7 @@ impl ttf_parser::OutlineBuilder for OutlineSink {
 
 fn resolve_glyph(font: &str, char_code: u32, window: &Window) -> Option<GlyphSource> {
     let key = (font.to_string(), char_code);
-    if let Some(hit) = glyph_cache().lock().unwrap().get(&key) {
+    if let Some(hit) = lock_unpoisoned(glyph_cache()).get(&key) {
         return hit.clone();
     }
     let ch = char::from_u32(char_code);
@@ -185,7 +195,7 @@ fn resolve_glyph(font: &str, char_code: u32, window: &Window) -> Option<GlyphSou
         let glyph = run.glyphs.first()?;
         Some(GlyphSource::Atlas(run.font_id, glyph.id))
     });
-    glyph_cache().lock().unwrap().insert(key, resolved.clone());
+    insert_bounded(&mut lock_unpoisoned(glyph_cache()), key, resolved.clone());
     resolved
 }
 
@@ -252,3 +262,141 @@ pub fn paint(layout: &MathLayout, origin: Point<Pixels>, font_size: Pixels, colo
 
 mod element;
 pub use element::{math, MathElement};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn layout_basic_formulas() {
+        let formulas =
+            ["x^2 + y^2", r"\frac{a}{b}", r"\sqrt{x}", r"\sum_{i=1}^n i", r"\left(\begin{matrix} a & b \\ c & d \end{matrix}\right)"];
+        for formula in formulas {
+            for display in [false, true] {
+                let laid = layout(formula, display).unwrap_or_else(|e| panic!("failed to lay out `{formula}` (display={display}): {e}"));
+                assert!(laid.width > 0.0, "`{formula}` (display={display}) should have positive width");
+                assert!(laid.height > 0.0, "`{formula}` (display={display}) should have positive height");
+                assert!(laid.total_height() > 0.0, "`{formula}` (display={display}) should have positive total height");
+                assert_eq!(laid.total_height(), laid.height + laid.depth);
+                assert!(!laid.items.is_empty(), "`{formula}` (display={display}) should emit display items");
+            }
+        }
+    }
+
+    #[test]
+    fn layout_display_differs_from_inline() {
+        for formula in [r"\sum_{i=1}^n i", r"\frac{1}{2}"] {
+            let inline = layout(formula, false).expect("inline layout");
+            let display = layout(formula, true).expect("display layout");
+            assert!(
+                display.total_height() > inline.total_height(),
+                "`{formula}` display total_height ({}) should exceed inline ({})",
+                display.total_height(),
+                inline.total_height()
+            );
+        }
+    }
+
+    #[test]
+    fn layout_cache_hit_reuses_arc() {
+        let first = layout("x^2 + y^2", false).expect("first layout");
+        let second = layout("x^2 + y^2", false).expect("second layout");
+        assert!(Arc::ptr_eq(&first, &second));
+
+        let display = layout("x^2 + y^2", true).expect("display layout");
+        assert!(!Arc::ptr_eq(&first, &display));
+    }
+
+    #[test]
+    fn layout_invalid_latex_returns_and_caches_err() {
+        let first = layout(r"\frac{1", false);
+        assert!(first.is_err());
+        let first_err = first.unwrap_err();
+        assert!(!first_err.is_empty());
+
+        let second = layout(r"\frac{1", false);
+        assert_eq!(second.unwrap_err(), first_err);
+    }
+
+    #[test]
+    fn font_for_katex_and_fallback_families() {
+        let regular = font_for("Main-Regular");
+        assert_eq!(regular.family.as_ref(), "KaTeX_Main");
+        assert_eq!(regular.weight, FontWeight::NORMAL);
+        assert_eq!(regular.style, FontStyle::Normal);
+
+        let bold = font_for("Main-Bold");
+        assert_eq!(bold.family.as_ref(), "KaTeX_Main");
+        assert_eq!(bold.weight, FontWeight::BOLD);
+        assert_eq!(bold.style, FontStyle::Normal);
+
+        let italic = font_for("Math-Italic");
+        assert_eq!(italic.family.as_ref(), "KaTeX_Math");
+        assert_eq!(italic.weight, FontWeight::NORMAL);
+        assert_eq!(italic.style, FontStyle::Italic);
+
+        let bold_italic = font_for("Main-BoldItalic");
+        assert_eq!(bold_italic.family.as_ref(), "KaTeX_Main");
+        assert_eq!(bold_italic.weight, FontWeight::BOLD);
+        assert_eq!(bold_italic.style, FontStyle::Italic);
+
+        let no_style = font_for("Main");
+        assert_eq!(no_style.family.as_ref(), "KaTeX_Main");
+        assert_eq!(no_style.weight, FontWeight::NORMAL);
+        assert_eq!(no_style.style, FontStyle::Normal);
+
+        let default_font = gpui::Font::default();
+        assert_eq!(font_for("CJK"), default_font);
+        assert_eq!(font_for("Emoji"), default_font);
+
+        let cjk_bold = font_for("CJK-Bold");
+        assert_eq!(cjk_bold.family, default_font.family);
+        assert_eq!(cjk_bold.weight, FontWeight::BOLD);
+        assert_eq!(cjk_bold.style, FontStyle::Normal);
+    }
+
+    #[test]
+    fn katex_face_loads_embedded_fonts_and_rejects_unknown() {
+        let main = katex_face("Main-Regular").expect("Main-Regular should be embedded");
+        assert!(main.glyph_index('m').is_some());
+
+        let ams = katex_face("AMS-Regular").expect("AMS-Regular should be embedded");
+        assert!(ams.units_per_em() > 0);
+
+        assert!(katex_face("NonExistent-Regular").is_none());
+        assert!(katex_face("").is_none());
+    }
+
+    #[test]
+    fn insert_bounded_enforces_upper_bound() {
+        let mut map = HashMap::new();
+        for i in 0..MAX_CACHE_ENTRIES {
+            insert_bounded(&mut map, i, i);
+        }
+        assert_eq!(map.len(), MAX_CACHE_ENTRIES);
+
+        // Updating an existing entry at capacity should not clear the cache.
+        insert_bounded(&mut map, 0, 999);
+        assert_eq!(map.len(), MAX_CACHE_ENTRIES);
+        assert_eq!(map.get(&0), Some(&999));
+
+        // Inserting a new entry beyond capacity resets the cache before inserting.
+        insert_bounded(&mut map, MAX_CACHE_ENTRIES, 42);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get(&MAX_CACHE_ENTRIES), Some(&42));
+    }
+
+    #[test]
+    fn lock_unpoisoned_recovers_after_panic() {
+        let mutex = Arc::new(Mutex::new(123usize));
+        let poisoned = Arc::clone(&mutex);
+        let _ = std::thread::spawn(move || {
+            let mut guard = poisoned.lock().unwrap();
+            *guard = 456;
+            panic!("intentional poison");
+        })
+        .join();
+        assert!(mutex.is_poisoned());
+        assert_eq!(*lock_unpoisoned(&mutex), 456);
+    }
+}

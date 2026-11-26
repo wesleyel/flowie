@@ -1,123 +1,93 @@
-name: Release
+name: Desktop Packages
 
-# Push a tag vX.Y.Z (matching Cargo.toml) to publish a GitHub release whose notes are that
-# version's section of CHANGELOG.md, with the open-source version: Flowie-X.Y.Z-macos.zip, a universal
-# (arm64 + x86_64) build of the tag, ad-hoc signed and not notarized, unsandboxed like a source
-# build. The macos-app job then updates the cask in wesleyel/homebrew-tap (needs the
-# HOMEBREW_TAP_GITHUB_TOKEN secret). The signed, sandboxed app is distributed through the Mac
-# App Store.
-#
-# Release candidates come first: a tag vX.Y.Z-rc.N (Cargo.toml still says X.Y.Z, which is what
-# the App Store gets) publishes a release, Flowie-X.Y.Z-rc.N-macos.zip. Once it holds up, tag
-# vX.Y.Z. Neither kind is a pre-release: whichever tag is the newest version is marked latest
-# and goes into the flowie cask, a candidate included.
 on:
   push:
-    tags: ["v*"]
-  # Rewrites an existing release's notes from main's CHANGELOG.md, e.g. after fixing an entry.
+    tags: ['v*']
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Tag to (re)publish, e.g. v1.0.0 or v1.0.0-rc.1
-        required: true
-      build:
-        description: Also rebuild and upload the macOS and Windows archives
-        type: boolean
-        default: false
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  release:
+  prepare:
+    name: Resolve package version
     runs-on: ubuntu-latest
     outputs:
-      newest: ${{ steps.publish.outputs.newest }}
+      version: ${{ steps.version.outputs.version }}
+      marketing: ${{ steps.version.outputs.marketing }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: version
+        run: |
+          marketing=$(bash scripts/release-notes.sh --version)
+          echo "marketing=$marketing" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version=${GITHUB_REF_NAME#v}
+            bash scripts/release-notes.sh "$version" > /dev/null
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            version="$marketing-test.${GITHUB_SHA:0:8}"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: Package (${{ matrix.platform }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS universal
+            runner: macos-latest
+            package: macos
+          - platform: Windows x64
+            runner: windows-latest
+            package: windows-x64
+          - platform: Linux x86_64
+            runner: ubuntu-22.04
+            package: linux-x86_64
+    runs-on: ${{ matrix.runner }}
     env:
-      TAG: ${{ inputs.tag || github.ref_name }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      MARKETING_VERSION: ${{ needs.prepare.outputs.marketing }}
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Check the tag matches its Cargo version
-        run: |
-          # vX.Y.Z, or vX.Y.Z-rc.N for a release candidate of X.Y.Z.
-          if ! [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
-            echo "::error::tag $TAG is neither vX.Y.Z nor vX.Y.Z-rc.N"
-            exit 1
-          fi
-          version=$(git show "$TAG:Cargo.toml" | sed -nE '/^\[workspace.package\]/,/^\[/ s/^version = "(.*)"/\1/p')
-          base=${TAG%%-*}
-          if [ "v$version" != "$base" ]; then
-            echo "::error::tag $TAG does not match Cargo.toml version $version"
-            exit 1
-          fi
-      - name: Release notes from CHANGELOG.md
-        run: |
-          {
-            scripts/changelog-section.sh "${TAG#v}"
-            echo
-            echo "---"
-            echo
-            if [[ $TAG == *-rc.* ]]; then
-              echo "**This is a release candidate**, for trying out before $(t=${TAG#v}; echo "${t%%-*}") is final: \`brew install --cask wesleyel/tap/flowie\`, or the zip below."
-              echo
-            fi
-            echo "**Get Flowie** on the [Mac App Store](https://apps.apple.com/app/id6835913837) (signed, sandboxed, updated automatically), download the open-source macOS (**Flowie-${TAG#v}-macos.zip**) or Windows (**Flowie-${TAG#v}-windows-x64.zip**) zip below, or [build it from source](https://github.com/wesleyel/flowie/blob/$TAG/docs/building.md)."
-            echo
-            echo "**macOS:** The zip is a universal app for macOS 13 or later that isn't notarized, so macOS blocks the first launch: unzip it, move Flowie.app to Applications, then right-click it and choose **Open** (on macOS 15 or later: open it once, then **System Settings → Privacy & Security → Open Anyway**). Or run \`xattr -dr com.apple.quarantine /Applications/Flowie.app\`. It doesn't update itself."
-            echo
-            echo "**Windows:** Unzip **Flowie-${TAG#v}-windows-x64.zip** and run \`Flowie.exe\` (Windows 10/11, 64-bit). Because it isn't code-signed yet, Windows SmartScreen may warn on first run — choose **More info → Run anyway**."
-          } > "$RUNNER_TEMP/notes.md"
-          cat "$RUNNER_TEMP/notes.md"
-      - name: Create or update the release
-        id: publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          title="Flowie ${TAG#v}"
-          # No release is a pre-release, candidates included. The newest version is the latest
-          # release (X.Y.Z-rc.N sorts before X.Y.Z), so re-running an older tag leaves it alone.
-          newest=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' \
-            | sed 's/-rc\./~rc./' | sort -V | tail -n 1 | sed 's/~rc\./-rc./')
-          if [ "$TAG" = "$newest" ]; then latest=--latest; else latest=--latest=false; fi
-          echo "newest=$([ "$TAG" = "$newest" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          kind=(--prerelease=false "$latest")
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" "${kind[@]}"
-          else
-            gh release create "$TAG" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md" "${kind[@]}"
-          fi
-
-  macos-app:
-    name: macOS app zip
-    needs: release
-    # A tag push always builds; a manual run only when asked (it usually just fixes the notes).
-    if: github.event_name == 'push' || inputs.build
-    runs-on: macos-latest
-    env:
-      TAG: ${{ inputs.tag || github.ref_name }}
-      CARGO_TERM_COLOR: always
-      MACOSX_DEPLOYMENT_TARGET: "13.0"
-    steps:
-      - uses: actions/checkout@v7
+          persist-credentials: false
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: bash scripts/linux-deps.sh package
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
         with:
-          ref: ${{ env.TAG }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - name: Build a universal binary
+          key: desktop-packages
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build and smoke-test the macOS archive
+        if: runner.os == 'macOS'
         run: |
-          for t in aarch64-apple-darwin x86_64-apple-darwin; do
-            cargo build --release --locked -p flowie-app --target "$t"
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked -p flowie-app --target "$target"
           done
-          mkdir -p build
+          mkdir -p build dist
           lipo -create -output build/flowie \
             target/aarch64-apple-darwin/release/flowie target/x86_64-apple-darwin/release/flowie
-          lipo -archs build/flowie
-      - name: Bundle and zip
-        run: |
-          app=$(scripts/bundle-macos.sh build/flowie Flowie flowie.spokey.cn)
+          lipo -verify_arch arm64 x86_64 build/flowie
+          app=$(FLOWIE_VERSION="$MARKETING_VERSION" scripts/bundle-macos.sh build/flowie Flowie flowie.spokey.cn)
           plist="$app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(git rev-list --count HEAD)" "$plist"
           /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.productivity" "$plist"
@@ -125,124 +95,147 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:0 string en" "$plist"
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:1 string zh-Hans" "$plist"
           plutil -lint "$plist"
-          # Editing Info.plist breaks the signature bundle-macos.sh made; sign again.
           codesign --force --sign - "$app"
           codesign --verify --strict "$app"
-          # A release candidate's app says X.Y.Z, like the App Store build; its zip says X.Y.Z-rc.N.
-          version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")
-          [ "v$version" = "${TAG%%-*}" ] || { echo "::error::app version $version does not match $TAG"; exit 1; }
-          zip="build/Flowie-${TAG#v}-macos.zip"
-          # ditto keeps the bundle's symlinks, permissions and signature intact.
+          zip="dist/Flowie-$VERSION-macos.zip"
           ditto -c -k --keepParent "$app" "$zip"
-          (cd build && shasum -a 256 "$(basename "$zip")") | tee "$zip.sha256"
-          echo "ZIP=$zip" >> "$GITHUB_ENV"
-      - name: Smoke test (launch, then quit)
-        run: |
-          FLOWIE_DB="$RUNNER_TEMP/smoke.sqlite" build/Flowie.app/Contents/MacOS/Flowie &
+          ditto -x -k "$zip" "$RUNNER_TEMP/smoke"
+          executable="$RUNNER_TEMP/smoke/Flowie.app/Contents/MacOS/Flowie"
+          python3 scripts/smoke-mcp.py "$executable"
+          export FLOWIE_DB="$RUNNER_TEMP/smoke.sqlite"
+          "$executable" &
           pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
           sleep 10
           kill -0 "$pid"
-          kill "$pid"
-      - name: Upload to the release
+          test -s "$FLOWIE_DB"
+          perl -e 'alarm 30; exec @ARGV' "$executable" --background
+          kill -0 "$pid"
+      - name: Build and smoke-test the Windows archive
+        if: runner.os == 'Windows'
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber
-      - name: Package and upload the RC4 migration tool
-        if: env.TAG == 'v1.0.0-rc.4'
-        env:
-          GH_TOKEN: ${{ github.token }}
+          RUSTFLAGS: -C target-feature=+crt-static
+        shell: pwsh
         run: |
-          for target in aarch64-apple-darwin x86_64-apple-darwin; do
-            cargo build --release --locked -p flowie-core --example migrate-rc3-to-rc4 --target "$target"
-          done
-          stage="build/Flowie-migration"
-          mkdir -p "$stage"
-          lipo -create -output "$stage/migrate-rc3-to-rc4" \
-            target/aarch64-apple-darwin/release/examples/migrate-rc3-to-rc4 \
-            target/x86_64-apple-darwin/release/examples/migrate-rc3-to-rc4
-          codesign --force --sign - "$stage/migrate-rc3-to-rc4"
-          codesign --verify --strict "$stage/migrate-rc3-to-rc4"
-          "$stage/migrate-rc3-to-rc4" --help
-          cp LICENSE "$stage/"
-          zip="build/Flowie-${TAG#v}-migration-macos.zip"
-          ditto -c -k --keepParent "$stage" "$zip"
-          gh release upload "$TAG" "$zip" --clobber
-      - name: Update the Homebrew cask
-        # Casks/flowie.rb in wesleyel/homebrew-tap (`brew install --cask wesleyel/tap/flowie`)
-        # takes every release, candidates included, but only the newest version: rebuilding an
-        # older tag must not move the cask back.
-        # A failure here leaves the release and its zip in place; fix the token and re-run.
-        if: needs.release.outputs.newest == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-        run: scripts/update-tap-cask.sh "${TAG#v}" "$ZIP.sha256"
+          $PSNativeCommandUseErrorActionPreference = $true
+          rustup target add x86_64-pc-windows-msvc
+          cargo build --release --locked -p flowie-app --target x86_64-pc-windows-msvc
+          New-Item -ItemType Directory -Force -Path build/Flowie,dist | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/flowie.exe build/Flowie/Flowie.exe
+          Copy-Item LICENSE build/Flowie/LICENSE
+          $zip = "dist/Flowie-$env:VERSION-windows-x64.zip"
+          Compress-Archive -Path build/Flowie -DestinationPath $zip
+          Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP/smoke"
+          python scripts/smoke-mcp.py "$env:RUNNER_TEMP/smoke/Flowie/Flowie.exe"
+      - name: Build and smoke-test Linux preview packages
+        if: runner.os == 'Linux'
+        run: |
+          tool="$RUNNER_TEMP/appimagetool"
+          curl --fail --location --retry 3 -o "$tool" \
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  $tool" | sha256sum --check
+          chmod +x "$tool"
+          cargo build --release --locked -p flowie-app
+          desktop-file-validate assets/linux/flowie.spokey.cn.desktop
+          xmllint --noout assets/linux/flowie.spokey.cn.xml
+          APPIMAGETOOL="$tool" FLOWIE_VERSION="$VERSION" scripts/bundle-linux.sh target/release/flowie dist
+          base="dist/Flowie-$VERSION-linux-x86_64"
+          mkdir -p "$RUNNER_TEMP/prefix"
+          tar -xzf "$base.tar.gz" -C "$RUNNER_TEMP/prefix" --strip-components=1
+          python3 scripts/smoke-mcp.py "$RUNNER_TEMP/prefix/bin/flowie"
+          APPIMAGE_EXTRACT_AND_RUN=1 python3 scripts/smoke-mcp.py "$base.AppImage"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowie-${{ matrix.package }}
+          path: dist/Flowie-*
+          if-no-files-found: error
+          retention-days: 7
 
-  windows-app:
-    name: Windows app zip
-    needs: release
-    if: github.event_name == 'push' || inputs.build
-    runs-on: windows-latest
+  publish:
+    name: Publish all desktop packages
+    needs: [prepare, package]
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: flowie-publish
+      cancel-in-progress: false
     env:
-      TAG: ${{ inputs.tag || github.ref_name }}
-      CARGO_TERM_COLOR: always
+      VERSION: ${{ needs.prepare.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ env.TAG }}
-      - uses: dtolnay/rust-toolchain@stable
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
         with:
-          targets: x86_64-pc-windows-msvc
-      - name: Build Windows binary
-        run: cargo build --release --locked -p flowie-app --target x86_64-pc-windows-msvc
-      - name: Package zip and checksum
-        shell: pwsh
+          pattern: flowie-*
+          path: dist
+          merge-multiple: true
+      - name: Verify the complete asset set and generate checksums
+        working-directory: dist
         run: |
-          $ver = $env:TAG.TrimStart('v')
-          $stage = "build\Flowie"
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Copy-Item "target\x86_64-pc-windows-msvc\release\flowie.exe" "$stage\Flowie.exe"
-          Copy-Item "LICENSE" "$stage\LICENSE"
-          $zip = "build\Flowie-$ver-windows-x64.zip"
-          Compress-Archive -Path $stage -DestinationPath $zip -Force
-          $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  Flowie-$ver-windows-x64.zip" | Set-Content -NoNewline "$zip.sha256"
-          "`n" | Add-Content -NoNewline "$zip.sha256"
-          Get-Content "$zip.sha256"
-          "ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Smoke test (MCP stdio)
-        # Started over pipes the way MCP clients start it (CreateProcess). PowerShell neither
-        # waits for nor captures a GUI-subsystem exe, which the release build is.
-        shell: python
+          for suffix in macos.zip windows-x64.zip linux-x86_64.tar.gz linux-x86_64.AppImage; do
+            file="Flowie-$VERSION-$suffix"
+            test -s "$file"
+            sha256sum "$file" > "$file.sha256"
+          done
+      - name: Publish from a draft after all uploads succeed
         run: |
-          import json, subprocess
-          reqs = [
-              {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
-              {"jsonrpc": "2.0", "id": 2, "method": "ping", "params": {}},
-          ]
-          stdin = "".join(json.dumps(r) + "\n" for r in reqs)
-          out = subprocess.run([r"build\Flowie\Flowie.exe", "mcp"], input=stdin, capture_output=True, text=True, timeout=60).stdout
-          print(out)
-          assert '"name":"flowie"' in out, "MCP initialize failed"
-          assert '"id":2' in out, "MCP ping failed"
-      - name: Upload to the release
+          bash scripts/release-notes.sh "$VERSION" --github > "$RUNNER_TEMP/notes.md"
+          prerelease=false
+          latest_flag=--latest=false
+          if [[ "$VERSION" == *-rc.* ]]; then
+            prerelease=true
+          else
+            latest=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+              --jq '.[] | select(.draft == false and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | .tag_name' \
+              | sort -V | tail -n 1)
+            if [[ $(printf '%s\n' "$GITHUB_REF_NAME" "$latest" | sort -V | tail -n 1) == "$GITHUB_REF_NAME" ]]; then
+              latest_flag=--latest
+            fi
+          fi
+          if ! draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null); then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "Flowie $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md" --prerelease="$prerelease"
+            draft=true
+          fi
+          if [[ "$draft" == true ]]; then
+            gh release upload "$GITHUB_REF_NAME" dist/Flowie-* --clobber
+            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease="$prerelease" \
+              --notes-file "$RUNNER_TEMP/notes.md" "$latest_flag"
+          fi
+          gh release view "$GITHUB_REF_NAME" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
+
+  homebrew:
+    name: Update Homebrew for the newest release
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: flowie-homebrew
+      cancel-in-progress: false
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Find the newest published tag (including RCs)
+        id: newest
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$env:TAG" "$env:ZIP" "$env:ZIP.sha256" --clobber
-      - name: Package and upload the RC4 migration tool
-        if: env.TAG == 'v1.0.0-rc.4'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: pwsh
         run: |
-          cargo build --release --locked -p flowie-core --example migrate-rc3-to-rc4 --target x86_64-pc-windows-msvc
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $ver = $env:TAG.TrimStart('v')
-          $stage = "build\Flowie-migration"
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Copy-Item "target\x86_64-pc-windows-msvc\release\examples\migrate-rc3-to-rc4.exe" "$stage\"
-          & "$stage\migrate-rc3-to-rc4.exe" --help
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Copy-Item "LICENSE" "$stage\"
-          $zip = "build\Flowie-$ver-migration-windows-x64.zip"
-          Compress-Archive -Path $stage -DestinationPath $zip -Force
-          gh release upload "$env:TAG" "$zip" --clobber
+          latest=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | select(.draft == false and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$"))) | .tag_name' \
+            | sed 's/-rc\./~rc./' | sort -V | tail -n 1 | sed 's/~rc\./-rc./')
+          if [[ "$latest" != "$GITHUB_REF_NAME" ]]; then exit 0; fi
+          checksum="Flowie-$VERSION-macos.zip.sha256"
+          gh release download "$GITHUB_REF_NAME" --pattern "$checksum" --dir "$RUNNER_TEMP"
+          echo "checksum=$RUNNER_TEMP/$checksum" >> "$GITHUB_OUTPUT"
+      - name: Update the cask
+        if: steps.newest.outputs.checksum != ''
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          CHECKSUM: ${{ steps.newest.outputs.checksum }}
+        run: scripts/update-tap-cask.sh "$VERSION" "$CHECKSUM"

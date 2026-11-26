@@ -40,8 +40,8 @@ impl Outline {
         if restore {
             if let Some(mut edit) = selection.edit {
                 let text = match edit.target {
-                    Target::Text(id) if self.tree.contains(id) => Some(self.tree.node(self.tree.source(id)).text.as_str()),
-                    Target::Note(id) if self.tree.contains(id) => Some(self.tree.node(self.tree.source(id)).note.as_str()),
+                    Target::Text(id) if self.ws.tree.contains(id) => Some(self.ws.tree.node(self.ws.tree.source(id)).text.as_str()),
+                    Target::Note(id) if self.ws.tree.contains(id) => Some(self.ws.tree.node(self.ws.tree.source(id)).note.as_str()),
                     Target::Search => Some(self.query.as_str()),
                     _ => None,
                 };
@@ -55,7 +55,7 @@ impl Outline {
                     self.edit = Some(edit);
                 }
             }
-            self.block = selection.block.filter(|block| self.tree.contains(block.anchor) && self.tree.contains(block.head));
+            self.block = selection.block.filter(|block| self.ws.tree.contains(block.anchor) && self.ws.tree.contains(block.head));
         }
         cx.notify();
     }

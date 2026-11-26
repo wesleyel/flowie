@@ -30,19 +30,18 @@ impl Outline {
                 self.shot_close_ui();
                 // Leave the page first: it's about to be deleted.
                 self.zoom_to(ROOT, cx);
-                for kid in self.tree.children(ROOT).to_vec() {
-                    self.tree.delete(kid);
+                for kid in self.ws.tree.children(ROOT).to_vec() {
+                    self.ws.tree.delete(kid);
                 }
-                self.starred.clear();
+                for root in self.ws.tree.trashed() {
+                    self.ws.purge(root);
+                }
                 self.saved_searches.clear();
-                self.journal_id = None;
                 self.hide_completed = false;
-                self.set_meta("starred", "");
-                self.set_meta("saved_searches", "");
-                self.set_meta("journal", "");
+                self.save_searches();
                 self.set_meta("hide_completed", "0");
                 self.commit_structure(None, cx);
-                self.history.seal();
+                self.ws.history.seal();
                 Ok("wiped".into())
             }
             // Close every popup and leave no caret or selection.
@@ -57,11 +56,7 @@ impl Outline {
             }
             "star" => {
                 let id = self.agent_node(p, "id")?;
-                if !self.starred.contains(&id) {
-                    self.starred.push(id);
-                }
-                let v = self.starred.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
-                self.set_meta("starred", &v);
+                self.ws.set_starred(id, true);
                 Ok("starred".into())
             }
             "save_search" => {
@@ -69,24 +64,24 @@ impl Outline {
                 if !self.saved_searches.contains(&q) {
                     self.saved_searches.push(q);
                 }
-                self.set_meta("saved_searches", &self.saved_searches.join("\n"));
+                self.save_searches();
                 Ok("saved".into())
             }
             // A mirror of `source` as the last child of `parent`.
             "mirror" => {
                 let (source, parent) = (self.agent_node(p, "source")?, self.agent_node(p, "parent")?);
-                let index = self.tree.children(parent).len();
-                let m = self.tree.create_mirror(source, parent, index).ok_or("can't mirror into itself")?;
+                let index = self.ws.tree.children(parent).len();
+                let m = self.ws.tree.create_mirror(source, parent, index).ok_or("can't mirror into itself")?;
                 self.commit_structure(None, cx);
-                self.history.seal();
+                self.ws.history.seal();
                 Ok(m.to_string())
             }
             "kind" => {
                 let id = self.agent_node(p, "id")?;
                 let kind = BlockKind::from_name(s(p, "kind").unwrap_or("")).ok_or("unknown kind")?;
-                self.tree.set_kind(id, kind);
+                self.ws.tree.set_kind(id, kind);
                 self.commit_structure(None, cx);
-                self.history.seal();
+                self.ws.history.seal();
                 Ok("kind".into())
             }
             "zoom" => {
@@ -107,7 +102,7 @@ impl Outline {
             // Caret in a bullet's text (`offset` defaults to the end).
             "caret" => {
                 let id = self.agent_node(p, "id")?;
-                let len = self.tree.node(self.tree.source(id)).text.len();
+                let len = self.ws.tree.node(self.ws.tree.source(id)).text.len();
                 let off = p.get("offset").and_then(Value::as_u64).map_or(len, |o| o as usize);
                 self.start_edit(Target::Text(id), off, cx);
                 Ok("caret".into())
@@ -120,7 +115,7 @@ impl Outline {
                     let at = self.edit.as_ref().map_or(0, |e| e.caret());
                     self.replace_edit_text(at..at, &ch.to_string(), false, cx);
                 }
-                self.history.seal();
+                self.ws.history.seal();
                 Ok("typed".into())
             }
             "palette" => {

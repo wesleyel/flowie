@@ -7,7 +7,7 @@ en:
     - q: What is Flowie?
       a: "Flowie is a keyboard-first outliner. You can zoom into any bullet, link or mirror it elsewhere, keep a daily journal, and write LaTeX right in your notes."
     - q: Which systems does Flowie run on?
-      a: 'Download Flowie for macOS 13 or later (Apple silicon or Intel) or Windows 10 and 11 (64-bit) from <a href="https://github.com/wesleyel/flowie/releases/latest">GitHub Releases</a>. On Linux, <a href="https://github.com/wesleyel/flowie/blob/main/docs/building.md">build it from source</a>.'
+      a: 'See the <a href="download.html">installation guide</a> for macOS 13+ (Apple silicon or Intel) and the Windows 10/11 x64 and Linux x86_64 previews.'
     - q: Where are my notes stored?
       a: 'Flowie saves your notes in a local SQLite database and keeps attached images in a folder next to it. See <a href="https://github.com/wesleyel/flowie/blob/main/docs/building.md#where-data-lives">where Flowie stores its files on each system</a>.'
     - q: Can I sync across devices?
@@ -34,7 +34,7 @@ zh:
     - q: Flowie 是什么？
       a: "Flowie 是一款可以用键盘操作的大纲笔记。每个条目都能点进去当一页用。你可以链接或镜像条目、写日记，也可以在笔记里写 LaTeX 公式。"
     - q: Flowie 支持哪些系统？
-      a: 'macOS 13 及以上（Apple 芯片和 Intel）和 Windows 10、11（64 位）可以从 <a href="https://github.com/wesleyel/flowie/releases/latest">GitHub Releases</a> 下载。Linux 用户可以<a href="https://github.com/wesleyel/flowie/blob/main/docs/building.md">从源码构建</a>。'
+      a: '<a href="download.html">安装指南</a>提供 macOS 13 及以上（Apple 芯片和 Intel）正式版，以及 Windows 10/11 x64 和 Linux x86_64 预览版的下载说明。'
     - q: 笔记保存在哪里？
       a: '笔记保存在本地 SQLite 数据库里，图片放在数据库旁边的文件夹里。<a href="https://github.com/wesleyel/flowie/blob/main/docs/building.md#where-data-lives">查看各系统的保存位置</a>。'
     - q: 可以在不同设备间同步吗？

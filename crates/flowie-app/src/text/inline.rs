@@ -78,7 +78,7 @@ impl Outline {
     /// All `#tags` / `@mentions` in the outline with use counts.
     fn tags(&self, sigil: char) -> Vec<(String, usize)> {
         let mut counts: HashMap<String, usize> = HashMap::new();
-        for n in self.tree.nodes() {
+        for n in self.ws.tree.nodes() {
             if !n.text.contains(sigil) {
                 continue;
             }
@@ -96,7 +96,7 @@ impl Outline {
     fn inline_query(&self) -> Option<String> {
         let i = self.inline.as_ref()?;
         let e = self.edit.as_ref()?;
-        let text = self.tree.get(i.node)?.text.as_str();
+        let text = self.ws.tree.get(i.node)?.text.as_str();
         let from = i.start + trigger_len(i.kind);
         let caret = e.caret();
         (caret >= from && caret <= text.len()).then(|| text[from..caret].to_string())
@@ -146,7 +146,7 @@ impl Outline {
         };
         let node = *node;
         let caret = self.edit.as_ref().unwrap().caret();
-        let text = self.tree.node(node).text.clone();
+        let text = self.ws.tree.node(node).text.clone();
         if let Some(i) = &self.inline {
             let from = i.start + trigger_len(i.kind);
             let valid = i.node == node
@@ -227,9 +227,9 @@ impl Outline {
         match action {
             Action::Kind(kind) => {
                 let before = Some(flowie_core::Caret { node: id, offset: caret });
-                let src = self.tree.source(id);
+                let src = self.ws.tree.source(id);
                 let _ = src;
-                self.tree.set_kind(id, kind);
+                self.ws.tree.set_kind(id, kind);
                 self.commit_structure(before, cx);
             }
             Action::Wrap(open, close) => {
@@ -275,12 +275,12 @@ impl Outline {
     }
 
     pub fn insert_link_to(&mut self, node: NodeId, at: usize, target: NodeId, cx: &mut Context<Self>) {
-        if !self.tree.contains(node) {
+        if !self.ws.tree.contains(node) {
             return;
         }
         let label: String = node_label(self, target).replace(['[', ']'], "").chars().take(48).collect();
         let link = format!("[{label}](flowie:{target})");
-        let len = self.tree.node(node).text.len();
+        let len = self.ws.tree.node(node).text.len();
         let at = at.min(len);
         self.start_edit(Target::Text(node), at, cx);
         self.replace_edit_text(at..at, &link, false, cx);

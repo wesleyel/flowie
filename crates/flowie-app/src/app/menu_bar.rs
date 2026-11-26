@@ -1,10 +1,13 @@
 //! The in-window menu bar, for platforms without a global one (Windows and
 //! Linux; see `platform::MENU_BAR_IN_WINDOW`). Built from the same
-//! `keymap::app_menus()` table that feeds macOS's native menu bar.
+//! `keymap::app_menus()` table that feeds macOS's native menu bar. Where Flowie
+//! draws the window's decorations (GNOME on Wayland) it is also the title bar;
+//! see `window_frame`.
 
 use gpui::{anchored, deferred, div, prelude::*, px, AnyElement, Context, MouseButton, MouseDownEvent, SharedString, Window};
 
 use crate::app::keymap::{self, AppMenuItem};
+use crate::app::window_frame;
 use crate::outline::Outline;
 use crate::ui::theme::R_SM;
 
@@ -35,6 +38,8 @@ impl Outline {
         let menus = keymap::app_menus();
         let keys = self.config.keys.clone();
         let max_h = (window.viewport_size().height - px(MENU_BAR_H + 16.)).max(px(120.));
+        // The bar's bottom edge in window coordinates (below the frame Flowie may draw).
+        let bar_bottom = MENU_BAR_H + window_frame::content_top(window);
 
         let mut buttons: Vec<AnyElement> = Vec::with_capacity(menus.len());
         for (ix, menu) in menus.into_iter().enumerate() {
@@ -84,9 +89,9 @@ impl Outline {
                     .max_h(max_h)
                     .overflow_y_scroll()
                     .track_scroll(&self.app_menu_scroll)
-                    .on_mouse_down_out(cx.listener(|this, ev: &MouseDownEvent, _, cx| {
+                    .on_mouse_down_out(cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
                         // Clicks on the top bar itself are handled by the menu buttons.
-                        if f32::from(ev.position.y) < MENU_BAR_H {
+                        if f32::from(ev.position.y) < bar_bottom {
                             return;
                         }
                         if this.close_app_menu() {
@@ -142,21 +147,28 @@ impl Outline {
             );
         }
 
+        let bar = div()
+            .id("app-menu-bar")
+            .flex_none()
+            .h(px(MENU_BAR_H))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .bg(theme.bg)
+            .border_b_1()
+            .border_color(theme.divider)
+            .text_size(px(12.5))
+            .text_color(theme.text);
+        let left_buttons = window_frame::window_buttons(true, theme, window, cx);
+        let right_buttons = window_frame::window_buttons(false, theme, window, cx);
+        let draws_buttons = left_buttons.is_some() || right_buttons.is_some();
         Some(
-            div()
-                .id("app-menu-bar")
-                .flex_none()
-                .h(px(MENU_BAR_H))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(2.))
-                .bg(theme.bg)
-                .border_b_1()
-                .border_color(theme.divider)
-                .text_size(px(12.5))
-                .text_color(theme.text)
+            window_frame::title_bar_handlers(bar, window)
+                .children(left_buttons.map(|b| div().pr(px(8.)).child(b)))
                 .children(buttons)
+                .when(draws_buttons, |bar| bar.child(div().flex_1()))
+                .children(right_buttons)
                 .into_any_element(),
         )
     }

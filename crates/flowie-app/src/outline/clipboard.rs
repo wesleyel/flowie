@@ -15,7 +15,7 @@ impl Outline {
     /// Copy bullets with full fidelity for pasting inside Flowie, plus
     /// Markdown text for other apps.
     pub fn copy_items(&self, ids: &[NodeId], cx: &mut Context<Self>) {
-        cx.write_to_clipboard(items_to_clipboard(&self.tree, ids));
+        cx.write_to_clipboard(items_to_clipboard(&self.ws.tree, ids));
     }
 
     pub fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
@@ -74,15 +74,15 @@ impl Outline {
         match self.edit_target() {
             Some(Target::Text(id)) if multiline && id != self.zoom => {
                 let before = self.caret();
-                let parent = self.tree.parent(id);
-                let empty = self.tree.node(id).text.is_empty() && !self.tree.has_children(id);
-                let index = self.tree.index_in_parent(id) + if empty { 0 } else { 1 };
-                let top = self.tree.insert_items(parent, index, &items);
+                let parent = self.ws.tree.parent(id);
+                let empty = self.ws.tree.node(id).text.is_empty() && !self.ws.tree.has_children(id);
+                let index = self.ws.tree.index_in_parent(id) + if empty { 0 } else { 1 };
+                let top = self.ws.tree.insert_items(parent, index, &items);
                 if empty {
-                    self.tree.delete(id);
+                    self.ws.tree.delete(id);
                 }
                 if let Some(&last) = top.last() {
-                    let len = self.tree.node(last).text.len();
+                    let len = self.ws.tree.node(last).text.len();
                     self.edit = Some(Edit::new(Target::Text(last), len));
                 }
                 self.commit_structure(before, cx);
@@ -94,12 +94,12 @@ impl Outline {
             None => {
                 if let Some(b) = self.block {
                     let before = self.caret();
-                    let parent = self.tree.parent(b.head);
-                    let index = self.tree.index_in_parent(b.head) + 1;
+                    let parent = self.ws.tree.parent(b.head);
+                    let index = self.ws.tree.index_in_parent(b.head) + 1;
                     let top = if items.is_empty() {
-                        self.tree.insert_indented_text(parent, index, &text)
+                        self.ws.tree.insert_indented_text(parent, index, &text)
                     } else {
-                        self.tree.insert_items(parent, index, &items)
+                        self.ws.tree.insert_items(parent, index, &items)
                     };
                     self.block = top.first().zip(top.last()).map(|(a, h)| BlockSel { anchor: *a, head: *h });
                     self.commit_structure(before, cx);

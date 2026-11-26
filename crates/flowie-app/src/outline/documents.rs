@@ -33,7 +33,7 @@ impl Outline {
             prompt: Some(t!("import.prompt").into()),
         });
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = rx.await else { return };
+            let Some(paths) = crate::app::file_dialog::choice(rx, &this, cx).await else { return };
             match import_selection(&paths) {
                 ImportSelection::Documents => {}
                 ImportSelection::Package(path) => {
@@ -78,12 +78,12 @@ impl Outline {
             return;
         }
         let (parent, index) = match self.editing_node().filter(|id| *id != self.zoom) {
-            Some(id) => (self.tree.parent(id), self.tree.index_in_parent(id) + 1),
-            None => (self.zoom, self.tree.children(self.zoom).len()),
+            Some(id) => (self.ws.tree.parent(id), self.ws.tree.index_in_parent(id) + 1),
+            None => (self.zoom, self.ws.tree.children(self.zoom).len()),
         };
         let mut top = Vec::new();
         for items in documents {
-            top.extend(self.tree.insert_items(parent, index + top.len(), &items));
+            top.extend(self.ws.tree.insert_items(parent, index + top.len(), &items));
         }
         self.edit = None;
         self.block = top.first().zip(top.last()).map(|(a, h)| BlockSel { anchor: *a, head: *h });
@@ -93,9 +93,9 @@ impl Outline {
 
     /// What to export: the selected bullets, or everything on the current page.
     fn export_items(&self, opml: bool) -> (String, Vec<io::Item>) {
-        let ids = if self.block.is_some() { self.targets() } else { self.tree.children(self.zoom).to_vec() };
+        let ids = if self.block.is_some() { self.targets() } else { self.ws.tree.children(self.zoom).to_vec() };
         let title = if self.zoom == ROOT { "Flowie".to_string() } else { node_label(self, self.zoom) };
-        (title, if opml { self.tree.to_opml_items(&ids) } else { self.tree.to_items(&ids) })
+        (title, if opml { self.ws.tree.to_opml_items(&ids) } else { self.ws.tree.to_items(&ids) })
     }
 
     fn export_with(&mut self, ext: &str, render: fn(&str, &[io::Item]) -> String, cx: &mut Context<Self>) {
@@ -117,10 +117,10 @@ impl Outline {
             }
             let mut names = Vec::new();
             walk(&items, &mut names);
-            images = names.into_iter().filter_map(|n| Some((self.image_dir.as_ref()?.path(&n)?, n))).collect();
+            images = names.into_iter().filter_map(|n| Some((self.ws.image_dir.as_ref()?.path(&n)?, n))).collect();
         }
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(path))) = rx.await else { return };
+            let Some(path) = crate::app::file_dialog::choice(rx, &this, cx).await else { return };
             let copy_images = || -> std::io::Result<()> {
                 if images.is_empty() {
                     return Ok(());

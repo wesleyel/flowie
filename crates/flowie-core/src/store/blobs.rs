@@ -6,7 +6,6 @@ use std::time::Duration;
 use rusqlite::{params, Connection};
 
 use super::open;
-use crate::tree::Node;
 
 pub fn load_blobs(conn: &Connection) -> rusqlite::Result<Vec<crate::images::BlobInfo>> {
     let mut stmt = conn.prepare("SELECT name, mime, width, height, size FROM blobs")?;
@@ -30,18 +29,9 @@ pub fn collect_unused_images(path: &Path, min_age: Duration) -> rusqlite::Result
     Ok(removed)
 }
 
-/// Image files still referred to: by a bullet, or by one in the trash.
+/// Image files still referred to by a bullet, in the outline or in the Trash.
 pub fn image_names_in_use(conn: &Connection) -> rusqlite::Result<std::collections::HashSet<String>> {
-    let mut used: std::collections::HashSet<String> = conn
-        .prepare("SELECT DISTINCT image FROM nodes WHERE image != ''")?
-        .query_map([], |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    let mut stmt = conn.prepare("SELECT payload FROM trash WHERE payload LIKE '%\"image\"%'")?;
-    for payload in stmt.query_map([], |r| r.get::<_, String>(0))? {
-        let nodes: Vec<Node> = serde_json::from_str(&payload?).unwrap_or_default();
-        used.extend(nodes.into_iter().map(|n| n.image).filter(|i| !i.is_empty()));
-    }
-    Ok(used)
+    conn.prepare("SELECT DISTINCT image FROM nodes WHERE image != ''")?.query_map([], |r| r.get(0))?.collect()
 }
 
 /// Forget blobs whose files are gone (after `images::ImageDir::collect`).
@@ -52,12 +42,12 @@ pub fn drop_blobs(conn: &Connection, names: &[String]) -> rusqlite::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "writer-thread"))]
 mod tests {
     use super::*;
     use crate::images::ImageDir;
     use crate::store::Writer;
-    use crate::{BlockKind, NodeId, ROOT};
+    use crate::{BlockKind, Node, NodeId, ROOT};
 
     #[test]
     fn collection_keeps_images_in_live_and_trashed_bullets() {
@@ -72,14 +62,15 @@ mod tests {
             writer.blob(blob.clone());
         }
         let image_node = |name: &str| {
-            let mut node = Node::new(NodeId::random(), ROOT, 1.0);
+            let mut node = Node::new(NodeId::random(), ROOT, "a0".into());
             node.kind = BlockKind::Image;
             node.image = name.to_string();
             node
         };
         writer.write(vec![image_node(&live.name)], Vec::new());
-        let deleted = image_node(&trashed.name);
-        writer.trash(deleted.id, "image", vec![deleted]);
+        let mut deleted = image_node(&trashed.name);
+        deleted.deleted_at = Some(1);
+        writer.write(vec![deleted], Vec::new());
         writer.flush().unwrap();
         drop(writer);
 

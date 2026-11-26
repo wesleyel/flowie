@@ -100,7 +100,7 @@ impl Outline {
                 _ => None,
             };
             // Only back into a row that still exists and is visible.
-            if node.is_some_and(|id| !self.tree.contains(id) || self.row_index(id).is_none()) {
+            if node.is_some_and(|id| !self.ws.tree.contains(id) || self.row_index(id).is_none()) {
                 return None;
             }
             let mut e = Edit::new(target, 0);
@@ -128,7 +128,7 @@ impl Outline {
             let temp = BlockSel { anchor: id, head: id };
             let edit = self.edit.as_ref().map(|e| (e.target, e.sel.clone(), e.reversed));
             let r = Restore { temp, edit, block: self.block };
-            self.history.seal();
+            self.ws.history.seal();
             self.edit = None;
             self.block = Some(temp);
             (vec![id], Some(r))
@@ -141,7 +141,7 @@ impl Outline {
 
     fn run_bullet_item(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ContextMenu::Bullet { ids, restore, .. }) = self.menu.take() else { return };
-        let ids: Vec<NodeId> = ids.into_iter().filter(|id| self.tree.contains(*id)).collect();
+        let ids: Vec<NodeId> = ids.into_iter().filter(|id| self.ws.tree.contains(*id)).collect();
         let Some(&first) = ids.first() else { return };
         match item {
             Item::ZoomIn => {
@@ -152,9 +152,9 @@ impl Outline {
             }
             Item::ExpandAll | Item::CollapseAll => {
                 for &id in &ids {
-                    let src = self.tree.source(id);
-                    self.tree.set_collapsed(id, false);
-                    self.tree.expand_to_level(src, if matches!(item, Item::ExpandAll) { usize::MAX } else { 1 });
+                    let src = self.ws.tree.source(id);
+                    self.ws.tree.set_collapsed(id, false);
+                    self.ws.tree.expand_to_level(src, if matches!(item, Item::ExpandAll) { usize::MAX } else { 1 });
                     self.anims.start(id, crate::ui::anim::Channel::Fold, crate::ui::anim::ROW_IN);
                 }
                 self.commit_structure(None, cx);
@@ -170,7 +170,7 @@ impl Outline {
                 let links: Vec<String> = ids
                     .iter()
                     .map(|&id| {
-                        let src = self.tree.source(id);
+                        let src = self.ws.tree.source(id);
                         let label: String = node_label(self, src).replace(['[', ']'], "").chars().take(48).collect();
                         format!("[{label}](flowie:{src})")
                     })
@@ -201,9 +201,9 @@ impl Outline {
     /// left selected.
     fn duplicate(&mut self, ids: &[NodeId], cx: &mut Context<Self>) {
         let Some(&last) = ids.last() else { return };
-        let items = self.tree.to_items(ids);
-        let (parent, index) = (self.tree.parent(last), self.tree.index_in_parent(last) + 1);
-        let top = self.tree.insert_items(parent, index, &items);
+        let items = self.ws.tree.to_items(ids);
+        let (parent, index) = (self.ws.tree.parent(last), self.ws.tree.index_in_parent(last) + 1);
+        let top = self.ws.tree.insert_items(parent, index, &items);
         self.edit = None;
         self.block = top.first().zip(top.last()).map(|(a, h)| BlockSel { anchor: *a, head: *h });
         self.toast(t!("toast.duplicated", count = top.len()));
@@ -214,8 +214,8 @@ impl Outline {
     pub fn mirror_nodes_to(&mut self, ids: &[NodeId], target: NodeId, cx: &mut Context<Self>) {
         let mut made = 0;
         for &id in ids {
-            let n = self.tree.children(target).len();
-            if self.tree.create_mirror(self.tree.source(id), target, n).is_some() {
+            let n = self.ws.tree.children(target).len();
+            if self.ws.tree.create_mirror(self.ws.tree.source(id), target, n).is_some() {
                 made += 1;
             }
         }
@@ -223,7 +223,7 @@ impl Outline {
             self.toast(t!("toast.mirror_into_self"));
             return cx.notify();
         }
-        self.tree.set_collapsed(target, false);
+        self.ws.tree.set_collapsed(target, false);
         self.toast(t!("toast.mirrored", count = made, target = node_label(self, target)));
         self.commit_structure(None, cx);
     }
@@ -244,7 +244,7 @@ impl Outline {
     }
 
     fn render_bullet_menu(&mut self, at: Point<Pixels>, ids: Vec<NodeId>, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let ids: Vec<NodeId> = ids.into_iter().filter(|id| self.tree.contains(*id)).collect();
+        let ids: Vec<NodeId> = ids.into_iter().filter(|id| self.ws.tree.contains(*id)).collect();
         let Some(&first) = ids.first() else {
             self.menu = None;
             return None;
@@ -258,11 +258,11 @@ impl Outline {
                 .on_click(cx.listener(move |this, _, window, cx| this.run_bullet_item(it, window, cx)))
         };
 
-        let has_kids = ids.iter().any(|id| self.tree.has_children(self.tree.source(*id)));
-        let all_done = ids.iter().all(|id| self.tree.node(self.tree.source(*id)).completed);
-        let starred = self.starred.contains(&first);
-        let kind = self.tree.node(first).kind;
-        let same_kind = ids.iter().all(|id| self.tree.node(*id).kind == kind);
+        let has_kids = ids.iter().any(|id| self.ws.tree.has_children(self.ws.tree.source(*id)));
+        let all_done = ids.iter().all(|id| self.ws.tree.node(self.ws.tree.source(*id)).completed);
+        let starred = self.ws.tree.is_starred(first);
+        let kind = self.ws.tree.node(first).kind;
+        let same_kind = ids.iter().all(|id| self.ws.tree.node(*id).kind == kind);
 
         let mut c = card(theme, "bullet-menu").on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
             if this.close_menu() {
@@ -334,7 +334,7 @@ impl Outline {
             .child(separator(theme));
 
         // Delete, saying how much goes with it.
-        let below: usize = ids.iter().map(|id| self.tree.descendants(self.tree.source(*id)).len()).sum();
+        let below: usize = ids.iter().map(|id| self.ws.tree.descendants(self.ws.tree.source(*id)).len()).sum();
         let delete_label = match (single, below) {
             (true, 0) => t!("shortcut.delete-bullet").to_string(),
             (true, n) => t!("bullet_menu.delete_with_children", count = n),
@@ -344,19 +344,19 @@ impl Outline {
 
         // About this bullet.
         if single {
-            let src = self.tree.source(first);
-            let node = self.tree.node(src);
+            let src = self.ws.tree.source(first);
+            let node = self.ws.tree.node(src);
             let mut facts =
                 vec![t!("bullet_menu.created", date = date_time(node.created)), t!("bullet_menu.modified", ago = ago(node.modified))];
             let mut counts = Vec::new();
             if below > 0 {
                 counts.push(t!("bullet_menu.descendants", count = below));
             }
-            let links = self.tree.link_count(src);
+            let links = self.ws.tree.link_count(src);
             if links > 0 {
                 counts.push(t!("bullet_menu.links", count = links));
             }
-            let mirrors = self.tree.mirrors_of(src).len();
+            let mirrors = self.ws.tree.mirrors_of(src).len();
             if mirrors > 0 {
                 counts.push(t!("bullet_menu.mirrors", count = mirrors));
             }

@@ -34,19 +34,19 @@ impl Outline {
                 if id == self.zoom {
                     // Enter in the title adds a first child.
                     let before = self.caret();
-                    let first = self.tree.children(id).first().map(|&c| self.tree.node(c).kind);
-                    let child = self.tree.create_at(id, 0, "");
+                    let first = self.ws.tree.children(id).first().map(|&c| self.ws.tree.node(c).kind);
+                    let child = self.ws.tree.create_at(id, 0, "");
                     if let Some(kind) = first {
-                        self.tree.set_kind(child, kind.list_kind());
+                        self.ws.tree.set_kind(child, kind.list_kind());
                     }
                     self.edit = Some(Edit::new(Target::Text(child), 0));
                     self.commit_structure(before, cx);
                     return;
                 }
                 let before = self.caret();
-                if self.tree.node(id).mirror != ROOT {
+                if self.ws.tree.node(id).mirror != ROOT {
                     // Enter on a mirror adds a plain sibling after it.
-                    let n = self.tree.create_after(id, "");
+                    let n = self.ws.tree.create_after(id, "");
                     self.edit = Some(Edit::new(Target::Text(n), 0));
                     self.commit_structure(before, cx);
                     return;
@@ -56,11 +56,11 @@ impl Outline {
                     if !e.sel.is_empty() {
                         let r = e.sel.clone();
                         let text = self.edit_text().to_string();
-                        self.tree.set_text(id, &format!("{}{}", &text[..r.start], &text[r.end..]));
+                        self.ws.tree.set_text(id, &format!("{}{}", &text[..r.start], &text[r.end..]));
                     }
                 }
                 let caret = self.edit.as_ref().map(|e| e.sel.start).unwrap_or(caret);
-                let (focus, off) = self.tree.split(id, caret);
+                let (focus, off) = self.ws.tree.split(id, caret);
                 self.edit = Some(Edit::new(Target::Text(focus), off));
                 self.commit_structure(before, cx);
             }
@@ -70,7 +70,7 @@ impl Outline {
             }
             Some(Target::Search) => {
                 if let Some(first) = self.rows.first().map(|r| r.id) {
-                    let len = self.tree.node(first).text.len();
+                    let len = self.ws.tree.node(first).text.len();
                     self.start_edit(Target::Text(first), len, cx);
                 }
             }
@@ -81,7 +81,7 @@ impl Outline {
 
     pub(super) fn enter_from_idle(&mut self, cx: &mut Context<Self>) {
         if let Some(b) = self.block {
-            let len = self.tree.node(b.head).text.len();
+            let len = self.ws.tree.node(b.head).text.len();
             self.start_edit(Target::Text(b.head), len, cx);
         } else if let Some(first) = self.rows.first().map(|r| r.id) {
             self.start_edit(Target::Text(first), 0, cx);
@@ -92,15 +92,15 @@ impl Outline {
 
     pub fn append_child_and_edit(&mut self, cx: &mut Context<Self>) {
         // Reuse a trailing empty bullet instead of piling up blanks.
-        if let Some(&last) = self.tree.children(self.zoom).last() {
-            if self.tree.node(last).text.is_empty() && !self.tree.has_children(last) {
+        if let Some(&last) = self.ws.tree.children(self.zoom).last() {
+            if self.ws.tree.node(last).text.is_empty() && !self.ws.tree.has_children(last) {
                 self.start_edit(Target::Text(last), 0, cx);
                 return;
             }
         }
         let before = self.caret();
-        let n = self.tree.children(self.zoom).len();
-        let id = self.tree.create_at(self.zoom, n, "");
+        let n = self.ws.tree.children(self.zoom).len();
+        let id = self.ws.tree.create_at(self.zoom, n, "");
         self.edit = Some(Edit::new(Target::Text(id), 0));
         self.commit_structure(before, cx);
     }
@@ -116,7 +116,7 @@ impl Outline {
         if let Some(ids) = self.block_roots() {
             let mut ok = false;
             for id in ids {
-                ok |= self.tree.indent(id);
+                ok |= self.ws.tree.indent(id);
             }
             if ok {
                 self.commit_structure(before, cx);
@@ -124,7 +124,7 @@ impl Outline {
             return;
         }
         if let Some(Target::Text(id) | Target::Note(id)) = self.edit_target() {
-            if id != self.zoom && self.tree.indent(id) {
+            if id != self.zoom && self.ws.tree.indent(id) {
                 self.commit_structure(before, cx);
             }
         }
@@ -135,7 +135,7 @@ impl Outline {
         if let Some(ids) = self.block_roots() {
             let mut ok = false;
             for id in ids.into_iter().rev() {
-                ok |= self.tree.outdent(id, self.zoom);
+                ok |= self.ws.tree.outdent(id, self.zoom);
             }
             if ok {
                 self.commit_structure(before, cx);
@@ -143,7 +143,7 @@ impl Outline {
             return;
         }
         if let Some(Target::Text(id) | Target::Note(id)) = self.edit_target() {
-            if id != self.zoom && self.tree.outdent(id, self.zoom) {
+            if id != self.zoom && self.ws.tree.outdent(id, self.zoom) {
                 self.commit_structure(before, cx);
             }
         }
@@ -169,15 +169,15 @@ impl Outline {
         });
         let mut moved = 0;
         for &id in ids {
-            let n = self.tree.children(target).len();
-            if self.tree.move_to(id, target, n) {
+            let n = self.ws.tree.children(target).len();
+            if self.ws.tree.move_to(id, target, n) {
                 moved += 1;
             }
         }
         if moved > 0 {
-            self.tree.set_collapsed(target, false);
+            self.ws.tree.set_collapsed(target, false);
             self.block = None;
-            self.edit = fallback.filter(|f| self.tree.contains(*f)).map(|f| Edit::new(Target::Text(f), 0));
+            self.edit = fallback.filter(|f| self.ws.tree.contains(*f)).map(|f| Edit::new(Target::Text(f), 0));
             self.toast(t!("toast.moved", count = moved, target = node_label(self, target)));
             self.commit_structure(before, cx);
         }
@@ -185,22 +185,22 @@ impl Outline {
 
     pub fn insert_mirror(&mut self, after: NodeId, source: NodeId, cx: &mut Context<Self>) {
         let (parent, index) = if after == self.zoom {
-            (self.zoom, self.tree.children(self.zoom).len())
+            (self.zoom, self.ws.tree.children(self.zoom).len())
         } else {
-            (self.tree.parent(after), self.tree.index_in_parent(after) + 1)
+            (self.ws.tree.parent(after), self.ws.tree.index_in_parent(after) + 1)
         };
         let before = None;
-        match self.tree.create_mirror(source, parent, index) {
+        match self.ws.tree.create_mirror(source, parent, index) {
             Some(m) => {
                 // Replace an empty bullet the mirror was typed into.
                 if after != self.zoom
-                    && self.tree.node(after).text.is_empty()
-                    && !self.tree.has_children(after)
-                    && self.tree.node(after).mirror == ROOT
+                    && self.ws.tree.node(after).text.is_empty()
+                    && !self.ws.tree.has_children(after)
+                    && self.ws.tree.node(after).mirror == ROOT
                 {
-                    self.tree.delete(after);
+                    self.ws.tree.delete(after);
                 }
-                self.edit = Some(Edit::new(Target::Text(m), self.tree.node(source).text.len()));
+                self.edit = Some(Edit::new(Target::Text(m), self.ws.tree.node(source).text.len()));
                 self.commit_structure(before, cx);
             }
             None => {
@@ -215,7 +215,7 @@ impl Outline {
         let ids = self.block_roots().or_else(|| self.editing_node().filter(|id| *id != self.zoom).map(|id| vec![id])).unwrap_or_default();
         let mut ok = false;
         for id in ids {
-            ok |= self.tree.move_up(id, self.zoom);
+            ok |= self.ws.tree.move_up(id, self.zoom);
         }
         if ok {
             self.commit_structure(before, cx);
@@ -227,7 +227,7 @@ impl Outline {
         let ids = self.block_roots().or_else(|| self.editing_node().filter(|id| *id != self.zoom).map(|id| vec![id])).unwrap_or_default();
         let mut ok = false;
         for id in ids.into_iter().rev() {
-            ok |= self.tree.move_down(id, self.zoom);
+            ok |= self.ws.tree.move_down(id, self.zoom);
         }
         if ok {
             self.commit_structure(before, cx);
@@ -242,7 +242,7 @@ impl Outline {
             let last = *ids.last().unwrap();
             let mut n = self.neighbor(last, 1);
             while let Some(x) = n {
-                if ids.iter().any(|d| *d == x || self.tree.is_ancestor(*d, x)) {
+                if ids.iter().any(|d| *d == x || self.ws.tree.is_ancestor(*d, x)) {
                     n = self.neighbor(x, 1);
                 } else {
                     break;
@@ -251,11 +251,10 @@ impl Outline {
             n
         });
         for id in &ids {
-            self.send_to_trash(*id);
-            self.tree.delete(*id);
+            self.ws.tree.trash(*id);
         }
         self.block = None;
-        self.edit = fallback.filter(|f| self.tree.contains(*f)).map(|f| Edit::new(Target::Text(f), self.tree.node(f).text.len()));
+        self.edit = fallback.filter(|f| self.ws.tree.contains(*f)).map(|f| Edit::new(Target::Text(f), self.ws.tree.node(f).text.len()));
         self.commit_structure(before, cx);
     }
 
@@ -277,13 +276,13 @@ impl Outline {
             Some(a) => {
                 let mut x = a.id;
                 for _ in 0..(a.depth - depth) {
-                    x = self.tree.parent(x);
+                    x = self.ws.tree.parent(x);
                 }
-                (self.tree.parent(x), self.tree.index_in_parent(x) + 1)
+                (self.ws.tree.parent(x), self.ws.tree.index_in_parent(x) + 1)
             }
         };
         // Can't drop a node into itself.
-        let invalid = parent == dragged || self.tree.is_ancestor(dragged, parent);
+        let invalid = parent == dragged || self.ws.tree.is_ancestor(dragged, parent);
         let target = (!invalid).then(|| match below {
             Some(b) if !below_half || above.is_none() => DropTarget { node: b.id, below: false, depth, parent, index },
             _ => DropTarget { node: above.map_or(over, |a| a.id), below: true, depth, parent, index },
@@ -297,8 +296,8 @@ impl Outline {
     pub fn perform_drop(&mut self, dragged: NodeId, cx: &mut Context<Self>) {
         let Some(t) = self.drop.take() else { return };
         let before = self.caret();
-        if self.tree.move_to(dragged, t.parent, t.index) {
-            self.tree.set_collapsed(t.parent, false);
+        if self.ws.tree.move_to(dragged, t.parent, t.index) {
+            self.ws.tree.set_collapsed(t.parent, false);
             self.anims.start(dragged, Channel::Enter, anim::ROW_IN);
             self.commit_structure(before, cx);
         }

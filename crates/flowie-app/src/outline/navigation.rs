@@ -72,7 +72,7 @@ impl Outline {
         };
         let location = loop {
             let Some(location) = pages.pop() else { return };
-            if self.tree.contains(location.zoom) {
+            if self.ws.tree.contains(location.zoom) {
                 break location;
             }
         };
@@ -95,7 +95,7 @@ impl Outline {
     }
 
     pub fn zoom_to(&mut self, id: NodeId, cx: &mut Context<Self>) {
-        let id = if self.tree.contains(id) { id } else { ROOT };
+        let id = if self.ws.tree.contains(id) { id } else { ROOT };
         if id != self.zoom {
             self.back_pages.push(self.page_location());
             self.forward_pages.clear();
@@ -142,7 +142,7 @@ impl Outline {
         // Going anywhere closes What's New (and Trash) without putting the caret back.
         self.close_auxiliary_page(false, cx);
         self.block = None;
-        self.history.seal();
+        self.ws.history.seal();
         self.anims.clear();
         self.refresh(false);
         self.list.reset(self.display.len() + HEAD + 1);
@@ -150,19 +150,19 @@ impl Outline {
         self.set_meta("zoom", &id.to_string());
         let top = self.restore_scroll();
         // Put the caret somewhere sensible: on the node we came out of, or the top row.
-        let target = if self.tree.is_ancestor(id, came_from) && self.row_index(came_from).is_some() {
+        let target = if self.ws.tree.is_ancestor(id, came_from) && self.row_index(came_from).is_some() {
             Some(came_from)
         } else {
             top.filter(|&t| self.row_index(t).is_some()).or_else(|| self.rows.first().map(|r| r.id))
         };
         match target {
             Some(t) => {
-                let len = self.tree.node(t).text.len();
+                let len = self.ws.tree.node(t).text.len();
                 self.edit = Some(Edit::new(Target::Text(t), len));
                 self.reveal(t);
             }
             None if id != ROOT => {
-                let len = self.tree.node(id).text.len();
+                let len = self.ws.tree.node(id).text.len();
                 self.edit = Some(Edit::new(Target::Text(id), len));
             }
             None => self.edit = None,
@@ -181,7 +181,7 @@ impl Outline {
 
     pub fn zoom_out(&mut self, _: &ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
         if self.zoom != ROOT {
-            let parent = self.tree.parent(self.zoom);
+            let parent = self.ws.tree.parent(self.zoom);
             self.zoom_to(parent, cx);
         }
     }
@@ -210,15 +210,13 @@ impl Outline {
     }
 
     pub fn star(&mut self, id: NodeId, cx: &mut Context<Self>) {
-        if let Some(pos) = self.starred.iter().position(|s| *s == id) {
-            self.starred.remove(pos);
-            self.toast(t!("toast.unstarred", name = node_label(self, id)));
-        } else {
-            self.starred.push(id);
+        let starred = !self.ws.tree.is_starred(id);
+        self.ws.set_starred(id, starred);
+        if starred {
             self.toast(t!("toast.starred", name = node_label(self, id), shortcut = crate::app::keymap::hint("jump", &self.config.keys)));
+        } else {
+            self.toast(t!("toast.unstarred", name = node_label(self, id)));
         }
-        let v = self.starred.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
-        self.set_meta("starred", &v);
         cx.notify();
     }
 
@@ -285,7 +283,7 @@ impl Outline {
             self.saved_searches.push(q.clone());
             self.toast(t!("toast.search_saved", query = q, shortcut = crate::app::keymap::hint("jump", &self.config.keys)));
         }
-        self.set_meta("saved_searches", &self.saved_searches.join("\n"));
+        self.save_searches();
         cx.notify();
     }
 
@@ -294,7 +292,8 @@ impl Outline {
         if q.is_empty() {
             return;
         }
-        let hits: Vec<NodeId> = self.rows.iter().map(|r| r.id).filter(|id| q.matches(self.tree.node(self.tree.source(*id)))).collect();
+        let hits: Vec<NodeId> =
+            self.rows.iter().map(|r| r.id).filter(|id| q.matches(self.ws.tree.node(self.ws.tree.source(*id)))).collect();
         if hits.is_empty() {
             return;
         }
@@ -305,7 +304,7 @@ impl Outline {
             None => hits.len() - 1,
         };
         let id = hits[next];
-        let len = self.tree.node(self.tree.source(id)).text.len();
+        let len = self.ws.tree.node(self.ws.tree.source(id)).text.len();
         self.start_edit(Target::Text(id), len, cx);
         self.toast(t!("toast.match", index = next + 1, total = hits.len()));
     }

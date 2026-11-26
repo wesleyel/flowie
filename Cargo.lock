@@ -1479,6 +1479,7 @@ dependencies = [
  "chrono",
  "dirs",
  "flowie-core",
+ "flowie-doc",
  "flowie-math",
  "futures",
  "gpui-kit",
@@ -1510,6 +1511,15 @@ dependencies = [
  "sha2",
  "tempfile",
  "uuid",
+ "web-time",
+]
+
+[[package]]
+name = "flowie-doc"
+version = "1.0.0"
+dependencies = [
+ "flowie-core",
+ "tempfile",
 ]
 
 [[package]]

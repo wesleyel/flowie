@@ -1,7 +1,12 @@
 //! Undo/redo over journaled tree changes. Consecutive typing in the same
 //! node coalesces into one step.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use std::time::Instant;
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use web_time::Instant;
 
 use crate::tree::{Change, NodeId, Tree};
 
@@ -20,7 +25,7 @@ pub enum Kind {
 
 #[derive(Debug)]
 struct Step {
-    imports: Option<(crate::store::ImportState, crate::store::ImportState)>,
+    imports: Option<(crate::imports::ImportState, crate::imports::ImportState)>,
     changes: Vec<Change>,
     kind: Kind,
     caret_before: Option<Caret>,
@@ -53,7 +58,7 @@ impl History {
         kind: Kind,
         caret_before: Option<Caret>,
         caret_after: Option<Caret>,
-        imports: Option<(crate::store::ImportState, crate::store::ImportState)>,
+        imports: Option<(crate::imports::ImportState, crate::imports::ImportState)>,
     ) {
         let changes = tree.take_journal();
         if changes.is_empty() && imports.is_none() {
@@ -89,11 +94,28 @@ impl History {
         !self.redo.is_empty()
     }
 
-    pub fn undo_imports(&self) -> Option<&crate::store::ImportState> {
+    pub fn undo_imports(&self) -> Option<&crate::imports::ImportState> {
         self.undo.last()?.imports.as_ref().map(|pair| &pair.0)
     }
-    pub fn redo_imports(&self) -> Option<&crate::store::ImportState> {
+    pub fn redo_imports(&self) -> Option<&crate::imports::ImportState> {
         self.redo.last()?.imports.as_ref().map(|pair| &pair.1)
+    }
+
+    /// Drop every recorded change to `ids` (records deleted for good, `Tree::purge`), and
+    /// every move into or out of them, so undo and redo never bring back part of what is
+    /// gone or put a node under it. Steps left with nothing to do go too.
+    pub fn forget(&mut self, ids: &[NodeId]) {
+        if ids.is_empty() {
+            return;
+        }
+        let ids: std::collections::HashSet<NodeId> = ids.iter().copied().collect();
+        let touches = |c: &Change| ids.contains(&c.id) || [&c.before, &c.after].into_iter().flatten().any(|n| ids.contains(&n.parent));
+        for stack in [&mut self.undo, &mut self.redo] {
+            for step in stack.iter_mut() {
+                step.changes.retain(|c| !touches(c));
+            }
+            stack.retain(|step| !step.changes.is_empty() || step.imports.is_some());
+        }
     }
 
     pub fn undo(&mut self, tree: &mut Tree) -> Option<Option<Caret>> {

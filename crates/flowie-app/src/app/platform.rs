@@ -25,6 +25,19 @@ pub const OS: Os = if cfg!(target_os = "macos") {
 /// Windows and Linux have no global menu bar, so the window draws its own.
 pub const MENU_BAR_IN_WINDOW: bool = !matches!(OS, Os::Mac);
 
+/// Linux: the display server to run on. Wayland when the session has it, else X11;
+/// `FLOWIE_X11=1` runs on X11 (XWayland under a Wayland session) instead, where the window
+/// manager always draws the title bar. Only a fallback: XWayland blurs text under
+/// fractional scaling.
+pub fn choose_display(app: gpui::Application) -> gpui::Application {
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    if std::env::var_os("FLOWIE_X11").is_some_and(|v| !v.is_empty() && v != "0") {
+        let x11 = gpui::GraphicalEnvironment { wayland_display: None, ..gpui::GraphicalEnvironment::detect() };
+        return app.with_windowing(gpui::WindowingRequest::Windowed(x11));
+    }
+    app
+}
+
 /// The code font. `monospace` is fontconfig's alias for the desktop's choice.
 pub const MONO_FONT: &str = match OS {
     Os::Mac => "Menlo",
@@ -139,6 +152,22 @@ pub fn data_dir() -> PathBuf {
         Os::Linux => dirs::data_dir().map(|d| d.join("flowie")),
     };
     dir.unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// This program as another program should start it: the AppImage file when running from one
+/// (the folder it runs from is unmounted when it exits), else the running executable.
+pub fn executable() -> std::io::Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    if OS == Os::Linux {
+        if let (Some(image), Some(mount)) = (std::env::var_os("APPIMAGE"), std::env::var_os("APPDIR")) {
+            let image = PathBuf::from(image);
+            // Only our own AppImage: the variables also reach programs an AppImage starts.
+            if image.is_absolute() && exe.starts_with(mount) {
+                return Ok(image);
+            }
+        }
+    }
+    Ok(exe)
 }
 
 /// `s` quoted as one argument for the shell a user pastes commands into:

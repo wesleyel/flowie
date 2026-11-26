@@ -8,8 +8,8 @@ permalink: /llms.txt
 
 Key facts:
 
-- Runs on macOS 13 or later (Apple silicon or Intel) and Windows 10 or 11 (64-bit). Linux users can [build from source]({{ site.github_url }}/blob/main/docs/building.md).
-- Download the macOS and Windows archives from [GitHub Releases]({{ site.github_url }}/releases/latest). On macOS, use `brew install --cask wesleyel/tap/flowie` or get the signed, sandboxed version from the [Mac App Store]({{ site.app_store_url }}).
+- Runs on macOS 13 or later (Apple silicon or Intel), with previews for Windows 10 or 11 x64 and Linux x86_64 (glibc 2.35 or later). Or [build from source]({{ site.github_url }}/blob/main/docs/building.md).
+- See the [desktop installation guide]({{ '/download.html' | absolute_url }}) for packages, checksums, and how to upgrade from a release candidate. On macOS, use `brew install --cask wesleyel/tap/flowie` (tracks the latest published version, including RCs) or get the signed, sandboxed version from the [Mac App Store]({{ site.app_store_url }}).
 - Import and export OPML, Markdown and plain text. Flowie's OPML keeps internal links and mirrors. To move images, use a `.flowie` package or keep the `images` folder with the Markdown export.
 - Share a branch as a `.flowie` file. The recipient can preview it, pick a location, and merge updates. Search `is:new` to find unread imports.
 - Write inline `$…$` and display `$$…$$` LaTeX (KaTeX-compatible). Flowie renders it as you type.

@@ -6,19 +6,31 @@ repository.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[features]
+default = ["store", "writer-thread"]
+# SQLite persistence, share packages and the image folder.
+store = ["dep:rusqlite", "dep:flate2", "dep:crc32fast"]
+# The background writer thread (`store::Writer`). Native only.
+writer-thread = ["store"]
+
 [dependencies]
 roxmltree = "0.21"
-rusqlite = { version = "0.43", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v5"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-flate2 = "1"
-crc32fast = "1"
+flate2 = { version = "1", optional = true }
+crc32fast = { version = "1", optional = true }
 sha2 = "0.10"
 
+# In the browser: its clock (std's panics there), its time zone, and crypto.getRandomValues.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+web-time = "1"
+chrono = { version = "0.4", default-features = false, features = ["wasmbind"] }
+uuid = { version = "1", features = ["js"] }
+
 [dev-dependencies]
-rusqlite = { version = "0.43", features = ["backup"] }
 tempfile = "3"
 
 [lints]

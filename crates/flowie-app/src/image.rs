@@ -31,7 +31,7 @@ pub(crate) fn image_error(error: images::ImageError) -> String {
 impl Outline {
     /// Store image bytes; the name a bullet refers to them by.
     pub fn store_image(&mut self, bytes: &[u8]) -> Result<String, String> {
-        let dir = self.image_dir.as_ref().ok_or_else(|| t!("image.no_folder").to_string())?;
+        let dir = self.ws.image_dir.as_ref().ok_or_else(|| t!("image.no_folder").to_string())?;
         let info = dir.put(bytes).map_err(image_error)?;
         let name = info.name.clone();
         self.record_image(info);
@@ -39,11 +39,11 @@ impl Outline {
     }
 
     pub(crate) fn record_image(&mut self, info: BlobInfo) {
-        if !self.blobs.contains_key(&info.name) {
-            if let Some(w) = &self.writer {
+        if !self.ws.blobs.contains_key(&info.name) {
+            if let Some(w) = &self.ws.writer {
                 w.blob(info.clone());
             }
-            self.blobs.insert(info.name.clone(), info);
+            self.ws.blobs.insert(info.name.clone(), info);
         }
     }
 
@@ -51,16 +51,16 @@ impl Outline {
     /// after the edited or last selected bullet, else at the end of the page.
     fn image_slot(&self) -> (NodeId, usize, Option<NodeId>) {
         if let Some(id) = self.editing_node().filter(|id| *id != self.zoom && !id.is_virtual()) {
-            let n = self.tree.node(id);
-            if n.text.is_empty() && n.kind != BlockKind::Image && !self.tree.has_children(id) && n.mirror == ROOT {
-                return (self.tree.parent(id), self.tree.index_in_parent(id), Some(id));
+            let n = self.ws.tree.node(id);
+            if n.text.is_empty() && n.kind != BlockKind::Image && !self.ws.tree.has_children(id) && n.mirror == ROOT {
+                return (self.ws.tree.parent(id), self.ws.tree.index_in_parent(id), Some(id));
             }
-            return (self.tree.parent(id), self.tree.index_in_parent(id) + 1, None);
+            return (self.ws.tree.parent(id), self.ws.tree.index_in_parent(id) + 1, None);
         }
         if let Some(&last) = self.block_ids().last() {
-            return (self.tree.parent(last), self.tree.index_in_parent(last) + 1, None);
+            return (self.ws.tree.parent(last), self.ws.tree.index_in_parent(last) + 1, None);
         }
-        (self.zoom, self.tree.children(self.zoom).len(), None)
+        (self.zoom, self.ws.tree.children(self.zoom).len(), None)
     }
 
     /// Add images as bullets at `slot` (or `image_slot`), one undo step.
@@ -87,22 +87,22 @@ impl Outline {
             let id = match reuse.take() {
                 Some(id) => id,
                 None => {
-                    let id = self.tree.create_at(parent, index, "");
+                    let id = self.ws.tree.create_at(parent, index, "");
                     index += 1;
                     id
                 }
             };
-            let mut node = self.tree.node(id).clone();
+            let mut node = self.ws.tree.node(id).clone();
             node.kind = BlockKind::Image;
             node.image = name;
-            self.tree.put(node);
+            self.ws.tree.put(node);
             made.push(id);
         }
         if let Some(e) = error {
             self.toast(e);
         }
         if let Some(&last) = made.last() {
-            self.tree.set_collapsed(parent, false);
+            self.ws.tree.set_collapsed(parent, false);
             // The caret in the caption, ready to type one.
             self.block = None;
             self.edit = Some(Edit::new(Target::Text(last), 0));
@@ -148,7 +148,7 @@ impl Outline {
             prompt: Some(t!("image.prompt").into()),
         });
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = rx.await else { return };
+            let Some(paths) = crate::app::file_dialog::choice(rx, &this, cx).await else { return };
             this.update(cx, |this, cx| this.insert_image_files(&paths, slot, cx)).ok();
         })
         .detach();
@@ -179,11 +179,11 @@ impl Outline {
 
     /// The image a row shows, with its file's metadata.
     pub fn row_image(&self, id: NodeId) -> Option<(PathBuf, Option<&BlobInfo>)> {
-        let n = self.tree.node(self.tree.source(id));
-        if n.image.is_empty() || self.tree.node(id).kind != BlockKind::Image {
+        let n = self.ws.tree.node(self.ws.tree.source(id));
+        if n.image.is_empty() || self.ws.tree.node(id).kind != BlockKind::Image {
             return None;
         }
-        Some((self.image_dir.as_ref()?.path(&n.image)?, self.blobs.get(&n.image)))
+        Some((self.ws.image_dir.as_ref()?.path(&n.image)?, self.ws.blobs.get(&n.image)))
     }
 
     /// The size an image shows at in a row (points): its pixel size at 2×,
@@ -245,7 +245,7 @@ impl Outline {
     }
 
     pub fn open_image_preview(&mut self, id: NodeId, cx: &mut Context<Self>) {
-        let src = self.tree.source(id);
+        let src = self.ws.tree.source(id);
         if self.row_image(id).is_some() {
             self.image_preview = Some(src);
             cx.notify();
@@ -274,11 +274,11 @@ impl Outline {
 
     pub fn render_image_preview(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let id = self.image_preview?;
-        let Some((path, _)) = self.tree.contains(id).then(|| self.row_image(id)).flatten() else {
+        let Some((path, _)) = self.ws.tree.contains(id).then(|| self.row_image(id)).flatten() else {
             self.image_preview = None;
             return None;
         };
-        let caption = flowie_core::markup::plain_text(&self.tree.node(id).text);
+        let caption = flowie_core::markup::plain_text(&self.ws.tree.node(id).text);
         Some(
             div()
                 .absolute()
@@ -310,8 +310,8 @@ impl Outline {
     pub fn copy_selected_image(&self, cx: &mut Context<Self>) -> bool {
         let ids = self.block_ids();
         let [id] = ids.as_slice() else { return false };
-        let name = self.tree.node(self.tree.source(*id)).image.clone();
-        let (Some(dir), true) = (self.image_dir.as_ref(), self.tree.node(*id).kind == BlockKind::Image) else { return false };
+        let name = self.ws.tree.node(self.ws.tree.source(*id)).image.clone();
+        let (Some(dir), true) = (self.ws.image_dir.as_ref(), self.ws.tree.node(*id).kind == BlockKind::Image) else { return false };
         let Ok(bytes) = dir.read(&name) else { return false };
         let format = match images::mime_of(&name) {
             "image/jpeg" => gpui::ImageFormat::Jpeg,
@@ -330,7 +330,7 @@ impl Outline {
         for it in items.iter_mut() {
             if it.kind == BlockKind::Image && it.image.is_empty() {
                 it.kind = BlockKind::Bullet;
-            } else if it.kind == BlockKind::Image && !self.image_dir.as_ref().is_some_and(|d| d.has(&it.image)) {
+            } else if it.kind == BlockKind::Image && !self.ws.image_dir.as_ref().is_some_and(|d| d.has(&it.image)) {
                 let stored = base.and_then(|b| {
                     let path = b.join(it.image.trim_start_matches("./"));
                     let bytes = std::fs::read(&path).ok()?;
@@ -347,23 +347,6 @@ impl Outline {
             }
             self.resolve_item_images(&mut it.children, base);
         }
-    }
-
-    /// Delete image files no bullet (or trashed bullet) uses any more. Runs
-    /// once at launch, off the UI thread, before this session adds any.
-    pub fn collect_images(db: &Path) {
-        let db = db.to_path_buf();
-        std::thread::Builder::new()
-            .name("flowie-images".into())
-            .spawn(move || {
-                if let Ok(removed) = flowie_core::store::collect_unused_images(&db, std::time::Duration::from_secs(3600)) {
-                    if removed.is_empty() {
-                        return;
-                    }
-                    eprintln!("flowie: removed {} unused image files", removed.len());
-                }
-            })
-            .ok();
     }
 }
 

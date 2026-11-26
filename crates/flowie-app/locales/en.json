@@ -15,6 +15,8 @@
     "link_count": "Linked from · {count}",
     "save_error": "Could not save changes — retrying automatically ({error})",
     "save_retry": "Retry",
+    "db_too_new": "Your outline was saved by a newer version of Flowie. Update Flowie to open it. This window is empty, and nothing in it is saved.",
+    "load_error": "Could not open your outline ({error}). This window is empty, and nothing in it is saved.",
     "quit_unsaved": "Some changes could not be saved",
     "quit_unsaved_detail": "Keep Flowie open to continue retrying. If you quit now, unsaved changes may be lost.\n\n{error}",
     "keep_open": "Keep Open",
@@ -27,7 +29,6 @@
     "import_package_alone": "Import Flowie share packages one at a time, separately from other files.",
     "nothing_to_export": "Nothing to export",
     "bullet_deleted": "That bullet was deleted (see Trash)",
-    "trash_unrestorable": "This Trash entry is damaged and can't be restored",
     "cut_kept_in_trash": "Cut — also kept in Trash",
     "moved": {
       "one": "Moved {count} bullet to “{target}”",
@@ -41,6 +42,8 @@
     },
     "exported": "Exported to {path}",
     "export_failed": "Export failed: {error}",
+    "file_dialog_failed": "Couldn't open the file dialog: {error}",
+    "file_dialog_failed_linux": "Couldn't open the file dialog. Install xdg-desktop-portal and a backend such as xdg-desktop-portal-gtk.",
     "restored": "Restored “{name}”",
     "search_saved": "Saved search “{query}” — {shortcut} to run it",
     "search_removed": "Removed saved search “{query}”",
@@ -132,7 +135,12 @@
       "one": "{count} bullet · {ago}",
       "other": "{count} bullets · {ago}"
     },
-    "unrestorable": "Damaged (can't restore) · {ago}"
+    "confirm_title": "Delete “{name}” forever?",
+    "confirm_detail": {
+      "one": "This deletes {count} bullet now. It can't be brought back, not even with Undo.",
+      "other": "This deletes {count} bullets now. They can't be brought back, not even with Undo."
+    },
+    "cancel": "Cancel"
   },
   "settings": {
     "heading": "Settings",

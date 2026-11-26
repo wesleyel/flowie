@@ -8,7 +8,7 @@ en:
   badge: /images/badge-en.svg
   badge_width: 156
   badge_alt: Download on the Mac App Store
-  download: Download for Mac or Windows
+  download: Desktop downloads
   shot_alt: An outline in Flowie with headings, to-dos and math
   features: Features
   gallery: Screenshots
@@ -23,7 +23,7 @@ zh:
   badge: /images/badge-zh.svg
   badge_width: 140
   badge_alt: 在 Mac App Store 下载
-  download: 下载 Mac 或 Windows 版
+  download: 下载桌面版
   shot_alt: Flowie 中带有标题、待办和公式的大纲
   features: 功能
   gallery: 截图

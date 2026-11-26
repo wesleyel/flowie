@@ -9,9 +9,9 @@ use crate::ui::anim::{self, Channel};
 impl Outline {
     fn show_levels(&mut self, levels: usize, cx: &mut Context<Self>) {
         let before = None;
-        self.tree.expand_to_level(self.zoom, levels);
+        self.ws.tree.expand_to_level(self.zoom, levels);
         if let Some(id) = self.editing_node() {
-            if !self.tree.ancestors(id).iter().all(|a| !self.tree.node(*a).collapsed || !self.tree.is_ancestor(self.zoom, *a)) {
+            if !self.ws.tree.ancestors(id).iter().all(|a| !self.ws.tree.node(*a).collapsed || !self.ws.tree.is_ancestor(self.zoom, *a)) {
                 self.edit = None;
             }
         }
@@ -47,8 +47,8 @@ impl Outline {
         let before = self.caret();
         let mut changed = false;
         for id in ids {
-            if id != self.zoom && self.tree.has_children(self.tree.source(id)) && self.tree.node(id).collapsed != collapsed {
-                self.tree.set_collapsed(id, collapsed);
+            if id != self.zoom && self.ws.tree.has_children(self.ws.tree.source(id)) && self.ws.tree.node(id).collapsed != collapsed {
+                self.ws.tree.set_collapsed(id, collapsed);
                 self.anims.start(id, Channel::Fold, anim::ROW_IN);
                 changed = true;
             }
@@ -59,18 +59,18 @@ impl Outline {
     }
 
     pub fn toggle_fold(&mut self, id: NodeId, cx: &mut Context<Self>) {
-        if !self.tree.has_children(self.tree.source(id)) {
+        if !self.ws.tree.has_children(self.ws.tree.source(id)) {
             return;
         }
         let before = self.caret();
-        let collapsed = !self.tree.node(id).collapsed;
-        self.tree.set_collapsed(id, collapsed);
+        let collapsed = !self.ws.tree.node(id).collapsed;
+        self.ws.tree.set_collapsed(id, collapsed);
         self.anims.start(id, Channel::Fold, anim::ROW_IN);
         // Don't leave the caret inside a hidden row.
         if collapsed {
             if let Some(eid) = self.editing_node() {
-                if self.tree.is_ancestor(id, eid) {
-                    self.edit = Some(Edit::new(Target::Text(id), self.tree.node(id).text.len()));
+                if self.ws.tree.is_ancestor(id, eid) {
+                    self.edit = Some(Edit::new(Target::Text(id), self.ws.tree.node(id).text.len()));
                 }
             }
         }
@@ -88,10 +88,10 @@ impl Outline {
             return;
         }
         // Toggle back to a bullet when every target already has this kind.
-        let kind = if ids.iter().all(|id| self.tree.node(*id).kind == kind) { BlockKind::Bullet } else { kind };
+        let kind = if ids.iter().all(|id| self.ws.tree.node(*id).kind == kind) { BlockKind::Bullet } else { kind };
         let before = None;
         for id in ids {
-            self.tree.set_kind(id, kind);
+            self.ws.tree.set_kind(id, kind);
         }
         self.commit_structure(before, cx);
     }
@@ -148,7 +148,7 @@ impl Outline {
             // the row instead so the color shows (and the next press cycles it).
             if let Target::Text(id) = target {
                 if sel.is_empty() && id != self.zoom {
-                    self.history.seal();
+                    self.ws.history.seal();
                     self.edit = None;
                     self.block = Some(BlockSel { anchor: id, head: id });
                     cx.notify();
@@ -166,11 +166,11 @@ impl Outline {
             cx.notify();
             return;
         }
-        let ids: Vec<NodeId> = self.targets().into_iter().map(|id| self.tree.source(id)).collect();
+        let ids: Vec<NodeId> = self.targets().into_iter().map(|id| self.ws.tree.source(id)).collect();
         let colors: Vec<Option<u8>> = ids
             .iter()
             .flat_map(|id| {
-                let t = &self.tree.node(*id).text;
+                let t = &self.ws.tree.node(*id).text;
                 markup::colors_in(t, 0..t.len())
             })
             .collect();
@@ -179,9 +179,9 @@ impl Outline {
         }
         let color = pick(&colors);
         for id in ids {
-            let text = self.tree.node(id).text.clone();
+            let text = self.ws.tree.node(id).text.clone();
             let r = markup::recolor(&text, 0..text.len(), color);
-            self.tree.set_text(id, &r.text);
+            self.ws.tree.set_text(id, &r.text);
         }
         self.commit_structure(None, cx);
     }
@@ -222,9 +222,9 @@ impl Outline {
 
     /// Click on a to-do checkbox.
     pub fn toggle_checkbox(&mut self, id: NodeId, cx: &mut Context<Self>) {
-        let src = self.tree.source(id);
-        let done = !self.tree.node(src).completed;
-        self.tree.set_completed(src, done);
+        let src = self.ws.tree.source(id);
+        let done = !self.ws.tree.node(src).completed;
+        self.ws.tree.set_completed(src, done);
         self.anims.start(id, Channel::Complete, anim::FLAG);
         self.commit_structure(None, cx);
     }
@@ -235,9 +235,9 @@ impl Outline {
         if ids.is_empty() {
             return;
         }
-        let done = !ids.iter().all(|id| self.tree.node(*id).completed);
+        let done = !ids.iter().all(|id| self.ws.tree.node(*id).completed);
         for id in &ids {
-            self.tree.set_completed(*id, done);
+            self.ws.tree.set_completed(*id, done);
             self.anims.start(*id, Channel::Complete, anim::FLAG);
         }
         // When completing the edited row with completed rows hidden, move on to the next row.
@@ -255,7 +255,7 @@ impl Outline {
         self.hide_completed = !self.hide_completed;
         self.set_meta("hide_completed", if self.hide_completed { "1" } else { "0" });
         if let Some(id) = self.editing_node() {
-            if self.hide_completed && self.tree.node(id).completed {
+            if self.hide_completed && self.ws.tree.node(id).completed {
                 self.edit = None;
             }
         }

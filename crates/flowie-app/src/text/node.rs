@@ -41,7 +41,7 @@ impl Outline {
             Some(Click::Tag(t)) => return self.search_for(&t, cx),
             Some(Click::Link(u)) => return cx.open_url(&u),
             Some(Click::Node(n)) => {
-                if self.tree.contains(n) {
+                if self.ws.tree.contains(n) {
                     return self.zoom_to(n, cx);
                 }
                 self.toast(t!("toast.bullet_deleted"));
@@ -162,7 +162,7 @@ impl Outline {
 
     pub(crate) fn render_node_text(&mut self, id: NodeId, target: Target, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let temporary = matches!(target, Target::Field(Field::WhatsNew(_)));
-        let tree = if temporary { &self.notes_page().unwrap().tree } else { &self.tree };
+        let tree = if temporary { &self.notes_page().unwrap().tree } else { &self.ws.tree };
         let note = matches!(target, Target::Note(_));
         let bold_title = !note && id == self.zoom && id != ROOT;
         let kind = tree.node(id).kind;

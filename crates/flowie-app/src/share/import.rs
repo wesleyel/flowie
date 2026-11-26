@@ -114,10 +114,10 @@ impl Outline {
     }
 
     fn compare_package(&self, package: &Package) -> Result<ImportComparison, String> {
-        if let Some(writer) = &self.writer {
+        if let Some(writer) = &self.ws.writer {
             writer.flush().map_err(|error| t!("outline.save_error", error = error))?;
         }
-        compare_package(package, &self.tree, &self.imports, self.db_path.as_deref()).map_err(|error| error.to_string())
+        compare_package(package, &self.ws.tree, &self.ws.imports, self.db_path.as_deref()).map_err(|error| error.to_string())
     }
 
     pub fn open_package_import(&mut self, package: Package, bytes: usize, cx: &mut Context<Self>) {
@@ -167,7 +167,7 @@ impl Outline {
     /// The "Put in" picker chose `target`.
     pub fn import_put_in(&mut self, target: NodeId, cx: &mut Context<Self>) {
         if let Some(p) = self.package_import.as_mut() {
-            p.parent = if self.tree.contains(target) { self.tree.source(target) } else { ROOT };
+            p.parent = if self.ws.tree.contains(target) { self.ws.tree.source(target) } else { ROOT };
         }
         self.edit = None;
         cx.notify();
@@ -178,7 +178,7 @@ impl Outline {
         window.focus(&self.focus, cx);
         self.edit = None;
         if let Some((target, offset)) =
-            p.return_to.filter(|(t, _)| matches!(t, Target::Text(id) | Target::Note(id) if self.tree.contains(*id)))
+            p.return_to.filter(|(t, _)| matches!(t, Target::Text(id) | Target::Note(id) if self.ws.tree.contains(*id)))
         {
             self.start_edit(target, offset, cx);
         }
@@ -198,7 +198,7 @@ impl Outline {
 
     fn take_confirmed_import(&mut self, cx: &mut Context<Self>) -> Option<PackageImport> {
         let dialog = self.package_import.as_ref()?;
-        if dialog.comparison.revision != self.tree.revision() {
+        if dialog.comparison.revision != self.ws.tree.revision() {
             match self.compare_package(&dialog.package) {
                 Ok(comparison) => {
                     let dialog = self.package_import.as_mut()?;
@@ -211,7 +211,7 @@ impl Outline {
             cx.notify();
             return None;
         }
-        let images = match &self.image_dir {
+        let images = match &self.ws.image_dir {
             Some(dir) => dialog.package.write_images(dir).map_err(crate::image::image_error),
             None if dialog.package.images.is_empty() => Ok(Vec::new()),
             None => Err(t!("image.no_folder").to_string()),
@@ -234,11 +234,11 @@ impl Outline {
     /// Import what the open dialog shows, as it is set (a copy if it was imported before).
     pub fn import_package_now(&mut self, cx: &mut Context<Self>) {
         let Some(p) = self.take_confirmed_import(cx) else { return };
-        let parent = if self.tree.contains(p.parent) { p.parent } else { ROOT };
-        let index = self.tree.children(parent).len();
+        let parent = if self.ws.tree.contains(p.parent) { p.parent } else { ROOT };
+        let index = self.ws.tree.children(parent).len();
         let opts = ImportOptions { fresh_ids: p.comparison.already, keep_completion: p.keep_completion };
-        let (roots, id_map) = p.package.insert_into_mapped(&mut self.tree, parent, index, opts);
-        self.tree.set_collapsed(parent, false);
+        let (roots, id_map) = p.package.insert_into_mapped(&mut self.ws.tree, parent, index, opts);
+        self.ws.tree.set_collapsed(parent, false);
         self.edit = None;
         self.block = None;
         let m = &p.package.manifest;
@@ -247,7 +247,7 @@ impl Outline {
         let after = package_import_state(&p.package, &id_map, now);
         self.commit_with_imports(None, Some((before, after)), cx);
         // Show them in place, not zoomed into: zooming in marks a root seen.
-        if self.zoom != parent && !self.tree.is_ancestor(self.zoom, parent) {
+        if self.zoom != parent && !self.ws.tree.is_ancestor(self.zoom, parent) {
             self.zoom_to(parent, cx);
         }
         self.refresh(false);
@@ -264,21 +264,17 @@ impl Outline {
     pub fn update_package_now(&mut self, cx: &mut Context<Self>) {
         let Some(p) = self.take_confirmed_import(cx) else { return };
         let Some(plan) = p.comparison.update.as_ref() else { return };
-        let mut touched = p.package.apply_update(&mut self.tree, plan, &p.take_theirs);
-        let mut trash = Vec::new();
+        let mut touched = p.package.apply_update(&mut self.ws.tree, plan, &p.take_theirs);
         for &id in &plan.removed {
-            if self.tree.contains(id) {
-                trash.push((id, node_label(self, id), self.tree.subtree_nodes(id)));
-                self.tree.delete(id);
-            }
+            self.ws.tree.trash(id);
         }
         self.edit = None;
         self.block = None;
         let m = &p.package.manifest;
         let after = package_import_state(&p.package, plan.id_map(), flowie_core::tree::now_millis());
-        self.commit_with_imports_and_trash(None, Some((p.comparison.before, after)), trash, cx);
+        self.commit_with_imports(None, Some((p.comparison.before, after)), cx);
         self.refresh(false);
-        touched.retain(|id| self.tree.contains(*id));
+        touched.retain(|id| self.ws.tree.contains(*id));
         for &id in &touched {
             self.anims.start(id, crate::ui::anim::Channel::Flash, crate::ui::anim::FLASH);
         }
@@ -317,7 +313,7 @@ impl Outline {
             date = crate::overlays::context_menu::date_time(m.exported_at_millis())
         );
         let summary = t!("package.export.summary", count = p.package.outline.nodes.len(), size = size_label(p.bytes));
-        let parent_label = if self.tree.contains(p.parent) { node_label(self, p.parent) } else { t!("common.home").to_string() };
+        let parent_label = if self.ws.tree.contains(p.parent) { node_label(self, p.parent) } else { t!("common.home").to_string() };
         let (keep, has_completed, already) = (p.keep_completion, p.has_completed, p.comparison.already);
         let update = p.comparison.update.as_ref();
         let lines = p.preview.iter().map(|(depth, text)| {
@@ -386,7 +382,7 @@ impl Outline {
         });
         let conflicts = update.filter(|plan| !plan.conflicts.is_empty()).map(|plan| {
             let rows = plan.conflicts.iter().take(CONFLICTS_SHOWN).filter_map(|&id| {
-                let mine = flowie_core::markup::plain_text(&self.tree.get(id)?.text);
+                let mine = flowie_core::markup::plain_text(&self.ws.tree.get(id)?.text);
                 let theirs = flowie_core::markup::plain_text(&p.package.update_conflict(plan, id)?.text);
                 let theirs_on = p.take_theirs.contains(&id);
                 let choice = |label: &'static str, on: bool, pick_theirs: bool| {

@@ -30,6 +30,9 @@ const IMAGES: &[(&str, &[u8])] = &[("icon", include_bytes!("../../../../assets/i
 /// The saved search the "Finding things" lesson points at.
 const SAVED_SEARCH: &str = "is:todo is:open";
 
+/// The meta key holding the id of the tutorial's top bullet on this device.
+pub const TUTORIAL_META: &str = "tutorial";
+
 fn source() -> &'static str {
     let code = crate::app::i18n::active();
     TUTORIALS.iter().find(|(c, _)| *c == code).unwrap_or(&TUTORIALS[0]).1
@@ -70,17 +73,17 @@ impl Outline {
         let mcp_command = crate::agent::mcp::Setup::new(self.db_path.as_deref()).claude_command();
         let text = render(source(), &self.config.keys, &mcp_command);
         let items = parse_text(&text);
-        let top = self.tree.insert_items(ROOT, index, &items);
+        let top = self.ws.tree.insert_items(ROOT, index, &items);
         let mut all: Vec<NodeId> = Vec::new();
         for &t in &top {
             all.push(t);
-            all.extend(self.tree.descendants(t));
+            all.extend(self.ws.tree.descendants(t));
         }
         // Pass 1: directives on each bullet.
         let mut names: HashMap<String, NodeId> = HashMap::new();
         let mut mirrors: Vec<(NodeId, String)> = Vec::new();
         for &id in &all {
-            let mut node = self.tree.node(id).clone();
+            let mut node = self.ws.tree.node(id).clone();
             let mut text = node.text.clone();
             while let Some(start) = text.rfind("{{") {
                 let Some(len) = text[start..].find("}}") else { break };
@@ -91,8 +94,9 @@ impl Outline {
                     "text" => node.kind = BlockKind::Paragraph,
                     "code" => node.kind = BlockKind::Code,
                     "star" => {
-                        if !self.starred.contains(&id) {
-                            self.starred.push(id);
+                        if node.star.is_empty() {
+                            let last = self.ws.tree.starred().last().map(|s| self.ws.tree.node(s).star.clone());
+                            node.star = flowie_core::rank::between(last.as_deref(), None);
                         }
                     }
                     d => {
@@ -112,38 +116,41 @@ impl Outline {
                 }
             }
             node.text = text.trim_end().to_string();
-            self.tree.put(node);
+            self.ws.tree.put(node);
         }
         // Pass 2: links and mirrors to named bullets.
         for &id in &all {
-            let text = &self.tree.node(id).text;
+            let text = &self.ws.tree.node(id).text;
             if text.contains("(flowie:@") {
                 let mut text = text.clone();
                 for (name, target) in &names {
                     text = text.replace(&format!("(flowie:@{name})"), &format!("(flowie:{target})"));
                 }
-                self.tree.set_text(id, &text);
+                self.ws.tree.set_text(id, &text);
             }
         }
         for (id, name) in mirrors {
             let Some(&src) = names.get(&name) else { continue };
-            let (parent, at) = (self.tree.parent(id), self.tree.index_in_parent(id));
-            self.tree.delete(id);
-            self.tree.create_mirror(src, parent, at);
+            let (parent, at) = (self.ws.tree.parent(id), self.ws.tree.index_in_parent(id));
+            self.ws.tree.delete(id);
+            self.ws.tree.create_mirror(src, parent, at);
         }
-        let starred = self.starred.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
-        self.set_meta("starred", &starred);
         if !self.saved_searches.iter().any(|s| s == SAVED_SEARCH) {
             self.saved_searches.push(SAVED_SEARCH.to_string());
-            self.set_meta("saved_searches", &self.saved_searches.join("\n"));
+            self.save_searches();
         }
-        top.first().copied().unwrap_or(ROOT)
+        let root = top.first().copied().unwrap_or(ROOT);
+        // The tutorial keeps random ids (its text depends on the language and the
+        // platform's shortcuts); this device remembers its latest copy by id, so a
+        // first sync can tell an untouched tutorial from the user's own outline.
+        self.set_meta(TUTORIAL_META, &root.to_string());
+        root
     }
 
     /// Help → Flowie Tutorial: a fresh copy at the end of Home, zoomed into.
     pub fn open_tutorial(&mut self, _: &OpenTutorial, _: &mut Window, cx: &mut Context<Self>) {
         let before = None;
-        let id = self.insert_tutorial(self.tree.children(ROOT).len());
+        let id = self.insert_tutorial(self.ws.tree.children(ROOT).len());
         self.commit_structure(before, cx);
         self.zoom_to(id, cx);
     }

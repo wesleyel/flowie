@@ -15,7 +15,8 @@ mod structure;
 
 use std::ops::Range;
 
-use flowie_core::{store::Writer, DisplayRow, History, NodeId, Row, Tree, ROOT};
+use flowie_core::{DisplayRow, NodeId, Row, ROOT};
+use flowie_doc::Workspace;
 use gpui::{actions, px, Bounds, Context, FocusHandle, ListAlignment, ListState, Pixels, TextLayout, Window};
 
 use crate::ui::{
@@ -190,9 +191,8 @@ pub struct BlockSel {
 
 pub struct Outline {
     pub focus: FocusHandle,
-    pub tree: Tree,
-    pub history: History,
-    pub writer: Option<Writer>,
+    /// The outline's data: tree, undo history, database writer, imports and images.
+    pub ws: Workspace,
     pub zoom: NodeId,
     back_pages: Vec<PageLocation>,
     forward_pages: Vec<PageLocation>,
@@ -226,13 +226,12 @@ pub struct Outline {
     pub inline: Option<crate::overlays::palette::Inline>,
     pub inline_entries_len: usize,
     pub block_saved: Option<BlockSel>,
-    pub starred: Vec<NodeId>,
+    /// The `saved_searches` pref, one query per line.
     pub saved_searches: Vec<String>,
     pub(crate) trash: Option<crate::pages::trash::TrashPage>,
     pub(crate) volatile_page: Option<crate::pages::whats_new::VolatilePage>,
     pub db_path: Option<std::path::PathBuf>,
     pub calendar: Option<crate::overlays::calendar::Calendar>,
-    pub journal_id: Option<NodeId>,
     /// This device, for share packages and (later) the change history: a UUID kept in the database's meta.
     pub device_id: String,
     /// A block selection is being extended by dragging the mouse.
@@ -271,18 +270,15 @@ pub struct Outline {
     pub package_export: Option<crate::share::PackageExport>,
     /// The open import dialog.
     pub package_import: Option<crate::share::PackageImport>,
-    /// Image files, beside the database (none without one).
-    pub image_dir: Option<flowie_core::images::ImageDir>,
-    /// What is known about each image file, by name.
-    pub blobs: std::collections::HashMap<String, flowie_core::images::BlobInfo>,
     /// The image shown full-window (Space on an image bullet).
     pub image_preview: Option<NodeId>,
     /// What's New to show once the window is (after a background launch).
     pub whats_new_pending: Option<Option<String>>,
-    /// Roots imported from share packages, by root id.
-    pub imports: std::collections::HashMap<NodeId, flowie_core::store::ImportRecord>,
     /// Set when the background database writer failed and is retrying.
     pub save_error: Option<String>,
+    /// Set when the database couldn't be opened and the window shows an empty
+    /// outline that isn't saved: the message to show.
+    pub load_error: Option<String>,
     close_prompt_open: bool,
 }
 
@@ -294,41 +290,33 @@ pub const HEAD: usize = 1;
 
 impl Outline {
     pub fn new(
-        tree: Tree,
-        writer: Option<Writer>,
+        ws: Workspace,
         db_path: Option<std::path::PathBuf>,
         meta: Vec<(String, String)>,
-        imports: Vec<flowie_core::store::ImportRecord>,
-        blobs: Vec<flowie_core::images::BlobInfo>,
         config: crate::settings::Config,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let db_path_for_config = db_path.clone();
-        let db_path_for_images = db_path.clone();
         let mut zoom = ROOT;
         let mut hide_completed = false;
-        let mut starred = Vec::new();
-        let mut saved_searches = Vec::new();
+        let saved_searches =
+            ws.pref("saved_searches").unwrap_or_default().split('\n').filter(|x| !x.is_empty()).map(String::from).collect();
         let mut page_scrolls = std::collections::HashMap::new();
         for (k, v) in &meta {
             match k.as_str() {
                 "zoom" => zoom = v.parse().unwrap_or(ROOT),
                 "hide_completed" => hide_completed = v == "1",
                 "scroll" => page_scrolls.extend(PageScroll::decode(v)),
-                "starred" => starred = v.split(',').filter_map(|x| x.parse().ok()).collect(),
-                "saved_searches" => saved_searches = v.split('\n').filter(|x| !x.is_empty()).map(String::from).collect(),
                 _ => {}
             }
         }
-        if !tree.contains(zoom) {
+        if !ws.tree.contains(zoom) {
             zoom = ROOT;
         }
         let mut this = Outline {
             focus: cx.focus_handle(),
-            tree,
-            history: History::new(),
-            writer,
+            ws,
             zoom,
             back_pages: Vec::new(),
             forward_pages: Vec::new(),
@@ -356,13 +344,11 @@ impl Outline {
             inline: None,
             inline_entries_len: 0,
             block_saved: None,
-            starred,
             saved_searches,
             trash: None,
             volatile_page: None,
             db_path,
             calendar: None,
-            journal_id: meta.iter().find(|(k, _)| k == "journal").and_then(|(_, v)| v.parse().ok()),
             device_id: meta.iter().find(|(k, _)| k == "device").map(|(_, v)| v.clone()).unwrap_or_default(),
             toast: None,
             row_pos: Default::default(),
@@ -373,12 +359,10 @@ impl Outline {
             app_menu_scroll: gpui::ScrollHandle::new(),
             package_export: None,
             package_import: None,
-            image_dir: db_path_for_images.as_deref().map(flowie_core::images::ImageDir::beside),
-            blobs: blobs.into_iter().map(|b| (b.name.clone(), b)).collect(),
             image_preview: None,
             whats_new_pending: None,
-            imports: imports.into_iter().map(|r| (r.root, r)).collect(),
             save_error: None,
+            load_error: None,
             close_prompt_open: false,
             kill_buffer: String::new(),
             mouse_block: false,
@@ -398,13 +382,15 @@ impl Outline {
             this.set_meta("device", &this.device_id.clone());
         }
         this.ensure_author();
-        if this.tree.children(ROOT).is_empty() {
+        // A new database starts with the tutorial. Without one (it couldn't be opened, and the
+        // window's banner says so) the outline stays empty: nothing in it would be saved.
+        if this.ws.writer.is_some() && this.ws.tree.children(ROOT).is_empty() {
             this.seed_welcome();
         }
         this.refresh(false);
         let top = this.restore_scroll();
         if let Some(first) = top.or_else(|| this.rows.first().map(|r| r.id)) {
-            this.edit = Some(Edit::new(Target::Text(first), this.tree.node(first).text.len()));
+            this.edit = Some(Edit::new(Target::Text(first), this.ws.tree.node(first).text.len()));
         }
         let saved_place = meta.iter().find(|(k, _)| k == "window").and_then(|(_, v)| crate::app::window_place::Place::parse(v));
         this.window_place = crate::app::window_place::Place::observe(saved_place.as_ref(), window, cx);
@@ -429,8 +415,8 @@ impl Outline {
 
     fn seed_welcome(&mut self) {
         self.insert_tutorial(0);
-        self.tree.take_journal();
-        self.persist();
+        self.ws.tree.take_journal();
+        self.ws.persist();
     }
 
     pub fn toast(&mut self, msg: impl Into<String>) {
@@ -438,9 +424,13 @@ impl Outline {
     }
 
     pub fn set_meta(&self, key: &str, value: &str) {
-        if let Some(w) = &self.writer {
-            w.set_meta(key, value);
-        }
+        self.ws.set_meta(key, value);
+    }
+
+    /// Save `saved_searches` (a pref, so it syncs).
+    pub fn save_searches(&mut self) {
+        let value = self.saved_searches.join("\n");
+        self.ws.set_pref("saved_searches", &value);
     }
 
     /// Settings or a dialog is open: the outline's own shortcuts are off
@@ -449,5 +439,44 @@ impl Outline {
         self.settings.is_some()
             || self.image_preview.is_some()
             || ((self.package_export.is_some() || self.package_import.is_some()) && self.palette.is_none())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use flowie_core::store::{LOCAL_META, PREFS};
+
+    /// Every key the app saves goes to the right table: `meta` for this device's
+    /// state, `prefs` for what syncs. A new key must be added to one list on purpose.
+    #[test]
+    fn meta_and_pref_keys_are_classified() {
+        fn keys(source: &str, call: &str) -> Vec<String> {
+            source.match_indices(call).filter_map(|(at, _)| source[at + call.len()..].split('"').next().map(String::from)).collect()
+        }
+        fn walk(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for entry in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push((path.display().to_string(), std::fs::read_to_string(&path).unwrap()));
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        let (mut metas, mut prefs) = (0, 0);
+        for (path, source) in &files {
+            for key in keys(source, "set_meta(\"") {
+                assert!(LOCAL_META.contains(&key.as_str()), "{path}: meta key {key:?} is not in store::LOCAL_META");
+                metas += 1;
+            }
+            for key in keys(source, "set_pref(\"") {
+                assert!(PREFS.contains(&key.as_str()), "{path}: pref key {key:?} is not in store::PREFS");
+                prefs += 1;
+            }
+        }
+        assert!(metas > 0 && prefs > 0, "found no set_meta/set_pref calls to check");
+        assert!(LOCAL_META.contains(&crate::app::tutorial::TUTORIAL_META));
     }
 }

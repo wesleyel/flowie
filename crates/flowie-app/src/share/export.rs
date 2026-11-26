@@ -38,13 +38,13 @@ impl Outline {
     pub fn export_package(&mut self, _: &ExportPackage, _: &mut Window, cx: &mut Context<Self>) {
         let mut roots = self.targets();
         if roots.is_empty() {
-            roots = if self.zoom == ROOT { self.tree.children(ROOT).to_vec() } else { vec![self.zoom] };
+            roots = if self.zoom == ROOT { self.ws.tree.children(ROOT).to_vec() } else { vec![self.zoom] };
         }
         self.open_package_export(roots, cx);
     }
 
     pub fn open_package_export(&mut self, roots: Vec<NodeId>, cx: &mut Context<Self>) {
-        let roots: Vec<NodeId> = roots.into_iter().filter(|id| self.tree.contains(*id)).map(|id| self.tree.resolve(id)).collect();
+        let roots: Vec<NodeId> = roots.into_iter().filter(|id| self.ws.tree.contains(*id)).map(|id| self.ws.tree.resolve(id)).collect();
         let Some(&first) = roots.first() else {
             self.toast(t!("toast.nothing_to_export"));
             return cx.notify();
@@ -55,7 +55,7 @@ impl Outline {
         self.menu = None;
         let title = match roots.len() {
             1 => node_label(self, first),
-            n if self.zoom != ROOT && n == self.tree.children(self.zoom).len() => node_label(self, self.zoom),
+            n if self.zoom != ROOT && n == self.ws.tree.children(self.zoom).len() => node_label(self, self.zoom),
             _ => node_label(self, first),
         };
         let return_to = self.edit.take().map(|e| (e.target, e.caret()));
@@ -90,7 +90,7 @@ impl Outline {
             author: Person { id: self.config.author.id.clone(), name: self.author_name(), device: self.device_id.clone() },
             app: format!("Flowie {}", crate::pages::whats_new::running_version()),
         };
-        Package::export(&self.tree, roots, ExportOptions { include_completed }, meta, self.image_dir.as_ref())
+        Package::export(&self.ws.tree, roots, ExportOptions { include_completed }, meta, self.ws.image_dir.as_ref())
     }
 
     pub fn set_include_completed(&mut self, on: bool, cx: &mut Context<Self>) {
@@ -130,7 +130,7 @@ impl Outline {
         let dir = dirs::desktop_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
         let rx = cx.prompt_for_new_path(&dir, Some(&file_name(&title)));
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(path))) = rx.await else { return };
+            let Some(path) = crate::app::file_dialog::choice(rx, &this, cx).await else { return };
             let msg = match std::fs::write(&path, bytes) {
                 Ok(()) => t!("toast.exported", path = path.display()),
                 Err(e) => t!("toast.export_failed", error = e),

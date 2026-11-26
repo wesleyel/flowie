@@ -70,8 +70,8 @@ impl Render for DragPreview {
 impl Outline {
     /// Link count badge (row end / page title); opens who links here.
     pub(super) fn render_reference_count(&self, id: NodeId, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let id = self.tree.source(id);
-        let count = self.tree.link_count(id);
+        let id = self.ws.tree.source(id);
+        let count = self.ws.tree.link_count(id);
         if count == 0 {
             return None;
         }
@@ -99,8 +99,9 @@ impl Outline {
 
     pub(super) fn render_footer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let src = self.tree.source(self.zoom);
-        let (links, mirrors) = if self.zoom != ROOT { (self.tree.backlinks(src), self.tree.mirrors_of(src)) } else { Default::default() };
+        let src = self.ws.tree.source(self.zoom);
+        let (links, mirrors) =
+            if self.zoom != ROOT { (self.ws.tree.backlinks(src), self.ws.tree.mirrors_of(src)) } else { Default::default() };
         let mut section = Vec::new();
         for (mirror, title, ids) in [(false, t!("outline.linked_from"), links), (true, t!("outline.mirrored_in"), mirrors)] {
             if ids.is_empty() {
@@ -119,7 +120,7 @@ impl Outline {
             for id in ids {
                 let (label, note) = self.plain_text_and_note(id);
                 let path = self.render_path(id, f32::from(window.viewport_size().width) - 156., true, window, cx);
-                let target = if mirror { self.tree.parent(id) } else { id };
+                let target = if mirror { self.ws.tree.parent(id) } else { id };
                 section.push(
                     div()
                         .id(("backlink", id.as_usize()))
@@ -169,12 +170,12 @@ impl Outline {
     /// The marker left of a bullet's text: dot, checkbox, number, …
     fn render_marker(&mut self, id: NodeId, line_h: f32, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let node = self.tree.node(id);
+        let node = self.ws.tree.node(id);
         let kind = node.kind;
         let is_mirror = node.mirror != ROOT;
-        let src = self.tree.node(self.tree.source(id));
+        let src = self.ws.tree.node(self.ws.tree.source(id));
         let completed = src.completed;
-        let has_kids = self.tree.has_children(self.tree.source(id));
+        let has_kids = self.ws.tree.has_children(self.ws.tree.source(id));
         let collapsed = node.collapsed;
         let label: String = markup::plain_text(&src.text).chars().take(60).collect();
         let base = div()
@@ -204,12 +205,12 @@ impl Outline {
                     .into_any_element();
             }
             BlockKind::Numbered => {
-                let parent = self.tree.parent(id);
-                let sibs = self.tree.children(parent);
+                let parent = self.ws.tree.parent(id);
+                let sibs = self.ws.tree.children(parent);
                 let ix = sibs.iter().position(|s| *s == id).unwrap_or(0);
                 let mut n = 1;
                 for s in sibs[..ix].iter().rev() {
-                    if self.tree.node(*s).kind == BlockKind::Numbered {
+                    if self.ws.tree.node(*s).kind == BlockKind::Numbered {
                         n += 1;
                     } else {
                         break;
@@ -249,7 +250,7 @@ impl Outline {
     /// A deleted row shrinking out (no interaction).
     fn render_ghost(&mut self, ix: usize) -> AnyElement {
         let d = self.display[ix];
-        let real = self.tree.resolve(d.row.id);
+        let real = self.ws.tree.resolve(d.row.id);
         let Some(node) = self.ghosts.get(&real) else { return div().into_any_element() };
         let theme = self.theme;
         let p = 1.0 - ease_out(self.anims.t(d.row.id, Channel::Leave).unwrap_or(1.0));
@@ -288,14 +289,14 @@ impl Outline {
         }
         let d = self.display[ix];
         let id = d.row.id;
-        let Some(node) = self.tree.get(id) else { return self.render_ghost(ix) };
+        let Some(node) = self.ws.tree.get(id) else { return self.render_ghost(ix) };
         let theme = self.theme;
         let depth = d.row.depth as f32;
         let kind = node.kind;
         let collapsed = node.collapsed;
-        let src_id = self.tree.source(id);
-        let has_kids = self.tree.has_children(src_id);
-        let src = self.tree.node(src_id);
+        let src_id = self.ws.tree.source(id);
+        let has_kids = self.ws.tree.has_children(src_id);
+        let src = self.ws.tree.node(src_id);
         let completed = src.completed;
         let has_note = !src.note.is_empty();
         let text_len = src.text.len();
@@ -402,7 +403,7 @@ impl Outline {
             // Image files dropped on a row go after it.
             .on_drop(cx.listener(move |this, paths: &gpui::ExternalPaths, _, cx| {
                 let images: Vec<std::path::PathBuf> = paths.paths().iter().filter(|p| crate::image::is_image_path(p)).cloned().collect();
-                let (parent, index) = (this.tree.parent(id), this.tree.index_in_parent(id) + 1);
+                let (parent, index) = (this.ws.tree.parent(id), this.ws.tree.index_in_parent(id) + 1);
                 this.insert_image_files(&images, Some((parent, index)), cx);
             }))
             .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {

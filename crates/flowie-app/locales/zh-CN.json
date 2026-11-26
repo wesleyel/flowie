@@ -15,6 +15,8 @@
     "link_count": "引用来源 · {count}",
     "save_error": "无法保存修改，正在自动重试（{error}）",
     "save_retry": "重试",
+    "db_too_new": "你的大纲由更新版本的 Flowie 保存，请更新 Flowie 后再打开。当前窗口是空的，其中的内容不会保存。",
+    "load_error": "无法打开你的大纲（{error}）。当前窗口是空的，其中的内容不会保存。",
     "quit_unsaved": "部分修改未能保存",
     "quit_unsaved_detail": "保持 Flowie 打开可继续重试。现在退出可能会丢失未保存的修改。\n\n{error}",
     "keep_open": "继续使用",
@@ -27,7 +29,6 @@
     "import_package_alone": "请一次只导入一个 Flowie 分享包，不要同时选择其他文件。",
     "nothing_to_export": "没有可导出的内容",
     "bullet_deleted": "该条目已删除（见废纸篓）",
-    "trash_unrestorable": "该废纸篓条目数据已损坏，无法恢复",
     "cut_kept_in_trash": "已剪切，废纸篓中也保留了一份",
     "moved": "已将 {count} 个条目移动到“{target}”",
     "starred": "已收藏“{name}”，按 {shortcut} 跳转",
@@ -35,6 +36,8 @@
     "imported": "已导入 {count} 个条目",
     "exported": "已导出到 {path}",
     "export_failed": "导出失败：{error}",
+    "file_dialog_failed": "无法打开文件对话框：{error}",
+    "file_dialog_failed_linux": "无法打开文件对话框。请安装 xdg-desktop-portal 和一个后端，例如 xdg-desktop-portal-gtk。",
     "restored": "已恢复“{name}”",
     "search_saved": "已保存搜索“{query}”，按 {shortcut} 运行",
     "search_removed": "已移除保存的搜索“{query}”",
@@ -105,7 +108,9 @@
     "retention": "删除的条目会保留 30 天。",
     "empty": "废纸篓是空的。",
     "entry": "{count} 个条目 · {ago}",
-    "unrestorable": "数据已损坏（无法恢复） · {ago}"
+    "confirm_title": "永久删除「{name}」？",
+    "confirm_detail": "将立即删除 {count} 个条目，无法找回，撤销也不行。",
+    "cancel": "取消"
   },
   "settings": {
     "heading": "设置",

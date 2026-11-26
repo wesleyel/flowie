@@ -11,19 +11,19 @@ impl Outline {
     /// rows that disappear shrink out.
     pub fn refresh(&mut self, animate: bool) {
         // Never draw a page that no longer exists (deleted while zoomed into it).
-        if self.zoom != ROOT && !self.tree.contains(self.zoom) {
+        if self.zoom != ROOT && !self.ws.tree.contains(self.zoom) {
             self.zoom = ROOT;
         }
         let opts = self.view_options();
         self.highlight_terms = opts.query.as_ref().map(|q| q.highlight_terms()).unwrap_or_default();
-        let (new_rows, virtuals) = flowie_core::flatten_mapped(&self.tree, self.zoom, &opts);
-        self.tree.add_virtuals(virtuals);
+        let (new_rows, virtuals) = flowie_core::flatten_mapped(&self.ws.tree, self.zoom, &opts);
+        self.ws.tree.add_virtuals(virtuals);
         let old_display = std::mem::take(&mut self.display);
         let new_display: Vec<DisplayRow> = if animate {
             let old: Vec<Row> = old_display
                 .iter()
                 .filter(|d| !d.leaving || !self.anims.is_leaving_done(d.row.id))
-                .filter(|d| self.tree.contains(d.row.id) || self.ghosts.contains_key(&self.tree.resolve(d.row.id)) || d.leaving)
+                .filter(|d| self.ws.tree.contains(d.row.id) || self.ghosts.contains_key(&self.ws.tree.resolve(d.row.id)) || d.leaving)
                 .map(|d| d.row)
                 .collect();
             let old_ids: std::collections::HashSet<NodeId> = old_display.iter().filter(|d| !d.leaving).map(|d| d.row.id).collect();
@@ -43,7 +43,7 @@ impl Outline {
             // Leaving rows of deleted nodes render from their snapshot.
             merged
                 .into_iter()
-                .filter(|d| !d.leaving || self.tree.contains(d.row.id) || self.ghosts.contains_key(&self.tree.resolve(d.row.id)))
+                .filter(|d| !d.leaving || self.ws.tree.contains(d.row.id) || self.ghosts.contains_key(&self.ws.tree.resolve(d.row.id)))
                 .collect()
         } else {
             new_rows.iter().map(|&row| DisplayRow { row, leaving: false }).collect()
@@ -115,8 +115,8 @@ impl Outline {
             let new: Vec<DisplayRow> = old.iter().copied().filter(|d| !(d.leaving && self.anims.is_leaving_done(d.row.id))).collect();
             for id in ids {
                 self.anims.clear_leave(id);
-                let real = self.tree.resolve(id);
-                if !self.tree.contains(real) {
+                let real = self.ws.tree.resolve(id);
+                if !self.ws.tree.contains(real) {
                     self.ghosts.remove(&real);
                 }
             }

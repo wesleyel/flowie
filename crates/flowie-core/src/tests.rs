@@ -139,18 +139,60 @@ fn move_up_down_and_across_parents() {
 }
 
 #[test]
-fn many_inserts_between_trigger_renumber() {
+fn inserts_and_moves_never_rewrite_other_ranks() {
     let mut t = Tree::new();
     let first = t.create_at(ROOT, 0, "first");
     t.create_after(first, "last");
+    t.take_journal();
     for i in 0..200 {
         t.create_at(ROOT, 1, &format!("{i}"));
+        // One change per insert: the new node, nobody else.
+        assert_eq!(t.take_journal().len(), 1);
     }
     let ts = texts(&t, ROOT);
     assert_eq!(ts.first().unwrap(), "first");
     assert_eq!(ts.last().unwrap(), "last");
     assert_eq!(ts[1], "199");
     assert_eq!(ts[200], "0");
+    let ranks: Vec<&str> = t.children(ROOT).iter().map(|c| t.node(*c).rank.as_str()).collect();
+    assert!(ranks.windows(2).all(|w| w[0] < w[1]));
+    let moved = t.children(ROOT)[5];
+    for _ in 0..50 {
+        assert!(t.move_to(moved, ROOT, 1));
+        assert!(t.move_to(moved, ROOT, 3));
+    }
+    let journal = t.take_journal();
+    assert!(journal.iter().all(|c| c.id == moved), "only the moved node changes");
+}
+
+#[test]
+fn tied_ranks_place_new_nodes_after_the_tie() {
+    let key = rank::between(None, None);
+    let mut nodes: Vec<Node> = (0..3).map(|_| Node::new(NodeId::random(), ROOT, key.clone())).collect();
+    nodes.sort_by_key(|n| n.id);
+    let mut t = Tree::from_nodes(nodes.clone());
+    assert_eq!(t.children(ROOT), nodes.iter().map(|n| n.id).collect::<Vec<_>>(), "equal keys order by id");
+    t.take_dirty();
+    let new = t.create_at(ROOT, 1, "new");
+    assert_eq!(t.children(ROOT).last(), Some(&new));
+    let front = t.create_at(ROOT, 0, "front");
+    assert_eq!(t.children(ROOT)[0], front);
+    let (dirty, _) = t.take_dirty();
+    assert_eq!(dirty.len(), 2);
+}
+
+#[test]
+fn malformed_ranks_are_repaired_on_load_keeping_order() {
+    let mut a = Node::new(NodeId::random(), ROOT, String::new());
+    a.text = "a".into();
+    let mut b = Node::new(NodeId::random(), ROOT, "a0".into());
+    b.text = "b".into();
+    let mut c = Node::new(NodeId::random(), ROOT, "a1".into());
+    c.text = "c".into();
+    let mut t = Tree::from_nodes([c, b, a]);
+    assert_eq!(texts(&t, ROOT), ["a", "b", "c"]);
+    assert!(t.children(ROOT).iter().all(|id| rank::is_valid(&t.node(*id).rank)));
+    assert_eq!(t.take_dirty().0.len(), 3);
 }
 
 #[test]
@@ -295,6 +337,7 @@ fn markup_styles_and_links() {
     assert!(kinds("a#b").iter().all(|(_, k)| *k == Kind::Text));
 }
 
+#[cfg(feature = "writer-thread")]
 #[test]
 fn store_roundtrip() {
     let dir = std::env::temp_dir().join(format!("flowie-test-{}", std::process::id()));
@@ -510,10 +553,9 @@ fn expand_to_level_and_restore_and_backlinks() {
     t.expand_to_level(ROOT, usize::MAX);
     assert!(!t.node(b).collapsed && !t.node(d).collapsed);
     // trash round trip
-    let snapshot = t.subtree_nodes(b);
-    t.delete(b);
+    t.trash(b);
     assert!(!t.contains(e));
-    t.restore(&snapshot);
+    assert!(t.untrash(b));
     assert_eq!(outline(&t, ROOT), "a\nb\n  d\n    e\nc");
     // links
     t.set_text(c, &format!("see [b](flowie:{b})"));
@@ -655,4 +697,163 @@ fn markdown_images_round_trip() {
     assert!(q.matches(t.node(ids[0])));
     q = Query::parse("-has:image");
     assert!(!q.matches(t.node(ids[0])));
+}
+
+#[test]
+fn stars_keep_the_order_they_were_added_in() {
+    let (mut t, [a, b, c, d]) = sample();
+    for id in [c, a, d] {
+        t.star_at(id, usize::MAX);
+    }
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![c, a, d]);
+    assert!(t.is_starred(a) && !t.is_starred(b));
+    // Other edits and a rebuild from the saved nodes keep the order.
+    t.set_text(a, "A");
+    t.move_to(c, b, 0);
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![c, a, d]);
+    let rebuilt = Tree::from_nodes(t.nodes().cloned().collect::<Vec<_>>());
+    assert_eq!(rebuilt.starred().collect::<Vec<_>>(), vec![c, a, d]);
+}
+
+#[test]
+fn star_between_two_changes_only_that_node() {
+    let (mut t, [a, b, c, _d]) = sample();
+    t.star_at(a, usize::MAX);
+    t.star_at(b, usize::MAX);
+    t.take_journal();
+    let (sa, sb) = (t.node(a).star.clone(), t.node(b).star.clone());
+    t.star_at(c, 1);
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![a, c, b]);
+    assert!(sa < t.node(c).star && t.node(c).star < sb);
+    let changed: Vec<NodeId> = t.take_journal().iter().map(|c| c.id).collect();
+    assert_eq!(changed, vec![c]);
+    assert_eq!((t.node(a).star.clone(), t.node(b).star.clone()), (sa, sb));
+    // Moving a starred node within the list.
+    t.star_at(b, 0);
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![b, a, c]);
+}
+
+#[test]
+fn unstar_and_deleted_nodes_leave_the_list() {
+    let (mut t, [a, b, c, d]) = sample();
+    for id in [a, c, d] {
+        t.star_at(id, usize::MAX);
+    }
+    t.unstar(c);
+    assert!(!t.is_starred(c) && t.node(c).star.is_empty());
+    t.delete(b);
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![a]);
+}
+
+#[test]
+fn undo_leaves_stars_alone() {
+    let (mut t, [a, ..]) = sample();
+    let mut h = History::new();
+    t.set_text(a, "A");
+    h.commit(&mut t, HistoryKind::Structure, None, None);
+    // Starring is not an undo step.
+    let mark = t.journal_mark();
+    t.star_at(a, usize::MAX);
+    t.forget_since(mark);
+    h.undo(&mut t);
+    assert_eq!(t.node(a).text, "a");
+    assert!(t.is_starred(a));
+    h.redo(&mut t);
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![a]);
+    t.unstar(a);
+    t.take_journal();
+    h.undo(&mut t);
+    assert!(!t.is_starred(a));
+}
+
+#[cfg(feature = "writer-thread")]
+#[test]
+fn stars_and_prefs_survive_save_and_reload() {
+    let dir = std::env::temp_dir().join(format!("flowie-stars-{}", NodeId::random()));
+    let path = dir.join("t.sqlite");
+    let (mut t, [a, b, c, _d]) = sample();
+    t.star_at(b, usize::MAX);
+    t.star_at(a, usize::MAX);
+    t.star_at(c, usize::MAX);
+    t.unstar(a);
+    {
+        let w = store::Writer::spawn(store::open(&path).unwrap());
+        let (up, del) = t.take_dirty();
+        w.write(up, del);
+        w.set_pref("saved_searches", "is:todo\n#work");
+        w.set_meta("zoom", "0");
+        w.flush().unwrap();
+    }
+    let conn = store::open(&path).unwrap();
+    let (nodes, meta) = store::load(&conn).unwrap();
+    let t2 = Tree::from_nodes(nodes);
+    assert_eq!(t2.starred().collect::<Vec<_>>(), vec![b, c]);
+    assert_eq!(t2.node(b).star, t.node(b).star);
+    assert_eq!(store::load_prefs(&conn).unwrap(), vec![("saved_searches".to_string(), "is:todo\n#work".to_string())]);
+    assert_eq!(meta, vec![("zoom".to_string(), "0".to_string())]);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[cfg(feature = "store")]
+#[test]
+fn meta_and_prefs_keys_do_not_overlap() {
+    for key in store::PREFS {
+        assert!(!store::LOCAL_META.contains(key), "{key} is both a local meta key and a synced pref");
+    }
+    // Stars live on the nodes, not in a meta or pref list.
+    assert!(!store::LOCAL_META.contains(&"starred") && !store::PREFS.contains(&"starred"));
+}
+
+/// A deleted subtree is out of every view built on the tree: rows, search, links,
+/// mirrors, stars, short ids (what MCP tools resolve) and counts. Its records stay.
+#[test]
+fn trashed_nodes_are_out_of_every_view() {
+    let (mut t, [a, b, _c, d]) = sample();
+    t.set_text(d, &format!("needle inside, see [a](flowie:{a})"));
+    let m = t.create_mirror(b, a, 0).unwrap();
+    t.star_at(d, usize::MAX);
+    let before = t.len();
+
+    t.trash(b);
+    assert!(!t.contains(b) && !t.contains(d) && t.has_record(d));
+    assert_eq!(t.len(), before - 2);
+    assert!(!flatten(&t, ROOT, &ViewOptions::default()).iter().any(|r| t.resolve(r.id) == d));
+    // Search: the rows filter and the node scan the MCP `search` tool does.
+    let q = Query::parse("needle");
+    assert!(flatten(&t, ROOT, &ViewOptions { query: Some(q.clone()), ..Default::default() }).is_empty());
+    assert!(!t.nodes().any(|n| q.matches(n)));
+    // Backlinks from deleted bullets; a mirror of a deleted bullet shows as an empty row, as
+    // one of a hard-deleted bullet did; stars.
+    assert!(t.backlinks(a).is_empty() && t.link_count(a) == 0);
+    assert_eq!(t.source(m), m);
+    assert!(t.children(t.source(m)).is_empty());
+    assert_eq!(t.starred().count(), 0);
+    // Short ids (MCP `read`/`update`/`move` targets) don't resolve to it.
+    let short = ShortIds::new(&t);
+    assert!(short.resolve(&d.to_string()[..8]).is_err());
+    // Copies and exports.
+    assert!(!t.to_indented_text(&[a, b]).contains("needle"));
+
+    // Restoring brings back exactly what was there.
+    assert!(t.untrash(b));
+    assert_eq!(t.len(), before);
+    assert_eq!(t.backlinks(a), vec![d]);
+    assert_eq!(t.starred().collect::<Vec<_>>(), [d]);
+    assert_eq!(t.source(m), b);
+}
+
+#[cfg(feature = "store")]
+#[test]
+fn trashed_nodes_are_left_out_of_share_packages_but_count_as_imported() {
+    let (mut t, [a, b, _c, d]) = sample();
+    t.trash(b);
+    let package = package::Package::export(&t, &[a, b], Default::default(), Default::default(), None);
+    assert_eq!(package.outline.roots, [a]);
+    assert!(!package.outline.nodes.iter().any(|n| n.id == d || n.id == b));
+    // A package holding a bullet that is in the Trash here was imported before: importing
+    // it again makes fresh ids instead of overwriting the deleted records.
+    let mut sender = Tree::from_nodes(t.records().cloned());
+    assert!(sender.untrash(b));
+    let package = package::Package::export(&sender, &[b], Default::default(), Default::default(), None);
+    assert_eq!(package.present_in(&t), [b, d]);
 }

@@ -17,6 +17,7 @@ screenshots = []
 [dependencies]
 gpui.workspace = true
 flowie-core.workspace = true
+flowie-doc.workspace = true
 flowie-math.workspace = true
 unicode-segmentation = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

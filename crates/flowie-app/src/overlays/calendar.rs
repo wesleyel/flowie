@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use chrono::{Datelike, Local, NaiveDate};
-use flowie_core::{markup, search::today};
+use flowie_core::{journal, markup, search::today};
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, MouseDownEvent, SharedString, Window};
 
 use crate::app::i18n::t;
@@ -30,7 +30,7 @@ impl Outline {
         }
         let now = Local::now();
         let mut counts: HashMap<String, usize> = HashMap::new();
-        for n in self.tree.nodes() {
+        for n in self.ws.tree.nodes() {
             if n.text.len() >= 10 && n.text.contains('-') {
                 for d in markup::dates(&n.text) {
                     *counts.entry(d.to_string()).or_default() += 1;
@@ -50,13 +50,6 @@ impl Outline {
         cx.notify();
     }
 
-    fn journal_days(&self) -> Vec<String> {
-        match self.journal_id.filter(|j| self.tree.contains(*j)) {
-            Some(j) => self.tree.children(j).iter().map(|id| self.tree.node(*id).text.chars().take(10).collect()).collect(),
-            None => Vec::new(),
-        }
-    }
-
     pub fn render_calendar(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let c = self.calendar.as_ref()?;
         let theme = self.theme;
@@ -66,7 +59,6 @@ impl Outline {
         let days = (next - first).num_days() as u32;
         let lead = first.weekday().num_days_from_monday();
         let today = today();
-        let journal = self.journal_days();
         let title: SharedString = {
             let months = [
                 t!("calendar.month.jan"),
@@ -92,7 +84,7 @@ impl Outline {
             let date = format!("{:04}-{:02}-{:02}", c.year, c.month, d);
             let count = c.counts.get(&date).copied().unwrap_or(0);
             let is_today = date == today;
-            let has_page = journal.contains(&date);
+            let has_page = journal::find_day(&self.ws.tree, &date).is_some();
             let date2 = date.clone();
             cells.push(
                 div()

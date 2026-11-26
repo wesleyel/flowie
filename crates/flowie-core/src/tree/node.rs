@@ -1,3 +1,10 @@
+use std::sync::{PoisonError, RwLock};
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use web_time::{SystemTime, UNIX_EPOCH};
+
 use super::{NodeId, ROOT};
 
 /// How a node is displayed.
@@ -119,6 +126,28 @@ impl Node {
     }
 }
 
+/// A wall clock: milliseconds since the Unix epoch.
+pub type Clock = fn() -> i64;
+
+static CLOCK: RwLock<Option<Clock>> = RwLock::new(None);
+
+/// Replace the clock behind [`now_millis`] for the whole process (`None` goes back to the
+/// system clock). For deterministic tests, and later the sync engine's hybrid logical clock.
+pub fn set_clock(clock: Option<Clock>) {
+    *CLOCK.write().unwrap_or_else(PoisonError::into_inner) = clock;
+}
+
+/// The time stamped on `created`/`modified` and Trash entries: the clock set with
+/// [`set_clock`], or the system clock.
 pub fn now_millis() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    match *CLOCK.read().unwrap_or_else(PoisonError::into_inner) {
+        Some(clock) => clock(),
+        None => system_millis(),
+    }
+}
+
+/// The system clock. `std::time::SystemTime` panics on `wasm32-unknown-unknown`, so the
+/// browser's clock is read there instead.
+pub fn system_millis() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }

@@ -5,11 +5,19 @@
 //! copy it once, and identical images are stored once. The database keeps
 //! each file's type and size (`blobs`), so a row's height is known without
 //! decoding the image.
+//!
+//! The folder itself (`ImageDir`) needs a file system and comes with the `store` feature;
+//! naming and sniffing images don't.
 
+#[cfg(feature = "store")]
 use std::collections::HashSet;
+#[cfg(feature = "store")]
 use std::io::Write;
+#[cfg(feature = "store")]
 use std::path::{Path, PathBuf};
+#[cfg(feature = "store")]
 use std::sync::Mutex;
+#[cfg(feature = "store")]
 use std::time::SystemTime;
 
 use sha2::{Digest, Sha256};
@@ -17,6 +25,7 @@ use sha2::{Digest, Sha256};
 /// Coordinates in-process `put` and `collect` metadata/unlink steps so launch
 /// garbage collection can never delete an image file that is being reused or
 /// written concurrently.
+#[cfg(feature = "store")]
 static FILE_OP_LOCK: Mutex<()> = Mutex::new(());
 
 /// Largest image accepted.
@@ -142,11 +151,13 @@ pub fn info(bytes: &[u8]) -> Result<BlobInfo, ImageError> {
 }
 
 /// The folder of image files beside a database.
+#[cfg(feature = "store")]
 #[derive(Debug, Clone)]
 pub struct ImageDir {
     root: PathBuf,
 }
 
+#[cfg(feature = "store")]
 impl ImageDir {
     pub fn new(root: PathBuf) -> ImageDir {
         ImageDir { root }
@@ -280,6 +291,7 @@ pub(crate) mod tests {
         assert_eq!(info(b"<svg/>"), Err(ImageError::Unsupported));
     }
 
+    #[cfg(feature = "store")]
     #[test]
     fn collecting_one_database_leaves_its_neighbours_images_alone() {
         let dir = std::env::temp_dir().join(format!("flowie-images-{}", crate::NodeId::random()));
@@ -292,6 +304,7 @@ pub(crate) mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(feature = "store")]
     #[test]
     fn stores_once_and_collects_unused() {
         let dir = std::env::temp_dir().join(format!("flowie-images-{}", crate::tree::NodeId::random()));
@@ -310,6 +323,7 @@ pub(crate) mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(feature = "store")]
     #[test]
     fn reusing_an_old_image_refreshes_mtime_so_collection_keeps_it() {
         let dir = std::env::temp_dir().join(format!("flowie-images-reuse-{}", crate::tree::NodeId::random()));

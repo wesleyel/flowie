@@ -52,7 +52,7 @@ pub fn drop_blobs(conn: &Connection, names: &[String]) -> rusqlite::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "writer-thread"))]
 mod tests {
     use super::*;
     use crate::images::ImageDir;

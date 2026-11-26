@@ -5,6 +5,7 @@
 mod blobs;
 mod imports;
 mod trash;
+#[cfg(feature = "writer-thread")]
 mod writer;
 
 use std::path::{Path, PathBuf};
@@ -14,9 +15,11 @@ use rusqlite::{params, Connection};
 
 use crate::tree::{Node, NodeId};
 
+pub use crate::imports::{ImportRecord, ImportState};
 pub use blobs::{collect_unused_images, drop_blobs, image_names_in_use, load_blobs};
-pub use imports::{load_bases, load_imports, write_import_batch, ImportRecord, ImportState};
+pub use imports::{load_bases, load_imports, write_import_batch};
 pub use trash::{in_trash, list_trash, TrashEntry};
+#[cfg(feature = "writer-thread")]
 pub use writer::Writer;
 
 const SCHEMA: &str = "

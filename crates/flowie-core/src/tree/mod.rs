@@ -7,7 +7,7 @@ mod ops;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub use id::{virtual_id, NodeId, ROOT};
-pub use node::{now_millis, BlockKind, Node};
+pub use node::{now_millis, set_clock, system_millis, BlockKind, Clock, Node};
 
 /// One recorded change: the node before and after (None = absent).
 #[derive(Debug, Clone)]

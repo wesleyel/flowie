@@ -3,6 +3,7 @@
 use rusqlite::{params, Connection};
 
 use super::write_nodes_tx;
+use crate::imports::{ImportRecord, ImportState};
 use crate::tree::{Node, NodeId};
 
 pub fn write_import_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], state: &ImportState) -> rusqlite::Result<()> {
@@ -22,21 +23,6 @@ pub fn write_import_batch(conn: &mut Connection, upserts: &[Node], deletes: &[No
         )?;
     }
     tx.commit()
-}
-
-/// A root imported from a share package (one row per root). The bullet
-/// shows an unread dot until `seen_at` is set.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ImportRecord {
-    pub root: NodeId,
-    pub package_id: String,
-    pub title: String,
-    pub author_id: String,
-    pub author_name: String,
-    pub exported_at: i64,
-    pub imported_at: i64,
-    pub seen_at: Option<i64>,
-    pub source_ids: Vec<(NodeId, NodeId)>,
 }
 
 pub fn load_imports(conn: &Connection) -> rusqlite::Result<Vec<ImportRecord>> {
@@ -59,16 +45,7 @@ pub fn load_imports(conn: &Connection) -> rusqlite::Result<Vec<ImportRecord>> {
     rows.collect()
 }
 
-/// The merge bases of everything imported with `roots`.
-#[derive(Clone, Debug, Default)]
-pub struct ImportState {
-    pub roots: Vec<NodeId>,
-    pub records: Vec<ImportRecord>,
-    pub bases: Vec<(NodeId, NodeId, String)>,
-    pub trash_added: Vec<(NodeId, String, Vec<Node>)>,
-    pub trash_removed: Vec<(NodeId, String, Vec<Node>)>,
-}
-
+#[cfg_attr(not(feature = "writer-thread"), allow(dead_code))]
 pub(super) fn save_import_state(conn: &mut Connection, state: &ImportState) -> rusqlite::Result<()> {
     let transaction = conn.transaction()?;
     save_import_state_tx(&transaction, state)?;

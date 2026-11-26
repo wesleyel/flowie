@@ -1,7 +1,12 @@
 //! Undo/redo over journaled tree changes. Consecutive typing in the same
 //! node coalesces into one step.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use std::time::Instant;
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use web_time::Instant;
 
 use crate::tree::{Change, NodeId, Tree};
 
@@ -20,7 +25,7 @@ pub enum Kind {
 
 #[derive(Debug)]
 struct Step {
-    imports: Option<(crate::store::ImportState, crate::store::ImportState)>,
+    imports: Option<(crate::imports::ImportState, crate::imports::ImportState)>,
     changes: Vec<Change>,
     kind: Kind,
     caret_before: Option<Caret>,
@@ -53,7 +58,7 @@ impl History {
         kind: Kind,
         caret_before: Option<Caret>,
         caret_after: Option<Caret>,
-        imports: Option<(crate::store::ImportState, crate::store::ImportState)>,
+        imports: Option<(crate::imports::ImportState, crate::imports::ImportState)>,
     ) {
         let changes = tree.take_journal();
         if changes.is_empty() && imports.is_none() {
@@ -89,10 +94,10 @@ impl History {
         !self.redo.is_empty()
     }
 
-    pub fn undo_imports(&self) -> Option<&crate::store::ImportState> {
+    pub fn undo_imports(&self) -> Option<&crate::imports::ImportState> {
         self.undo.last()?.imports.as_ref().map(|pair| &pair.0)
     }
-    pub fn redo_imports(&self) -> Option<&crate::store::ImportState> {
+    pub fn redo_imports(&self) -> Option<&crate::imports::ImportState> {
         self.redo.last()?.imports.as_ref().map(|pair| &pair.1)
     }
 

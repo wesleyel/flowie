@@ -295,6 +295,7 @@ fn markup_styles_and_links() {
     assert!(kinds("a#b").iter().all(|(_, k)| *k == Kind::Text));
 }
 
+#[cfg(feature = "writer-thread")]
 #[test]
 fn store_roundtrip() {
     let dir = std::env::temp_dir().join(format!("flowie-test-{}", std::process::id()));

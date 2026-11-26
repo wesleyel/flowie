@@ -140,6 +140,7 @@ impl Outline {
             || self.search_tween.is_some()
             || self.display.iter().any(|d| d.leaving)
             || self.wheel.running()
+            || self.follow_edit > 0
     }
 
     pub fn row_index(&self, id: NodeId) -> Option<usize> {
@@ -175,5 +176,35 @@ impl Outline {
         if let Some(Target::Text(id) | Target::Note(id)) = self.edit.as_ref().map(|e| e.target) {
             self.reveal(id);
         }
+    }
+
+    /// Reveal the edited row now and over the next frames. A row that was
+    /// just added hasn't been measured, so the list counts it as 0 px tall
+    /// and the first reveal stops short of it (with the row still growing in).
+    pub fn follow_edit(&mut self) {
+        self.reveal_edit();
+        self.follow_edit = 30;
+    }
+
+    /// One frame of [`Outline::follow_edit`]: stop once the edited row is
+    /// fully in view at its full height, or after a few frames.
+    pub fn follow_edit_frame(&mut self) {
+        let Some(Target::Text(id) | Target::Note(id)) = self.edit.as_ref().map(|e| e.target) else {
+            self.follow_edit = 0;
+            return;
+        };
+        let growing = self.anims.t(id, Channel::Enter).is_some_and(|t| t < 1.0);
+        if !growing && self.row_fully_on_screen(id) {
+            self.follow_edit = 0;
+            return;
+        }
+        self.reveal(id);
+        self.follow_edit = self.follow_edit.saturating_sub(1);
+    }
+
+    fn row_fully_on_screen(&self, id: NodeId) -> bool {
+        let Some(ix) = self.list_item(id) else { return true };
+        let view = self.list.viewport_bounds();
+        self.list.bounds_for_item(ix).is_some_and(|b| b.top() >= view.top() && b.bottom() <= view.bottom())
     }
 }

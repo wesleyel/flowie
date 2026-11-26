@@ -272,6 +272,9 @@ pub struct Outline {
     pub package_import: Option<crate::share::PackageImport>,
     /// The image shown full-window (Space on an image bullet).
     pub image_preview: Option<NodeId>,
+    /// Frames left in which to keep revealing the edited row: a row Enter or
+    /// undo just created has no height until it's measured, and grows in.
+    pub follow_edit: u8,
     /// What's New to show once the window is (after a background launch).
     pub whats_new_pending: Option<Option<String>>,
     /// Set when the background database writer failed and is retrying.
@@ -360,6 +363,7 @@ impl Outline {
             package_export: None,
             package_import: None,
             image_preview: None,
+            follow_edit: 0,
             whats_new_pending: None,
             save_error: None,
             load_error: None,

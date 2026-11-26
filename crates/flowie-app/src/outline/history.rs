@@ -33,7 +33,7 @@ impl Outline {
         self.ws.commit_with_imports(before, after, imports);
         self.refresh(true);
         if follow {
-            self.reveal_edit();
+            self.follow_edit();
         }
         cx.notify();
     }
@@ -124,7 +124,7 @@ impl Outline {
             }
         }
         self.refresh(true);
-        self.reveal_edit();
+        self.follow_edit();
         cx.notify();
     }
 }

@@ -473,6 +473,9 @@ impl Render for Outline {
             crate::ui::surface::toast(theme, msg.clone().into(), o)
         });
 
+        if self.follow_edit > 0 {
+            self.follow_edit_frame();
+        }
         if self.is_animating() {
             window.request_animation_frame();
         }

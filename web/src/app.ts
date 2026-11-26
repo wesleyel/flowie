@@ -82,6 +82,23 @@ async function drawCrumbs(root: string | undefined): Promise<void> {
   }
 }
 
+/** Image files, by name, as object URLs: fetched once with the device token. */
+const images = new Map<string, Promise<string>>();
+
+function imageUrl(name: string): Promise<string> {
+  let url = images.get(name);
+  if (!url) {
+    const token = localStorage.getItem("flowie.token") ?? "";
+    url = fetch(`/v1/blobs/${encodeURIComponent(name)}`, { headers: { Authorization: `Bearer ${token}` } }).then(async (response) => {
+      if (!response.ok) throw new Error(`image ${name}: ${response.status}`);
+      return URL.createObjectURL(await response.blob());
+    });
+    url.catch(() => images.delete(name));
+    images.set(name, url);
+  }
+  return url;
+}
+
 function rowElement(row: Row, rows: Row[], index: number): HTMLLIElement {
   const root = zoomed();
   const item = document.createElement("li");
@@ -176,7 +193,21 @@ function rowElement(row: Row, rows: Row[], index: number): HTMLLIElement {
     await draw();
   });
 
-  item.append(fold, dot, box, text, star, remove);
+  if (row.image) {
+    const picture = document.createElement("img");
+    picture.className = "image";
+    picture.alt = row.text;
+    imageUrl(row.image).then(
+      (url) => (picture.src = url),
+      () => (picture.alt = `${row.text} (image not on the server)`),
+    );
+    const body = document.createElement("span");
+    body.className = "body";
+    body.append(text, picture);
+    item.append(fold, dot, box, body, star, remove);
+  } else {
+    item.append(fold, dot, box, text, star, remove);
+  }
   return item;
 }
 

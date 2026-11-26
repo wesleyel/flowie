@@ -11,6 +11,8 @@ export interface Row {
   collapsed: boolean;
   has_children: boolean;
   starred: boolean;
+  /** The image file an image row shows, or empty. */
+  image: string;
 }
 
 /** A page on the way down from Home, for breadcrumbs. */

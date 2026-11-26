@@ -35,6 +35,9 @@ pub struct RowView {
     pub collapsed: bool,
     pub has_children: bool,
     pub starred: bool,
+    /// The image file an image row shows (`<sha256>.<ext>`, fetched from the server's
+    /// `/v1/blobs/`), or empty.
+    pub image: String,
 }
 
 fn error(e: impl std::fmt::Display) -> JsError {
@@ -87,6 +90,7 @@ impl Outline {
                     collapsed: node.collapsed,
                     has_children: tree.has_children(row.id),
                     starred: tree.is_starred(tree.source(row.id)),
+                    image: if node.kind == flowie_core::BlockKind::Image { source.image.clone() } else { String::new() },
                 })
             })
             .collect();

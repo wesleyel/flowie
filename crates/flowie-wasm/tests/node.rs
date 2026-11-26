@@ -79,6 +79,7 @@ fn search_stars_today_and_undo() {
     assert_eq!(starred[0]["text"], "groceries");
     let page: serde_json::Value = serde_json::from_str(&o.page(None, None).unwrap()).unwrap();
     assert_eq!(page[0]["starred"], true);
+    assert_eq!(page[0]["image"], "", "a bullet that isn't an image shows none");
 
     let today = o.today();
     assert_eq!(o.today(), today, "the same page each time");

@@ -348,40 +348,52 @@ impl Tree {
     }
 
     /// The cycles in the records' parents, each settled by undoing its latest move: that
-    /// node shows at the top level. Cycles never share a node (every record has one parent),
-    /// so which node a cycle undoes depends only on that cycle, never on where the search
-    /// started. Returns node -> where it shows instead.
+    /// node shows under the parent the move took it from (`NodeSync::moved_from`), or at the
+    /// top level when that parent is gone or the node closes a cycle there too. Settles one
+    /// cycle at a time, finding them in id order, so every device holding the same records
+    /// settles them the same way. Returns node -> where it shows instead.
     fn undo_cycles(&self) -> HashMap<NodeId, NodeId> {
-        let mut moved = HashMap::new();
+        let mut moved: HashMap<NodeId, NodeId> = HashMap::new();
+        let mut undone: HashMap<NodeId, u32> = HashMap::new();
         let mut ids: Vec<NodeId> = self.nodes.keys().copied().filter(|id| *id != ROOT).collect();
         ids.sort();
-        let mut done: HashSet<NodeId> = HashSet::new();
-        for start in ids {
-            let mut path = Vec::new();
-            let mut on_path: HashMap<NodeId, usize> = HashMap::new();
-            let mut n = start;
-            while n != ROOT && !done.contains(&n) {
-                // A missing parent ends the walk: the record waits for it.
-                let Some(node) = self.nodes.get(&n) else { break };
-                if let Some(&i) = on_path.get(&n) {
-                    let latest = path[i..].iter().copied().max_by_key(|&c| Self::move_order(&self.nodes[&c])).unwrap();
-                    moved.insert(latest, ROOT);
-                    break;
-                }
-                on_path.insert(n, path.len());
-                path.push(n);
-                n = node.parent;
-            }
-            done.extend(path);
+        while let Some(cycle) = self.find_cycle(&ids, &moved) {
+            let latest = cycle.into_iter().max_by_key(|c| Self::move_order(&self.nodes[c])).unwrap();
+            let times = undone.entry(latest).or_default();
+            *times += 1;
+            let from = self.nodes[&latest].sync.moved_from;
+            let back = *times == 1 && from != latest && (from == ROOT || self.nodes.contains_key(&from));
+            moved.insert(latest, if back { from } else { ROOT });
         }
         moved
     }
 
-    /// Orders moves to find the latest one in a cycle. Records don't carry a clock for their
-    /// position yet (per-node-sync.md P0.7), so for now the id decides: arbitrary, but the
-    /// same on every device.
-    fn move_order(node: &Node) -> NodeId {
-        node.id
+    /// The first parent cycle found walking up from `ids` in order, with `moved` overriding
+    /// records' parents. A missing parent ends a walk: that record waits for it.
+    fn find_cycle(&self, ids: &[NodeId], moved: &HashMap<NodeId, NodeId>) -> Option<Vec<NodeId>> {
+        let mut done: HashSet<NodeId> = HashSet::new();
+        for &start in ids {
+            let mut path = Vec::new();
+            let mut on_path: HashMap<NodeId, usize> = HashMap::new();
+            let mut n = start;
+            while n != ROOT && !done.contains(&n) {
+                let Some(node) = self.nodes.get(&n) else { break };
+                if let Some(&i) = on_path.get(&n) {
+                    return Some(path.split_off(i));
+                }
+                on_path.insert(n, path.len());
+                path.push(n);
+                n = moved.get(&n).copied().unwrap_or(node.parent);
+            }
+            done.extend(path);
+        }
+        None
+    }
+
+    /// Orders moves to find the latest one in a cycle: by the clock of the position, then by
+    /// id, since positions derived from old data can share a clock.
+    fn move_order(node: &Node) -> (Hlc, NodeId) {
+        (node.sync.clocks.get(Reg::Position), node.id)
     }
 
     /// Deleted records to show anyway: something below them in `children` that is not deleted
@@ -1161,7 +1173,7 @@ mod tests {
         moved.parent = b;
         t.put(moved);
         assert!(t.contains(a) && t.contains(b));
-        assert_eq!(t.parent(a.max(b)), ROOT);
+        assert_eq!((t.parent(a), t.parent(b)), (ROOT, a), "the latest move, a's, is undone: a goes back where it came from");
         assert!(!t.is_ancestor(a, a) && !t.is_ancestor(b, b));
         assert_derived(&t);
         // Moving `b` elsewhere ends the cycle, and with it the view's override.
@@ -1235,6 +1247,19 @@ mod tests {
         t.remove(top);
         assert!(t.contains(below));
         assert_eq!(t.parent(below), ROOT);
+        assert_derived(&t);
+    }
+
+    #[test]
+    fn an_undone_move_goes_back_under_the_parent_it_left() {
+        let (mut t, [a, b, c, _d]) = sample();
+        // `b` (under `a`) moved under its own child `c`, as another device could have.
+        let mut moved = t.node(b).clone();
+        moved.parent = c;
+        t.put(moved);
+        assert_eq!(t.node(b).sync.moved_from, a);
+        assert_eq!((t.parent(b), t.parent(c)), (a, b), "b shows back under a, not at the top level");
+        assert_eq!(t.node(b).parent, c, "its record keeps the move");
         assert_derived(&t);
     }
 }

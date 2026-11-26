@@ -46,8 +46,9 @@ scripts/build-web.sh
 ```
 
 Open the server's address and paste a device token. The browser version shows and edits the
-outline (add, edit, tick off, delete); it keeps the outline in memory for now, so it fetches
-it again from the server when the page reloads.
+outline (add, edit, tick off, delete) and keeps it in the browser's own storage (OPFS), so it
+opens without the server and sends what changed meanwhile once it can reach it. A browser
+without OPFS (an old one, some private windows) keeps it in memory and fetches it again.
 
 ## Turn it on in Flowie
 

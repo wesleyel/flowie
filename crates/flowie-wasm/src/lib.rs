@@ -13,6 +13,16 @@ use flowie_sync::{ChangeBatch, Engine, RecordStore};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+/// Keep databases in the origin private file system from now on, so the outline is still there
+/// after the page reloads. Call once, before opening an outline, from a dedicated worker (OPFS
+/// gives synchronous file access only there). Without it, SQLite keeps databases in memory.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async fn install_opfs() -> Result<(), JsError> {
+    use sqlite_wasm_vfs::sahpool::{install, OpfsSAHPoolCfg};
+    install::<sqlite_wasm_rs::WasmOsCallback>(&OpfsSAHPoolCfg::default(), true).await.map(drop).map_err(error)
+}
+
 /// One row of a page (see `flowie-ffi`'s `RowView`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RowView {

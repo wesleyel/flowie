@@ -193,16 +193,8 @@ impl Outline {
                 )
                 .child(control)
         };
-        // A group of related settings under a small title, set off from the next.
-        let section = |title: &'static str, last: bool| {
-            div()
-                .flex()
-                .flex_col()
-                .pt_3()
-                .pb_2()
-                .when(!last, |d| d.border_b_1().border_color(theme.divider))
-                .child(crate::ui::text::overline(theme, title.to_uppercase()).pb_1())
-        };
+        // A group of related settings, set off from the next by a line.
+        let section = |last: bool| div().flex().flex_col().py_2().when(!last, |d| d.border_b_1().border_color(theme.divider));
         // How the colors look on bullets, right under the colors it shows.
         let preview = div()
             .mt_1()
@@ -236,7 +228,7 @@ impl Outline {
                     .child(div().w(px(2.)).h(px(16.)).bg(theme.caret)),
             );
         let os = crate::app::platform::name();
-        let colors = section(t!("settings.appearance.section.colors"), false)
+        let colors = section(false)
             .child(field(
                 Some(t!("settings.appearance.theme.label")),
                 t!("settings.appearance.theme.hint", os = os).into(),
@@ -248,13 +240,13 @@ impl Outline {
                 swatches.into_any_element(),
             ))
             .child(preview);
-        let reading = section(t!("settings.appearance.section.reading"), false).child(field(
+        let reading = section(false).child(field(
             Some(t!("settings.appearance.width.label")),
             t!("settings.appearance.width.hint", shortcut = keymap::hint("content-width", &self.config.keys)).into(),
             widths.into_any_element(),
         ));
-        let language = section(t!("settings.appearance.language.label"), true).child(field(
-            None,
+        let language = section(true).child(field(
+            Some(t!("settings.appearance.language.label")),
             t!("settings.appearance.language.hint", os = os).into(),
             languages.into_any_element(),
         ));

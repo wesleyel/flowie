@@ -158,10 +158,6 @@
     },
     "appearance": {
       "title": "外观",
-      "section": {
-        "colors": "颜色",
-        "reading": "阅读"
-      },
       "theme": {
         "label": "主题",
         "hint": "跟随 {os}，或始终使用浅色或深色。",

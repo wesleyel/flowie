@@ -5,11 +5,15 @@ description: Install Flowie on macOS, Windows or Linux, verify your download, an
 permalink: /download.html
 ---
 
+<div class="versions" id="versions">
+  <h1><span lang="en">Download Flowie</span><span lang="zh-CN">下载 Flowie</span></h1>
+  <p class="lead"><span lang="en">Every version, newest first. Each link downloads that package directly.</span><span lang="zh-CN">全部版本，最新的在最前面。每个链接都直接下载对应的安装包。</span></p>
+  <div id="versions-table">
+    <p><a href="{{ site.github_url }}/releases"><span lang="en">All versions on GitHub Releases</span><span lang="zh-CN">在 GitHub Releases 查看全部版本</span></a></p>
+  </div>
+</div>
+
 <section lang="en" markdown="1">
-
-# Download Flowie
-
-[Latest stable release]({{ site.github_url }}/releases/latest) · [All releases and candidates]({{ site.github_url }}/releases)
 
 ## macOS
 
@@ -17,23 +21,23 @@ Requires macOS 13 or later. The universal app runs on Apple silicon and Intel.
 
 - **[Mac App Store]({{ site.app_store_url }})**: signed, sandboxed and updated automatically.
 - **Homebrew**: `brew install --cask wesleyel/tap/flowie`. Use `brew upgrade --cask wesleyel/tap/flowie` to update. This cask follows the newest published version, including release candidates.
-- **GitHub**: download `Flowie-<version>-macos.zip`, unpack it and move Flowie to Applications. The GitHub and Homebrew builds aren't notarized. On macOS 15 or later, try opening the app once, then choose **System Settings → Privacy & Security → Open Anyway**. On earlier versions, right-click the app and choose **Open**.
+- **GitHub**: download the macOS zip from the table above, unpack it and move Flowie to Applications. The GitHub and Homebrew builds aren't notarized, so macOS won't open them at first: in Terminal, run `xattr -dr com.apple.quarantine /Applications/Flowie.app`, then open Flowie. Run it again after each update.
 
 ## Windows (preview)
 
-On Windows 10 or 11 x64, download `Flowie-<version>-windows-x64.zip`, extract it and run `Flowie.exe`. The zip is portable and doesn't need a separate Visual C++ runtime. It is not code-signed. There is no native Windows ARM64 package.
+On Windows 10 or 11 x64, download the Windows zip from the table above, extract it and run `Flowie.exe`. The zip is portable and doesn't need a separate Visual C++ runtime. It is not code-signed. There is no native Windows ARM64 package.
 
 ## Linux (preview)
 
-For x86_64 with glibc 2.35 or later (Ubuntu 22.04 or newer). Download the `.AppImage`, mark it executable and run it. If your system doesn't support AppImage mounting, use the `.tar.gz` instead:
+For x86_64 with glibc 2.35 or later (Ubuntu 22.04 or newer). Download the AppImage from the table above, mark it executable and run it. If your system doesn't support AppImage mounting, download the tar.gz instead:
 
 ```sh
 mkdir -p ~/.local
-tar -xzf Flowie-<version>-linux-x86_64.tar.gz -C ~/.local --strip-components=1
+tar -xzf Flowie-*-linux-x86_64.tar.gz -C ~/.local --strip-components=1
 ~/.local/bin/flowie
 ```
 
-Replace `<version>` with the downloaded version. File dialogs need an XDG desktop portal; for Chinese, Japanese or Korean text, install a font such as Noto CJK. See the [Linux requirements]({{ site.github_url }}/blob/main/docs/building.md#linux) if it doesn't start.
+File dialogs need an XDG desktop portal; for Chinese, Japanese or Korean text, install a font such as Noto CJK. See the [Linux requirements]({{ site.github_url }}/blob/main/docs/building.md#linux) if it doesn't start.
 
 ## Verify and upgrade
 
@@ -45,33 +49,29 @@ Replace `<version>` with the downloaded version. File dialogs need an XDG deskto
 
 <section lang="zh-CN" markdown="1">
 
-# 下载 Flowie
-
-[最新正式版]({{ site.github_url }}/releases/latest) · [全部版本和候选版]({{ site.github_url }}/releases)
-
 ## macOS
 
 需要 macOS 13 或更高版本。通用版支持 Apple 芯片和 Intel。
 
 - **[Mac App Store]({{ site.app_store_url }})**：已签名、在沙盒中运行，可自动更新。
 - **Homebrew**：运行 `brew install --cask wesleyel/tap/flowie` 安装，使用 `brew upgrade --cask wesleyel/tap/flowie` 更新。这个 cask 跟随最新发布版本，包括候选版。
-- **GitHub**：下载 `Flowie-<版本号>-macos.zip`，解压后把 Flowie 移到「应用程序」。GitHub 和 Homebrew 提供的版本未经公证。macOS 15 及更新版本上，先尝试打开一次，再到「系统设置 → 隐私与安全性」点「仍要打开」；更早的 macOS 上，右键点按应用并选择「打开」。
+- **GitHub**：从上面的表格下载 macOS 的 zip，解压后把 Flowie 移到「应用程序」。GitHub 和 Homebrew 提供的版本未经公证，macOS 一开始会拒绝打开：在终端运行 `xattr -dr com.apple.quarantine /Applications/Flowie.app`，再打开 Flowie。每次更新后都要再运行一次。
 
 ## Windows（预览）
 
-在 Windows 10 或 11 x64 上下载 `Flowie-<版本号>-windows-x64.zip`，解压后运行 `Flowie.exe`。无需安装，也不需要单独安装 Visual C++ 运行库。该包未做代码签名，暂不提供原生 Windows ARM64 包。
+在 Windows 10 或 11 x64 上，从上面的表格下载 Windows 的 zip，解压后运行 `Flowie.exe`。无需安装，也不需要单独安装 Visual C++ 运行库。该包未做代码签名，暂不提供原生 Windows ARM64 包。
 
 ## Linux（预览）
 
-适用于 x86_64、glibc 2.35 及更新版本（Ubuntu 22.04 或更新版本）。下载 `.AppImage`，赋予可执行权限后运行。如果系统不支持挂载 AppImage，改用 `.tar.gz`：
+适用于 x86_64、glibc 2.35 及更新版本（Ubuntu 22.04 或更新版本）。从上面的表格下载 AppImage，赋予可执行权限后运行。如果系统不支持挂载 AppImage，改为下载 tar.gz：
 
 ```sh
 mkdir -p ~/.local
-tar -xzf Flowie-<版本号>-linux-x86_64.tar.gz -C ~/.local --strip-components=1
+tar -xzf Flowie-*-linux-x86_64.tar.gz -C ~/.local --strip-components=1
 ~/.local/bin/flowie
 ```
 
-将 `<版本号>` 替换为下载的版本。文件对话框需要 XDG 桌面门户，中日韩文字需要 Noto CJK 等字体。如果无法启动，参阅 [Linux 运行要求]({{ site.github_url }}/blob/main/docs/building.md#linux)。
+文件对话框需要 XDG 桌面门户，中日韩文字需要 Noto CJK 等字体。如果无法启动，参阅 [Linux 运行要求]({{ site.github_url }}/blob/main/docs/building.md#linux)。
 
 ## 校验与升级
 
@@ -80,3 +80,5 @@ tar -xzf Flowie-<版本号>-linux-x86_64.tar.gz -C ~/.local --strip-components=1
 - 笔记保存在各自设备上。1.0 不包含跨设备同步。
 
 </section>
+
+<script src="{{ '/downloads.js' | relative_url }}" defer></script>

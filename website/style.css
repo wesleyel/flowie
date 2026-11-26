@@ -538,3 +538,14 @@ html:not(.lang-en):not(.lang-zh) .trademark span[lang] + span[lang]::before { co
 html:not(.lang-en):not(.lang-zh) .hero-copy + .hero-copy,
 html:not(.lang-en):not(.lang-zh) .stage [lang] + [lang],
 html:not(.lang-en):not(.lang-zh) .band .container > [lang] + [lang] { margin-top: var(--space-8); }
+
+/* Download page: the version table (downloads.js fills it in). */
+.versions { margin-bottom: var(--space-7); }
+.versions .lead { margin: var(--space-2) 0 var(--space-5); }
+#versions-table { overflow-x: auto; }
+#versions-table table { width: 100%; border-collapse: collapse; font-size: 15px; }
+#versions-table th, #versions-table td { padding: var(--space-2) var(--space-3); text-align: left; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
+#versions-table th { color: var(--text-3); font-weight: 600; font-size: 13px; }
+#versions-table td { color: var(--text-2); }
+#versions-table .tag { margin-left: var(--space-2); padding: 1px var(--space-2); border-radius: var(--radius-pill); background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; }
+#versions-table .tag.muted { background: var(--fill); color: var(--text-2); }

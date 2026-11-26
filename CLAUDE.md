@@ -13,6 +13,7 @@ Rust on GPUI (Zed's UI framework, taken through `gpui-kit`'s `gpui-pre` snapshot
 | `crates/flowie-doc` | The document layer, **no GPUI**: `Workspace` owns the open outline's `tree`, `history` and `writer` (plus imports and image metadata), opens the database and runs the commit/undo path every edit takes |
 | `crates/flowie-sync` | Per-node sync, **no IO, no GPUI**, builds for wasm: `wire` (the JSON `Envelope`/`NodeRecord` devices exchange, golden vectors in `testdata/`), `merge` (field-by-field, last writer wins by `flowie_core::hlc` clock), `engine` (the state machine, `RecordStore`, `sync_once` over a `Backend`), `memory`/`store` (in-memory backend and store for tests) |
 | `crates/flowie-server` | The self-hosted sync backend (binary `flowie-server`): axum + SQLite, stores records without reading them, conditional saves, a change feed with long polling, sha256-named image files, device tokens (`token add`). The client side is `flowie-sync`'s `http` feature |
+| `crates/flowie-ffi` | Flowie for native apps through UniFFI (iOS, the CloudKit bridge): an open outline, a page's rows, the basic edits and sync, all through `flowie-doc`. `scripts/ffi-swift-smoke.sh` builds its Swift bindings and runs a Swift program over them |
 | `crates/flowie-math` | KaTeX-compatible math via RaTeX, plus a GPUI element |
 | `crates/flowie-app` | The GPUI app (binary `flowie`) |
 | `third_party/gpui-pre-macos` | GPUI's macOS backend with private AppKit calls removed for App Review (`FLOWIE-PATCH.md`). Keep the patch when bumping gpui-kit. |

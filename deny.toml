@@ -27,6 +27,7 @@ wildcards = "allow"
 deny = [
     { crate = "gpui-kit", wrappers = ["flowie-app", "flowie-math"], reason = "the UI stays out of the model crates" },
     { crate = "rusqlite", wrappers = ["flowie-core", "flowie-server"], reason = "SQL lives in flowie-core's store and the sync server" },
+    { crate = "uniffi", wrappers = ["flowie-ffi"], reason = "native apps reach Flowie through flowie-ffi only" },
 ]
 
 [advisories]

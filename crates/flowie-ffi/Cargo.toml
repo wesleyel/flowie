@@ -1,0 +1,34 @@
+[package]
+name = "flowie-ffi"
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Flowie's outline and sync for native apps (iOS, the CloudKit bridge) through UniFFI
+# (docs/roadmap/ios-cross-platform.md §3.3). Swift only projects: every read and write goes
+# through flowie-doc.
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[[bin]]
+# Generates the Swift bindings: cargo run -p flowie-ffi --features bindgen --bin uniffi-bindgen -- generate --library <lib> --language swift --out-dir <dir>
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+flowie-core.workspace = true
+flowie-doc.workspace = true
+flowie-sync = { workspace = true, features = ["http"] }
+uniffi = "0.29"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

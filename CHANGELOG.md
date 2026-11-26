@@ -8,6 +8,10 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-26
+
+**Upgrading from a release candidate?** Export your outline as OPML or as a `.flowie` share package before updating, then import it into 1.0.1: a database from a candidate is kept aside as `flowie.sqlite.old-<timestamp>`, not upgraded. From 1.0.0 on, updates upgrade the database in place after backing it up.
+
 ### Added
 
 - **Shortcuts**: Settings → Shortcuts has a search box that finds a shortcut by its name (in English too), or by its keys as shown (⌘B) or typed (cmd-b).
@@ -208,7 +212,9 @@ Flowie 1.0.0's first release candidate, free software under GPL-3.0-or-later. Th
 
 - **Dependencies**: bundle SQLite 3.54.1 through rusqlite 0.43 to fix CVE-2026-119375.
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.6...HEAD
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/wesleyel/flowie/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.6...v1.0.0
 [1.0.0-rc.6]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.5...v1.0.0-rc.6
 [1.0.0-rc.5]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.4...v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.3...v1.0.0-rc.4

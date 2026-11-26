@@ -4,6 +4,10 @@ Flowie 的重要变更记录于此。
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-26
+
+**从候选版升级？** 更新前先把大纲导出为 OPML 或 `.flowie` 分享包，更新后再导入 1.0.1：候选版的数据库会被保留为 `flowie.sqlite.old-<时间戳>`，不会自动升级。从 1.0.0 起，以后的更新会先备份数据库，再就地升级。
+
 ### 新增
 
 - **快捷键**: 「设置 → 快捷键」新增搜索框，可以按名称（英文名称也可以）或按键查找快捷键，按键可以输入显示的形式（⌘B）或配置里的写法（cmd-b）。
@@ -204,7 +208,9 @@ Flowie 1.0.0 的首个候选版本，以 GPL-3.0-or-later 授权。1.0.0 正式�
 
 - **依赖**: 通过 rusqlite 0.43 内置 SQLite 3.54.1，修复 CVE-2026-119375。
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.6...HEAD
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/wesleyel/flowie/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.6...v1.0.0
 [1.0.0-rc.6]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.5...v1.0.0-rc.6
 [1.0.0-rc.5]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.4...v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.3...v1.0.0-rc.4

@@ -17,8 +17,8 @@ use std::collections::HashMap;
 
 use flowie_core::tree::NodeId;
 
-use crate::merge::merge;
-use crate::wire::{Envelope, NodeRecord};
+use crate::merge::{merge, merge_prefs};
+use crate::wire::{Envelope, Kind, NodeRecord, PrefsRecord, PREFS_ID};
 
 /// What the engine needs from the local outline: its records, its outbox, and where pulling
 /// left off. The workspace implements it over the tree and the database.
@@ -41,6 +41,24 @@ pub trait RecordStore {
     /// since the version of it this device last saw: the version that lost the merge, to keep
     /// as a conflict copy. Noticed where the two meet, so one device keeps it.
     fn keep_lost(&mut self, _id: NodeId, _field: &str, _value: String) {}
+
+    /// The synced preferences changed here and haven't been saved to the backend. A store
+    /// without preferences keeps the defaults.
+    fn prefs_unsent(&self) -> bool {
+        false
+    }
+    /// This device's preferences, each with the clock of its last write.
+    fn local_prefs(&self) -> PrefsRecord {
+        PrefsRecord::default()
+    }
+    /// Take preferences merged with this device's.
+    fn apply_prefs(&mut self, _merged: PrefsRecord) {}
+    fn clear_prefs_unsent(&mut self) {}
+    /// The backend's version of the preferences last seen, and its etag.
+    fn prefs_base(&self) -> Option<(String, PrefsRecord)> {
+        None
+    }
+    fn set_prefs_base(&mut self, _etag: String, _record: PrefsRecord) {}
 }
 
 /// Text fields both sides changed since `base`, with the version that loses the merge.
@@ -84,6 +102,8 @@ pub struct ChangeBatch {
 pub struct Engine {
     /// Records sent and not answered yet, as they were sent.
     in_flight: HashMap<NodeId, NodeRecord>,
+    /// The preferences, when sent and not answered yet.
+    prefs_in_flight: Option<PrefsRecord>,
 }
 
 impl Engine {
@@ -94,6 +114,14 @@ impl Engine {
     /// The next records to save, at most `limit`, each with the version it was last seen at.
     pub fn next_saves(&mut self, store: &dyn RecordStore, limit: usize) -> Vec<Envelope> {
         let mut out = Vec::new();
+        if limit > 0 && store.prefs_unsent() && self.prefs_in_flight.is_none() {
+            let (etag, record) = match store.prefs_base() {
+                Some((etag, base)) => (Some(etag), merge_prefs(&store.local_prefs(), &base)),
+                None => (None, store.local_prefs()),
+            };
+            out.push(Envelope::prefs(&record, etag));
+            self.prefs_in_flight = Some(record);
+        }
         for id in store.unsent(limit + self.in_flight.len()) {
             if out.len() == limit {
                 break;
@@ -118,6 +146,13 @@ impl Engine {
     pub fn on_saved(&mut self, store: &mut dyn RecordStore, results: Vec<SaveResult>) {
         for result in results {
             match result {
+                SaveResult::Saved { id, etag } if id == PREFS_ID => {
+                    let Some(sent) = self.prefs_in_flight.take() else { continue };
+                    if merge_prefs(&store.local_prefs(), &sent) == sent {
+                        store.clear_prefs_unsent();
+                    }
+                    store.set_prefs_base(etag, sent);
+                }
                 SaveResult::Saved { id, etag } => {
                     let Ok(id) = id.parse::<NodeId>() else { continue };
                     let Some(sent) = self.in_flight.remove(&id) else { continue };
@@ -128,6 +163,10 @@ impl Engine {
                     }
                     store.set_base(id, etag, sent);
                 }
+                SaveResult::Conflict { server } if server.kind == Kind::Prefs => {
+                    self.prefs_in_flight = None;
+                    self.take_prefs(store, &server);
+                }
                 SaveResult::Conflict { server } => {
                     let Ok(id) = server.id.parse::<NodeId>() else { continue };
                     self.in_flight.remove(&id);
@@ -135,6 +174,7 @@ impl Engine {
                     // out again, this time from the backend's version.
                     self.take(store, &server);
                 }
+                SaveResult::Failed { id, .. } if id == PREFS_ID => self.prefs_in_flight = None,
                 SaveResult::Failed { id, .. } => {
                     if let Ok(id) = id.parse::<NodeId>() {
                         self.in_flight.remove(&id);
@@ -153,8 +193,24 @@ impl Engine {
         ids
     }
 
+    /// Merge the preferences from the backend into the store and note their version.
+    fn take_prefs(&mut self, store: &mut dyn RecordStore, envelope: &Envelope) {
+        let Some(remote) = envelope.prefs_record() else { return };
+        if envelope.etag.is_some() && store.prefs_base().is_some_and(|(etag, _)| envelope.etag.as_ref() == Some(&etag)) {
+            return;
+        }
+        store.apply_prefs(merge_prefs(&store.local_prefs(), &remote));
+        if let Some(etag) = envelope.etag.clone() {
+            store.set_prefs_base(etag, remote);
+        }
+    }
+
     /// Merge one record from the backend into the store and note its version.
     fn take(&mut self, store: &mut dyn RecordStore, envelope: &Envelope) -> Option<NodeId> {
+        if envelope.kind == Kind::Prefs {
+            self.take_prefs(store, envelope);
+            return None;
+        }
         let remote = envelope.node_record()?;
         let id = remote.id;
         if envelope.etag.is_some() && store.base(id).is_some_and(|(etag, _)| envelope.etag.as_ref() == Some(&etag)) {
@@ -240,7 +296,7 @@ pub fn sync_once(engine: &mut Engine, store: &mut dyn RecordStore, backend: &mut
             break;
         }
     }
-    report.settled = store.unsent(1).is_empty();
+    report.settled = store.unsent(1).is_empty() && !store.prefs_unsent();
     Ok(report)
 }
 

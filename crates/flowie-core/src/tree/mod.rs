@@ -172,6 +172,16 @@ impl Tree {
         self.clock.set_actor(actor);
     }
 
+    /// A clock for a write outside the records (a synced preference), later than any so far.
+    pub fn tick(&mut self) -> Hlc {
+        self.clock.tick(now_millis())
+    }
+
+    /// Catch up with a clock seen from another device outside the records.
+    pub fn observe(&mut self, at: Hlc) {
+        self.clock.observe(at);
+    }
+
     /// Stamp a local write that takes a record from `before` (None: new) to `node`: the
     /// fields it changes get a new clock, and a move remembers the parent it left.
     fn stamp(&mut self, before: Option<&Node>, node: &mut Node) {

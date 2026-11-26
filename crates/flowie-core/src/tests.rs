@@ -1012,7 +1012,7 @@ fn stars_and_prefs_survive_save_and_reload() {
     {
         let w = store::Writer::spawn(store::open(&path).unwrap());
         w.write(t.take_dirty());
-        w.set_pref("saved_searches", "is:todo\n#work");
+        w.set_pref("saved_searches", "is:todo\n#work", crate::hlc::Hlc { wall: 7, counter: 0, actor: 1 });
         w.set_meta("zoom", "0");
         w.flush().unwrap();
     }
@@ -1021,7 +1021,8 @@ fn stars_and_prefs_survive_save_and_reload() {
     let t2 = Tree::from_nodes(nodes);
     assert_eq!(t2.starred().collect::<Vec<_>>(), vec![b, c]);
     assert_eq!(t2.node(b).star, t.node(b).star);
-    assert_eq!(store::load_prefs(&conn).unwrap(), vec![("saved_searches".to_string(), "is:todo\n#work".to_string())]);
+    let at = crate::hlc::Hlc { wall: 7, counter: 0, actor: 1 };
+    assert_eq!(store::load_prefs(&conn).unwrap(), vec![("saved_searches".to_string(), "is:todo\n#work".to_string(), at)]);
     assert_eq!(meta, vec![("zoom".to_string(), "0".to_string())]);
     let _ = std::fs::remove_dir_all(dir);
 }

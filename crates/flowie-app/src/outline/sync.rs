@@ -133,6 +133,7 @@ impl Outline {
             Some(id) => !self.ws.begin_edit(id).is_empty(),
             None => !self.ws.end_edit().is_empty(),
         };
+        let prefs = self.ws.sync.prefs_revision();
         let Some(session) = self.sync.as_mut() else { return };
         changed |= session.driver.pump(&mut self.ws);
         if session.first && session.driver.caught_up() {
@@ -148,6 +149,10 @@ impl Outline {
             let Some(session) = self.sync.as_mut() else { return };
             session.driver.release_saves();
             session.driver.pump(&mut self.ws);
+        }
+        if self.ws.sync.prefs_revision() != prefs {
+            self.saved_searches = Self::saved_searches_in(&self.ws);
+            changed = true;
         }
         let Some(session) = self.sync.as_mut() else { return };
         let phase = session.driver.phase(&self.ws);

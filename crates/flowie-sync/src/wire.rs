@@ -19,7 +19,8 @@ pub const VERSION: u32 = 1;
 pub enum Kind {
     /// A bullet ([`NodeRecord`]).
     Node,
-    /// The synced preferences (`store::PREFS`), one record, last writer wins.
+    /// The synced preferences (`store::PREFS`): one record ([`PrefsRecord`]), last writer
+    /// wins for each preference.
     Prefs,
     /// Facts about the whole outline, such as the oldest version allowed to write it.
     Meta,
@@ -62,6 +63,31 @@ impl Envelope {
     pub fn node_record(&self) -> Option<NodeRecord> {
         (self.kind == Kind::Node && self.enc.is_none()).then(|| serde_json::from_value(self.payload.clone()).ok()).flatten()
     }
+
+    pub fn prefs(record: &PrefsRecord, etag: Option<String>) -> Envelope {
+        Envelope {
+            v: VERSION,
+            kind: Kind::Prefs,
+            id: PREFS_ID.to_string(),
+            etag,
+            enc: None,
+            payload: serde_json::to_value(record).expect("a record is plain data"),
+        }
+    }
+
+    /// The preferences inside, if this is that record and this version can read it.
+    pub fn prefs_record(&self) -> Option<PrefsRecord> {
+        (self.kind == Kind::Prefs && self.enc.is_none()).then(|| serde_json::from_value(self.payload.clone()).ok()).flatten()
+    }
+}
+
+/// The id of the one preferences record.
+pub const PREFS_ID: &str = "prefs";
+
+/// The synced preferences, by key, each a register of its own.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PrefsRecord {
+    pub values: std::collections::BTreeMap<String, Reg<String>>,
 }
 
 /// A synced register: a value and the clock of its last write.
@@ -72,7 +98,7 @@ pub struct Reg<T> {
 }
 
 impl<T> Reg<T> {
-    fn new(v: T, at: Hlc) -> Self {
+    pub fn new(v: T, at: Hlc) -> Self {
         Reg { v, at }
     }
 }

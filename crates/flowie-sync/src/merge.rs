@@ -7,7 +7,7 @@
 use serde::Serialize;
 use serde_json::Map;
 
-use crate::wire::{NodeRecord, Reg};
+use crate::wire::{NodeRecord, PrefsRecord, Reg};
 
 /// The later of two writes of a field. Equal clocks mean the same write, so the values should
 /// match; if they don't (bad data), the larger one, as JSON text, wins everywhere alike.
@@ -23,6 +23,18 @@ fn json<T: Serialize>(v: &T) -> String {
 }
 
 /// Two versions of one record merged, field by field.
+/// Merge two versions of the preferences: each key takes its later write.
+pub fn merge_prefs(a: &PrefsRecord, b: &PrefsRecord) -> PrefsRecord {
+    let mut values = a.values.clone();
+    for (key, theirs) in &b.values {
+        let mine = values.get(key).cloned();
+        if let Some(later) = later(&mine, &Some(theirs.clone())) {
+            values.insert(key.clone(), later);
+        }
+    }
+    PrefsRecord { values }
+}
+
 pub fn merge(a: &NodeRecord, b: &NodeRecord) -> NodeRecord {
     debug_assert_eq!(a.id, b.id);
     let mut extra = Map::new();

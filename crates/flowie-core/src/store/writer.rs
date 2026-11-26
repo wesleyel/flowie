@@ -16,7 +16,7 @@ use crate::tree::{Dirty, Node, NodeId};
 enum Msg {
     Write(Dirty),
     Meta(String, String),
-    Pref(String, String),
+    Pref(String, String, Hlc),
     ImportState(ImportState),
     ImportBatch { dirty: Dirty, state: ImportState },
     Blob(crate::images::BlobInfo),
@@ -32,7 +32,7 @@ enum PendingOp {
         dirty: Dirty,
         meta: Vec<(String, String)>,
     },
-    Pref(String, String),
+    Pref(String, String, Hlc),
     ImportState(ImportState),
     ImportBatch {
         dirty: Dirty,
@@ -99,11 +99,11 @@ impl Writer {
         }
     }
 
-    /// Save a `PREFS` key (a preference that syncs).
-    pub fn set_pref(&self, key: &str, value: &str) {
+    /// Save a `PREFS` key (a preference that syncs), written at `at`.
+    pub fn set_pref(&self, key: &str, value: &str, at: Hlc) {
         debug_assert!(PREFS.contains(&key), "pref key {key:?} is not in store::PREFS");
         if let Some(tx) = &self.tx {
-            let _ = tx.send(Msg::Pref(key.to_string(), value.to_string()));
+            let _ = tx.send(Msg::Pref(key.to_string(), value.to_string(), at));
         }
     }
 
@@ -253,7 +253,7 @@ where
             }
             Some(op_msg) => {
                 let op = match op_msg {
-                    Msg::Pref(key, value) => PendingOp::Pref(key, value),
+                    Msg::Pref(key, value, at) => PendingOp::Pref(key, value, at),
                     Msg::ImportState(state) => PendingOp::ImportState(state),
                     Msg::ImportBatch { dirty, state } => PendingOp::ImportBatch { dirty, state },
                     Msg::Blob(b) => PendingOp::Blob(b),
@@ -295,7 +295,7 @@ fn run_op(conn: &mut Connection, op: &PendingOp) -> rusqlite::Result<()> {
     match op {
         PendingOp::Batch { dirty, meta } => write_batch(conn, dirty, meta),
 
-        PendingOp::Pref(key, value) => write_pref(conn, key, value),
+        PendingOp::Pref(key, value, at) => write_pref(conn, key, value, *at),
         PendingOp::ImportState(state) => save_import_state(conn, state),
         PendingOp::ImportBatch { dirty, state } => write_import_batch(conn, dirty, state),
         PendingOp::Blob(b) => {
@@ -425,7 +425,7 @@ mod tests {
         let mut b = Node::new(NodeId::random(), ROOT, "a1".into());
         b.deleted_at = Some(7);
         writer.write(Dirty { upserts: vec![a.clone(), b.clone()], ..Dirty::default() });
-        writer.set_pref("saved_searches", "kept too");
+        writer.set_pref("saved_searches", "kept too", Hlc::default());
         let error = writer.flush().unwrap_err();
 
         let reported_err = status_rx.recv_timeout(Duration::from_secs(2)).unwrap();
@@ -446,7 +446,7 @@ mod tests {
         let (mut nodes, _) = load(&conn).unwrap();
         nodes.sort_by_key(|n| n.rank.clone());
         assert_eq!(nodes, [a, b], "including deleted_at");
-        assert_eq!(load_prefs(&conn).unwrap(), [("saved_searches".to_string(), "kept too".to_string())]);
+        assert_eq!(load_prefs(&conn).unwrap(), [("saved_searches".to_string(), "kept too".to_string(), Hlc::default())]);
         drop(conn);
         std::fs::remove_dir_all(work).unwrap();
     }

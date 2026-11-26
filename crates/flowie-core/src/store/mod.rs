@@ -133,7 +133,8 @@ CREATE TABLE IF NOT EXISTS meta (   -- this device only (LOCAL_META)
 );
 CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
     key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
+    value TEXT NOT NULL,
+    at    BLOB NOT NULL DEFAULT x''   -- when it was last written (crate::hlc::Hlc)
 );
 ";
 
@@ -141,7 +142,8 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
 /// scroll, the page shown, view options, device and tutorial ids). A key that
 /// should follow the user to other devices goes in `PREFS` instead; user
 /// content (like stars) goes on the nodes.
-pub const LOCAL_META: &[&str] = &["actor.app", "device", "hide_completed", "scroll", "sync.held", "tutorial", "window", "zoom"];
+pub const LOCAL_META: &[&str] =
+    &["actor.app", "device", "hide_completed", "scroll", "sync.held", "sync.prefs", "sync.prefs_base", "tutorial", "window", "zoom"];
 
 /// Keys of the `prefs` table: preferences that sync. Sync sends the whole table
 /// as one `Prefs` record, last writer wins.
@@ -170,7 +172,8 @@ fn sync_columns(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<()> {
          CREATE TABLE purged (id BLOB PRIMARY KEY, at BLOB NOT NULL) WITHOUT ROWID;
          CREATE TABLE sync_state (remote TEXT PRIMARY KEY, cursor BLOB, account TEXT);
          CREATE TABLE bases (id BLOB PRIMARY KEY, etag TEXT NOT NULL, record TEXT NOT NULL) WITHOUT ROWID;
-         CREATE TABLE lost (id BLOB NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL, at INTEGER NOT NULL);",
+         CREATE TABLE lost (id BLOB NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL, at INTEGER NOT NULL);
+         ALTER TABLE prefs ADD COLUMN at BLOB NOT NULL DEFAULT x'';",
     )
 }
 
@@ -235,15 +238,21 @@ pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, Stri
     Ok((nodes, meta))
 }
 
-/// The synced preferences (`PREFS`).
-pub fn load_prefs(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
-    let mut stmt = conn.prepare("SELECT key, value FROM prefs")?;
-    let prefs = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+/// The synced preferences (`PREFS`), each with when it was last written (the oldest clock
+/// for one saved before Flowie kept clocks).
+pub fn load_prefs(conn: &Connection) -> rusqlite::Result<Vec<(String, String, Hlc)>> {
+    let mut stmt = conn.prepare("SELECT key, value, at FROM prefs")?;
+    let prefs = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, Hlc::from_bytes(&r.get::<_, Vec<u8>>(2)?).unwrap_or_default())))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(prefs)
 }
 
-pub fn write_pref(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
-    conn.execute("INSERT INTO prefs (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2", params![key, value])?;
+pub fn write_pref(conn: &Connection, key: &str, value: &str, at: Hlc) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO prefs (key, value, at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value=?2, at=?3",
+        params![key, value, at.to_bytes().to_vec()],
+    )?;
     Ok(())
 }
 

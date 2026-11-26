@@ -27,6 +27,8 @@ pub struct Workspace {
     pub image_dir: Option<ImageDir>,
     /// Preferences that sync (`store::PREFS`), by key.
     pub prefs: HashMap<String, String>,
+    /// When each preference was last written (for sync).
+    prefs_at: HashMap<String, flowie_core::hlc::Hlc>,
     /// What sync has left to send and has seen of the backend.
     pub sync: SyncState,
 }
@@ -42,6 +44,7 @@ impl Workspace {
             blobs: HashMap::new(),
             image_dir: None,
             prefs: HashMap::new(),
+            prefs_at: HashMap::new(),
             sync: SyncState::default(),
         }
     }
@@ -74,7 +77,8 @@ impl Workspace {
             imports: imports.into_iter().map(|r| (r.root, r)).collect(),
             blobs: blobs.into_iter().map(|b| (b.name.clone(), b)).collect(),
             image_dir: Some(images),
-            prefs: prefs.into_iter().collect(),
+            prefs: prefs.iter().map(|(k, v, _)| (k.clone(), v.clone())).collect(),
+            prefs_at: prefs.into_iter().map(|(k, _, at)| (k, at)).collect(),
             sync: SyncState::load(sync),
         };
         let actor = meta.iter().find(|(k, _)| k == "actor.app").and_then(|(_, v)| v.parse::<u64>().ok()).filter(|a| *a != 0);
@@ -84,6 +88,7 @@ impl Workspace {
             actor
         });
         ws.tree.set_actor(actor);
+        ws.sync.load_meta(&meta);
         ws.recover_held(&meta);
         ws.purge_expired();
         Ok((ws, meta))
@@ -127,10 +132,13 @@ impl Workspace {
 
     /// Change a preference that syncs (`store::PREFS`) and save it.
     pub fn set_pref(&mut self, key: &str, value: &str) {
+        let at = self.tree.tick();
         self.prefs.insert(key.to_string(), value.to_string());
+        self.prefs_at.insert(key.to_string(), at);
         if let Some(w) = &self.writer {
-            w.set_pref(key, value);
+            w.set_pref(key, value, at);
         }
+        self.note_prefs_unsent();
     }
 
     /// Star `id` at the end of the starred list, or unstar it. Stars are saved
@@ -317,7 +325,9 @@ mod tests {
         let (mut ws, meta) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
         assert_eq!(ws.tree.starred().collect::<Vec<_>>(), vec![b, a]);
         assert_eq!(ws.pref("saved_searches"), Some("is:todo"));
-        assert!(meta.iter().all(|(key, _)| key == "actor.app"), "only this process's actor id");
+        // Stars and prefs aren't kept in meta: only this process's actor id, and that the
+        // preference waits to be sent (like the outbox, whether or not sync is set up).
+        assert!(meta.iter().all(|(key, _)| key == "actor.app" || key == "sync.prefs"), "{meta:?}");
         ws.set_starred(b, false);
         ws.flush().unwrap();
         drop(ws);

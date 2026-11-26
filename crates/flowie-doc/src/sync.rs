@@ -7,12 +7,16 @@ use std::collections::{BTreeSet, HashMap};
 use flowie_core::store::{SyncRows, SyncWrite};
 use flowie_core::NodeId;
 use flowie_sync::store::{apply_to_tree, local_record};
-use flowie_sync::{merge, NodeRecord, RecordStore};
+use flowie_sync::{merge, NodeRecord, PrefsRecord, RecordStore, Reg};
 
 use crate::Workspace;
 
 /// The `meta` key naming a record held while it was being edited, until it is applied.
 const HELD_META: &str = "sync.held";
+/// The `meta` keys for the preferences: "1" while they wait to be sent, and the backend's
+/// version last seen (`{"etag", "record"}`).
+const PREFS_META: &str = "sync.prefs";
+const PREFS_BASE_META: &str = "sync.prefs_base";
 
 /// Sync's state for one outline.
 #[derive(Debug, Default)]
@@ -29,6 +33,18 @@ pub struct SyncState {
     editing: Option<NodeId>,
     /// What came in for it meanwhile, merged, to apply when editing ends.
     held: Option<NodeRecord>,
+    /// The synced preferences changed here and wait to be sent.
+    prefs_unsent: bool,
+    /// The backend's version of the preferences last seen, with its etag.
+    prefs_base: Option<(String, PrefsRecord)>,
+    /// Counts preference changes that came from another device, for the app to reload them.
+    prefs_revision: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedPrefsBase {
+    etag: String,
+    record: PrefsRecord,
 }
 
 impl SyncState {
@@ -47,7 +63,20 @@ impl SyncState {
     }
 
     pub fn has_unsent(&self) -> bool {
-        !self.outbox.is_empty()
+        !self.outbox.is_empty() || self.prefs_unsent
+    }
+
+    /// What `meta` keeps of sync's state (the preferences').
+    pub(crate) fn load_meta(&mut self, meta: &[(String, String)]) {
+        let get = |key: &str| meta.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
+        self.prefs_unsent = get(PREFS_META) == Some("1");
+        self.prefs_base =
+            get(PREFS_BASE_META).and_then(|v| serde_json::from_str::<SavedPrefsBase>(v).ok()).map(|saved| (saved.etag, saved.record));
+    }
+
+    /// Changes when preferences come in from another device.
+    pub fn prefs_revision(&self) -> u64 {
+        self.prefs_revision
     }
 }
 
@@ -113,6 +142,13 @@ impl Workspace {
         self.set_meta(HELD_META, "");
     }
 
+    pub(crate) fn note_prefs_unsent(&mut self) {
+        if !self.sync.prefs_unsent {
+            self.sync.prefs_unsent = true;
+            self.set_meta(PREFS_META, "1");
+        }
+    }
+
     fn save_sync(&self, write: SyncWrite) {
         if let Some(writer) = &self.writer {
             writer.sync(write);
@@ -164,6 +200,54 @@ impl RecordStore for Workspace {
 
     fn cursor(&self) -> Option<String> {
         self.sync.cursors.get(&self.sync.remote).cloned()
+    }
+
+    fn prefs_unsent(&self) -> bool {
+        self.sync.prefs_unsent
+    }
+
+    fn local_prefs(&self) -> PrefsRecord {
+        let values = flowie_core::store::PREFS
+            .iter()
+            .filter_map(|&key| {
+                Some((key.to_string(), Reg::new(self.prefs.get(key)?.clone(), self.prefs_at.get(key).copied().unwrap_or_default())))
+            })
+            .collect();
+        PrefsRecord { values }
+    }
+
+    fn apply_prefs(&mut self, merged: PrefsRecord) {
+        for (key, reg) in merged.values {
+            let known = flowie_core::store::PREFS.contains(&key.as_str());
+            let newer = self.prefs_at.get(&key).is_none_or(|at| reg.at > *at);
+            if !known || !newer || self.prefs.get(&key) == Some(&reg.v) && self.prefs_at.get(&key) == Some(&reg.at) {
+                continue;
+            }
+            self.tree.observe(reg.at);
+            if let Some(w) = &self.writer {
+                w.set_pref(&key, &reg.v, reg.at);
+            }
+            self.prefs.insert(key.clone(), reg.v);
+            self.prefs_at.insert(key, reg.at);
+            self.sync.prefs_revision += 1;
+        }
+    }
+
+    fn clear_prefs_unsent(&mut self) {
+        if self.sync.prefs_unsent {
+            self.sync.prefs_unsent = false;
+            self.set_meta(PREFS_META, "");
+        }
+    }
+
+    fn prefs_base(&self) -> Option<(String, PrefsRecord)> {
+        self.sync.prefs_base.clone()
+    }
+
+    fn set_prefs_base(&mut self, etag: String, record: PrefsRecord) {
+        let saved = SavedPrefsBase { etag, record };
+        self.set_meta(PREFS_BASE_META, &serde_json::to_string(&saved).expect("plain data"));
+        self.sync.prefs_base = Some((saved.etag, saved.record));
     }
 
     fn keep_lost(&mut self, id: NodeId, field: &str, value: String) {
@@ -290,6 +374,45 @@ mod tests {
         drop(a);
         let a = open(&db);
         assert!(!a.tree.has_record(tutorial) && !a.sync.has_unsent());
+    }
+
+    #[test]
+    fn preferences_sync_and_the_later_write_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let (db_a, db_b) = (dir.path().join("a.sqlite"), dir.path().join("b.sqlite"));
+        let mut server = MemoryServer::new();
+        let (mut a, mut b) = (open(&db_a), open(&db_b));
+        a.set_pref("saved_searches", "is:todo");
+        // Not sent yet when a quits: it goes after the restart.
+        a.flush().unwrap();
+        drop(a);
+        let mut a = open(&db_a);
+        assert!(a.sync.has_unsent());
+        sync(&mut a, &mut Engine::new(), &mut server);
+        assert!(!a.sync.has_unsent());
+        let seen = b.sync.prefs_revision();
+        sync(&mut b, &mut Engine::new(), &mut server);
+        assert_eq!(b.pref("saved_searches"), Some("is:todo"));
+        assert_ne!(b.sync.prefs_revision(), seen, "the app hears that they changed");
+
+        // Both change them; b's change is the later one and wins on both.
+        a.set_pref("saved_searches", "from a");
+        // A later millisecond, so the clocks can't tie and leave it to the actor ids.
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        b.set_pref("saved_searches", "from b");
+        sync(&mut a, &mut Engine::new(), &mut server);
+        sync(&mut b, &mut Engine::new(), &mut server);
+        sync(&mut a, &mut Engine::new(), &mut server);
+        assert_eq!(a.pref("saved_searches"), Some("from b"));
+        assert_eq!(b.pref("saved_searches"), Some("from b"));
+        assert!(!a.sync.has_unsent() && !b.sync.has_unsent());
+
+        // What came in is saved, with its clock: a restart keeps it, and nothing goes back.
+        a.flush().unwrap();
+        drop(a);
+        let a = open(&db_a);
+        assert_eq!(a.pref("saved_searches"), Some("from b"));
+        assert!(!a.sync.has_unsent());
     }
 
     #[test]

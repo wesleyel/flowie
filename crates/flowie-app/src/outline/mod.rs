@@ -335,8 +335,7 @@ impl Outline {
         let db_path_for_config = db_path.clone();
         let mut zoom = ROOT;
         let mut hide_completed = false;
-        let saved_searches =
-            ws.pref("saved_searches").unwrap_or_default().split('\n').filter(|x| !x.is_empty()).map(String::from).collect();
+        let saved_searches = Self::saved_searches_in(&ws);
         let mut page_scrolls = std::collections::HashMap::new();
         for (k, v) in &meta {
             match k.as_str() {
@@ -500,6 +499,11 @@ impl Outline {
     }
 
     /// Save `saved_searches` (a pref, so it syncs).
+    /// The saved searches kept in `ws`'s synced preferences.
+    pub(crate) fn saved_searches_in(ws: &Workspace) -> Vec<String> {
+        ws.pref("saved_searches").unwrap_or_default().split('\n').filter(|x| !x.is_empty()).map(String::from).collect()
+    }
+
     pub fn save_searches(&mut self) {
         let value = self.saved_searches.join("\n");
         self.ws.set_pref("saved_searches", &value);

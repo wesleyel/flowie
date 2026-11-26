@@ -22,6 +22,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ### Fixed
 
+- **Folding**: expanding or collapsing a bullet with its arrow keeps the page where it is. It used to scroll to the bullet being edited when that was below, so expanding a long subtree above it jumped to the bottom.
 - **Performance**: folding or unfolding a bullet with many rows under it (or expanding everything) no longer stutters. Past about 150 rows, they appear or go at once instead of each growing or shrinking in.
 - **Scrolling**: in a long outline the scrollbar has the right size from the start and no longer jumps as you scroll, and dragging it takes you where it points, to the end of the page in one go. Rows not drawn yet used to count as having no height; Flowie now works out each row's height from its text (measuring each character's width once and breaking lines the way the row does), and the heights of drawn rows replace those.
 - **Markdown import**: headings now give the imported outline its structure: everything under a heading, down to the next heading of the same or a higher level, goes under it. `####` to `######` headings import as level-3 headings instead of rows that start with hashes, and a paragraph separated by a blank line becomes a paragraph row of its own instead of being added to the note of the item above, so a long article no longer ends up in one huge note.

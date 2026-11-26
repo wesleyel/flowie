@@ -19,17 +19,36 @@ impl Outline {
         self.commit_with_imports(before, None, cx);
     }
 
+    /// Like `commit_structure`, for a change elsewhere on the page (folding a bullet by its
+    /// arrow): the view follows the caret only if the command moved it. Rows appearing or
+    /// going above the caret don't pull the page after it.
+    pub fn commit_elsewhere(&mut self, before: Option<Caret>, cx: &mut Context<Self>) {
+        self.commit_inner(before, None, false, cx);
+    }
+
     pub(crate) fn commit_with_imports(
         &mut self,
         before: Option<Caret>,
         imports: Option<(flowie_core::store::ImportState, flowie_core::store::ImportState)>,
         cx: &mut Context<Self>,
     ) {
+        self.commit_inner(before, imports, true, cx);
+    }
+
+    /// Commit, refresh, and keep the caret in view: always when the command moved it, and
+    /// with `keep_caret`, also when its row was on screen before.
+    fn commit_inner(
+        &mut self,
+        before: Option<Caret>,
+        imports: Option<(flowie_core::store::ImportState, flowie_core::store::ImportState)>,
+        keep_caret: bool,
+        cx: &mut Context<Self>,
+    ) {
         for n in self.ws.tree.journal_removed() {
             self.ghosts.insert(n.id, n);
         }
         let after = self.caret();
-        let follow = after != before || before.is_some_and(|c| self.row_on_screen(c.node));
+        let follow = after != before || (keep_caret && before.is_some_and(|c| self.row_on_screen(c.node)));
         self.ws.commit_with_imports(before, after, imports);
         self.refresh(true);
         if follow {

@@ -74,7 +74,8 @@ impl Outline {
                 }
             }
         }
-        self.commit_structure(before, cx);
+        // The page stays on the folded bullet, wherever the caret is.
+        self.commit_elsewhere(before, cx);
     }
 
     pub fn set_kind_of_targets(&mut self, kind: BlockKind, cx: &mut Context<Self>) {

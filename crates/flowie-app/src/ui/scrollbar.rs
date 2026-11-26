@@ -14,11 +14,31 @@ use gpui::{
 
 use crate::ui::theme::Theme;
 
-/// What scrolls: a scrolling div or a `list`.
+/// A scroll position the caller keeps itself (the outline's height map), for content
+/// whose full height the scrolling element can't know.
+pub trait ScrollModel {
+    /// How far the content is scrolled, ≥ 0.
+    fn top(&self) -> Pixels;
+    /// How far it can scroll.
+    fn max(&self) -> Pixels;
+    /// Scroll to `top` (clamped to 0…max by the caller).
+    fn set_top(&self, top: Pixels);
+    /// A thumb drag starts or ends.
+    fn drag(&self, _on: bool) {}
+}
+
+/// What scrolls: a scrolling div, a `list`, or a model of either.
 #[derive(Clone)]
 pub enum Source {
     Handle(ScrollHandle),
     List(ListState),
+    Model(std::rc::Rc<dyn ScrollModel>),
+}
+
+impl From<std::rc::Rc<dyn ScrollModel>> for Source {
+    fn from(m: std::rc::Rc<dyn ScrollModel>) -> Self {
+        Source::Model(m)
+    }
 }
 
 impl From<&ScrollHandle> for Source {
@@ -39,6 +59,7 @@ impl Source {
         match self {
             Source::Handle(h) => -h.offset().y,
             Source::List(l) => -l.scroll_px_offset_for_scrollbar().y,
+            Source::Model(m) => m.top(),
         }
     }
 
@@ -46,6 +67,7 @@ impl Source {
         match self {
             Source::Handle(h) => h.max_offset().y,
             Source::List(l) => l.max_offset_for_scrollbar().y,
+            Source::Model(m) => m.max(),
         }
     }
 
@@ -62,6 +84,13 @@ impl Source {
             Source::List(l) if top >= max - px(0.5) => l.scroll_to_end(),
             Source::List(l) if top <= Pixels::ZERO => l.scroll_to(gpui::ListOffset { item_ix: 0, offset_in_item: Pixels::ZERO }),
             Source::List(l) => l.set_offset_from_scrollbar(point(Pixels::ZERO, -top)),
+            Source::Model(m) => m.set_top(top),
+        }
+    }
+
+    fn drag(&self, on: bool) {
+        if let Source::Model(m) = self {
+            m.drag(on);
         }
     }
 }
@@ -172,6 +201,7 @@ pub fn scrollbar(id: impl Into<ElementId>, source: impl Into<Source>, theme: The
                 let rel = ev.position.y - bounds.top();
                 // On the thumb: keep the grab point; on the track: center the thumb there.
                 let grab = if rel >= y && rel <= y + thumb_h { rel - y } else { thumb_h / 2. };
+                s2.drag(true);
                 s2.set_top(top_for(ev.position.y, grab));
                 st.update(cx, |s, _| s.grab = Some(grab));
                 cx.stop_propagation();
@@ -207,11 +237,13 @@ pub fn scrollbar(id: impl Into<ElementId>, source: impl Into<Source>, theme: The
                     window.refresh();
                 }
             });
+            let s2 = src.clone();
             window.on_mouse_event(move |ev: &MouseUpEvent, phase, window, cx| {
                 if phase != DispatchPhase::Bubble || ev.button != MouseButton::Left {
                     return;
                 }
                 if state.read(cx).grab.is_some() {
+                    s2.drag(false);
                     state.update(cx, |s, _| {
                         s.grab = None;
                         s.shown_at = Some(Instant::now());

@@ -416,6 +416,7 @@ impl Render for Outline {
             // under it closes it.
             self.wheel.step(&self.list);
             self.watch_title_scroll(cx);
+            self.update_heights(window);
             let wheel_target = cx.entity();
             div()
                 .relative()
@@ -472,7 +473,7 @@ impl Render for Outline {
                             .size_full(),
                         ),
                 )
-                .child(crate::ui::scrollbar::scrollbar("outline-bar", &self.list, self.theme))
+                .child(crate::ui::scrollbar::scrollbar("outline-bar", self.heights.scroll_model(&self.list), self.theme))
                 .child(self.render_top_fade())
                 .into_any_element()
         };

@@ -82,6 +82,7 @@ impl Outline {
         self.display_pos = pos;
         self.splice_list(old, &new);
         self.display = new;
+        self.heights.invalidate();
     }
 
     /// Tell the list which items changed, preserving scroll position.

@@ -5,6 +5,7 @@ mod clipboard;
 mod display;
 mod documents;
 mod editing;
+mod heights;
 mod history;
 mod journal;
 mod navigation;
@@ -277,6 +278,8 @@ pub struct Outline {
     pub package_import: Option<crate::share::PackageImport>,
     /// The image shown full-window (Space on an image bullet).
     pub image_preview: Option<NodeId>,
+    /// Every list item's height, for the scrollbar (see `heights`).
+    pub heights: heights::Heights,
     /// Frames left in which to keep revealing the edited row: a row Enter or
     /// undo just created has no height until it's measured, and grows in.
     pub follow_edit: u8,
@@ -369,6 +372,7 @@ impl Outline {
             package_import: None,
             image_preview: None,
             follow_edit: 0,
+            heights: Default::default(),
             whats_new_pending: None,
             save_error: None,
             load_error: None,

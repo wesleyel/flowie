@@ -324,7 +324,9 @@
       "level_3": "显示 3 层",
       "level_4": "显示 4 层",
       "toggle_completed": "显示 / 隐藏已完成",
-      "content_width": "切换内容宽度"
+      "content_width": "切换内容宽度",
+      "scroll_top": "滚动到顶部",
+      "scroll_bottom": "滚动到底部"
     }
   },
   "shortcut": {
@@ -399,6 +401,8 @@
     "delete-bullet": "删除条目",
     "toggle-completed": "显示 / 隐藏已完成",
     "content-width": "切换内容宽度",
+    "scroll-top": "滚动到顶部",
+    "scroll-bottom": "滚动到底部",
     "page-back": "后退",
     "page-forward": "前进",
     "zoom-in": "进入条目",

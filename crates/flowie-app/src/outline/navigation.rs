@@ -408,6 +408,25 @@ impl Outline {
     }
 }
 
+impl Outline {
+    /// Show the top of the page (its title).
+    pub fn scroll_to_top(&mut self, _: &ScrollToTop, _: &mut Window, cx: &mut Context<Self>) {
+        self.wheel.stop();
+        self.follow_edit = 0;
+        self.list.scroll_to(gpui::ListOffset { item_ix: 0, offset_in_item: Pixels::ZERO });
+        cx.notify();
+    }
+
+    /// Show the end of the page. The list lays out back from its last row, so
+    /// this lands at the very end however tall the rows not drawn yet turn out.
+    pub fn scroll_to_bottom(&mut self, _: &ScrollToBottom, _: &mut Window, cx: &mut Context<Self>) {
+        self.wheel.stop();
+        self.follow_edit = 0;
+        self.list.scroll_to_end();
+        cx.notify();
+    }
+}
+
 /// The search box's width as an icon and fully open.
 pub(super) const SEARCH_CLOSED_W: f32 = 28.;
 pub(super) const SEARCH_OPEN_W: f32 = 240.;
@@ -422,6 +441,11 @@ pub(super) struct WheelScroll {
 }
 
 impl WheelScroll {
+    /// Drop the distance still to go (the page was moved some other way).
+    pub fn stop(&mut self) {
+        self.pending = Pixels::ZERO;
+    }
+
     /// How fast the remaining distance shrinks: about 63% of it every `TAU` seconds.
     const TAU: f32 = 0.06;
 

@@ -21,6 +21,7 @@ and press Backspace while recording to remove that binding.
 | ⌘↑ / ⌘↓ | Collapse / expand |
 | ⌃1 … ⌃4 / ⌃0 | Show 1–4 levels / expand all |
 | ⌘] / ⌘[ / ⌘⇧H | Zoom in / out / home (or click a bullet / breadcrumb) |
+| ⌘⌥↑ / ⌘⌥↓ | Scroll to the top / end of the page |
 | Mouse back / forward, ⌘⌥← / ⌘⌥→ | Previous / next visited page (restores search and scroll position) |
 | ⌘P | Go to: starred pages, saved searches, any bullet; a name that matches no bullet offers a new page on Home |
 | ⌘⇧S | Star / unstar the page |

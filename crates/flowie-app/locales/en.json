@@ -357,7 +357,9 @@
       "level_3": "Show 3 Levels",
       "level_4": "Show 4 Levels",
       "toggle_completed": "Show/Hide Completed",
-      "content_width": "Switch Content Width"
+      "content_width": "Switch Content Width",
+      "scroll_top": "Scroll to Top",
+      "scroll_bottom": "Scroll to Bottom"
     }
   },
   "shortcut": {
@@ -432,6 +434,8 @@
     "delete-bullet": "Delete bullet",
     "toggle-completed": "Show / hide completed",
     "content-width": "Switch content width",
+    "scroll-top": "Scroll to top",
+    "scroll-bottom": "Scroll to bottom",
     "page-back": "Page back",
     "page-forward": "Page forward",
     "zoom-in": "Zoom in",

@@ -84,6 +84,8 @@ actions!(
         Escape,
         ToggleCompletedVisible,
         CycleContentWidth,
+        ScrollToTop,
+        ScrollToBottom,
         Quit,
         Jump,
         MoveTo,

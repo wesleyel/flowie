@@ -62,6 +62,7 @@
       - [ ] 用鼠标的后退 / 前进键或 {{key:page-back}} / {{key:page-forward}} 在访问过的页面间切换
       - [ ] 按 {{key:level-1}} – {{key:level-4}} 只显示 1–4 层，{{key:expand-all}} 全部展开
       - 向下滚动时，页面标题会收进顶栏，路径显示你正在看的位置
+      - [ ] 按 {{key:scroll-bottom}} 跳到长页面的末尾，按 {{key:scroll-top}} 回到顶部
       - 一个折叠的条目——展开我 {{collapsed}}
         - 展开之前，这里是隐藏的
           - 条目可以无限嵌套

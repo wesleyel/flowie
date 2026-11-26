@@ -62,6 +62,7 @@
       - [ ] Use the mouse back / forward buttons or {{key:page-back}} / {{key:page-forward}} to step through pages you visited
       - [ ] Press {{key:level-1}} – {{key:level-4}} to show 1–4 levels, {{key:expand-all}} to expand everything
       - As you scroll down, the page title tucks into the top bar and the path shows where you are
+      - [ ] Press {{key:scroll-bottom}} to jump to the end of a long page, {{key:scroll-top}} to come back to the top
       - A collapsed bullet — expand me {{collapsed}}
         - Hidden until you expanded it
           - Bullets nest as deep as you like

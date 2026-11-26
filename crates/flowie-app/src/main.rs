@@ -244,7 +244,6 @@ fn main() {
             }
         }
     };
-    drop(save_err_tx);
     let n = ws.tree.len();
     let config = settings::Config::load(&settings::Config::path(db_path.as_ref()));
     i18n::set(&config.language);
@@ -308,6 +307,7 @@ fn main() {
         outline.update(cx, |o, cx| {
             o.load_error = load_error;
             o.tray = tray_handle;
+            o.save_status = Some(save_err_tx);
             o.whats_new_on_launch(background, cx);
         });
 

@@ -47,4 +47,9 @@ device's token. The icon in the top bar shows whether sync is up to date, syncin
 - A new device joining an outline that is already on the server leaves out its own tutorial if
   you haven't touched it.
 - The bullet you are typing in takes what changed on other devices when you leave it.
+- When two devices change the same text at the same time, the version that loses is listed
+  under **Conflict copies** in Settings → Sync, to restore as a bullet or dismiss.
+- **Start over from the server** replaces this device's outline with the server's instead of
+  merging them; the old one is kept beside the database as `flowie.sqlite.replaced-<time>`
+  (with its images), which Flowie can open.
 - Collapsed bullets, the page you are on and scroll positions stay per device.

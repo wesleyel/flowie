@@ -32,7 +32,7 @@ impl Outline {
     }
 
     /// Recompute visible rows and reset GPUI's list measurements (page zoom, search).
-    pub(super) fn refresh_reset(&mut self) {
+    pub(crate) fn refresh_reset(&mut self) {
         self.refresh_with(false, true);
     }
 

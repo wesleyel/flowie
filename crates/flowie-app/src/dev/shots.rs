@@ -150,6 +150,8 @@ impl Outline {
                 self.show_settings(tab, cx);
                 Ok("settings".into())
             }
+            // Settings → Sync → Start over from the server, without the prompt.
+            "sync_start_over" => self.start_over_from_server(cx).map(|()| "started over".into()),
             // The right-click menu of a bullet, drawn at (x, y) in window points.
             "bullet_menu" => {
                 let id = self.agent_node(p, "id")?;

@@ -307,6 +307,8 @@ pub struct Outline {
     pub whats_new_pending: Option<Option<String>>,
     /// Set when the background database writer failed and is retrying.
     pub save_error: Option<String>,
+    /// Where the writer reports that (and recovery), for a workspace opened again.
+    pub save_status: Option<futures::channel::mpsc::UnboundedSender<Option<String>>>,
     /// Set when the database couldn't be opened and the window shows an empty
     /// outline that isn't saved: the message to show.
     pub load_error: Option<String>,
@@ -403,6 +405,7 @@ impl Outline {
             heights: Default::default(),
             whats_new_pending: None,
             save_error: None,
+            save_status: None,
             load_error: None,
             sync: None,
             tutorial: meta.iter().find(|(k, _)| k == crate::app::tutorial::TUTORIAL_META).and_then(|(_, v)| v.parse().ok()),

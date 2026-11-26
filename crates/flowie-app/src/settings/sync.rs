@@ -147,6 +147,26 @@ impl Outline {
             .child(field(t!("settings.sync.server.label").into(), t!("settings.sync.server.hint").into(), server))
             .child(field(t!("settings.sync.token.label").into(), t!("settings.sync.token.hint").into(), token))
             .children(lost)
+            .when(self.sync.is_some(), |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .py_3()
+                        .border_b_1()
+                        .border_color(theme.divider)
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child(t!("settings.sync.start_over.label")))
+                        .child(div().text_size(px(12.)).text_color(theme.muted).child(t!("settings.sync.start_over.hint")))
+                        .child(
+                            div().child(
+                                crate::ui::button::button(theme, "sync-start-over", crate::ui::button::Variant::Link)
+                                    .child(t!("settings.sync.start_over.button"))
+                                    .on_click(cx.listener(|this, _, window, cx| this.confirm_start_over(window, cx))),
+                            ),
+                        ),
+                )
+            })
             .child(div().pt_3().text_size(px(12.)).text_color(theme.muted).child(t!("settings.sync.backup")))
             .into_any_element()
     }

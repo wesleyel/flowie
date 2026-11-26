@@ -300,6 +300,15 @@
         "dismiss": "Dismiss",
         "restored": "Restored as a bullet"
       },
+      "start_over": {
+        "label": "Start over from the server",
+        "hint": "Replace this device’s outline with the one on the server, instead of merging the two. This device’s outline is kept beside it as flowie.sqlite.replaced-<time>, with its images.",
+        "button": "Replace with the server’s outline…",
+        "confirm": "Replace this device’s outline with the server’s?",
+        "detail": "Bullets that are only on this device won’t be in the outline any more. A copy of it is kept beside the database.",
+        "cancel": "Cancel",
+        "failed": "Couldn’t start over: {error}"
+      },
       "backup": "Before the first sync with a server, Flowie keeps a copy of this outline’s database beside it (flowie.sqlite.before-sync-<time>)."
     },
     "about": {

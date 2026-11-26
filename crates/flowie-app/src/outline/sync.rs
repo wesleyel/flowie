@@ -206,6 +206,104 @@ impl Outline {
         self.toast(crate::app::i18n::t!("settings.sync.lost.restored"));
     }
 
+    /// Ask before [`start_over_from_server`](Self::start_over_from_server).
+    pub(crate) fn confirm_start_over(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        use crate::app::i18n::t;
+        let answer = window.prompt(
+            gpui::PromptLevel::Warning,
+            t!("settings.sync.start_over.confirm"),
+            Some(t!("settings.sync.start_over.detail")),
+            &[
+                gpui::PromptButton::cancel(t!("settings.sync.start_over.cancel")),
+                gpui::PromptButton::new(t!("settings.sync.start_over.button")),
+            ],
+            cx,
+        );
+        cx.spawn_in(window, async move |outline, cx| {
+            if matches!(answer.await, Ok(1)) {
+                let _ = outline.update(cx, |outline, cx| {
+                    if let Err(error) = outline.start_over_from_server(cx) {
+                        outline.toast(t!("settings.sync.start_over.failed", error = error));
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Replace this device's outline with the server's: the database and its images are set
+    /// aside beside themselves (`<name>.replaced-<time>`, a pair Flowie can open), and an empty
+    /// outline fills from the server. For a device whose outline shouldn't merge in.
+    pub(crate) fn start_over_from_server(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        let db = self.db_path.clone().ok_or("no database")?;
+        if !self.config.sync.ready() {
+            return Err("sync isn't set up".into());
+        }
+        self.sync = None;
+        self.ws.flush()?;
+        // Dropping the workspace saves what is left and closes the database.
+        drop(std::mem::replace(&mut self.ws, flowie_doc::Workspace::new(flowie_core::Tree::new())));
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let aside = db.with_file_name(format!("{}.replaced-{stamp}", db.file_name().and_then(|n| n.to_str()).unwrap_or("flowie.sqlite")));
+        let images = flowie_core::images::ImageDir::beside(&db);
+        let moved = std::fs::rename(&db, &aside).and_then(|()| {
+            for suffix in ["-wal", "-shm"] {
+                let side = std::path::PathBuf::from(format!("{}{suffix}", db.display()));
+                if side.exists() {
+                    std::fs::rename(&side, format!("{}{suffix}", aside.display()))?;
+                }
+            }
+            if images.root().exists() {
+                std::fs::rename(images.root(), flowie_core::images::ImageDir::beside(&aside).root())?;
+            }
+            Ok(())
+        });
+        let status = self.save_status.clone();
+        let (ws, meta) = flowie_doc::Workspace::open(&db, images, move |s| {
+            if let Some(tx) = &status {
+                let _ = tx.unbounded_send(s);
+            }
+        })
+        .map_err(|e| e.to_string())?;
+        self.ws = ws;
+        moved.map_err(|e| e.to_string())?;
+        let _ = meta;
+        self.set_meta("device", &self.device_id.clone());
+        self.tutorial = None;
+        self.reset_view();
+        self.apply_sync_config(cx);
+        cx.notify();
+        Ok(())
+    }
+
+    /// Forget everything the window showed of the outline it had (after the workspace was
+    /// replaced): Home, no caret, no selection, popups and pages closed.
+    fn reset_view(&mut self) {
+        self.zoom = ROOT;
+        self.back_pages.clear();
+        self.forward_pages.clear();
+        self.page_scrolls.clear();
+        self.query.clear();
+        self.edit = None;
+        self.block = None;
+        self.block_saved = None;
+        self.palette = None;
+        self.inline = None;
+        self.calendar = None;
+        self.trash = None;
+        self.volatile_page = None;
+        self.menu = None;
+        self.package_export = None;
+        self.package_import = None;
+        self.image_preview = None;
+        self.settings_return = None;
+        self.ghosts.clear();
+        self.anims.clear();
+        self.saved_searches = Self::saved_searches_in(&self.ws);
+        self.refresh_reset();
+    }
+
     /// Copy the database beside itself before the first sync with a server.
     fn snapshot_before_sync(&mut self) -> Result<(), String> {
         let Some(db) = self.db_path.clone() else { return Ok(()) };

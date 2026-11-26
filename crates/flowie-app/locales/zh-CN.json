@@ -267,6 +267,15 @@
         "dismiss": "忽略",
         "restored": "已恢复为条目"
       },
+      "start_over": {
+        "label": "从服务器重新开始",
+        "hint": "用服务器上的大纲替换本机的大纲，而不是把两者合并。本机的大纲连同图片会保留在旁边（flowie.sqlite.replaced-<时间>）。",
+        "button": "替换为服务器上的大纲…",
+        "confirm": "用服务器上的大纲替换本机的大纲？",
+        "detail": "只在本机上的条目将不再出现在大纲里。旧大纲的副本会保留在数据库旁边。",
+        "cancel": "取消",
+        "failed": "无法重新开始：{error}"
+      },
       "backup": "第一次与某台服务器同步之前，Flowie 会在数据库旁边保留一份副本（flowie.sqlite.before-sync-<时间>）。"
     },
     "about": {

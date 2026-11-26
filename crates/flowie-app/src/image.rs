@@ -39,12 +39,7 @@ impl Outline {
     }
 
     pub(crate) fn record_image(&mut self, info: BlobInfo) {
-        if !self.ws.blobs.contains_key(&info.name) {
-            if let Some(w) = &self.ws.writer {
-                w.blob(info.clone());
-            }
-            self.ws.blobs.insert(info.name.clone(), info);
-        }
+        self.ws.record_blob(info);
     }
 
     /// Where a new image goes: into the empty bullet being edited, else

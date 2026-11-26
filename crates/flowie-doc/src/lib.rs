@@ -104,6 +104,16 @@ impl Workspace {
         }
     }
 
+    /// Note an image file stored in `image_dir`, and save what is known about it.
+    pub fn record_blob(&mut self, info: BlobInfo) {
+        if !self.blobs.contains_key(&info.name) {
+            if let Some(w) = &self.writer {
+                w.blob(info.clone());
+            }
+            self.blobs.insert(info.name.clone(), info);
+        }
+    }
+
     /// Save state of this device only (`store::LOCAL_META`).
     pub fn set_meta(&self, key: &str, value: &str) {
         if let Some(w) = &self.writer {

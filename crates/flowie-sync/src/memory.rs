@@ -12,6 +12,8 @@ pub struct MemoryServer {
     /// id -> (record, version, sequence number of its last save).
     records: HashMap<String, (Envelope, u64)>,
     seq: u64,
+    /// Image files by name.
+    pub blobs: HashMap<String, Vec<u8>>,
 }
 
 impl MemoryServer {

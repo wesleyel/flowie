@@ -5,10 +5,12 @@
 //! the next calls. The threads call a wake function when they finish one, for the app to
 //! schedule a pump; the app also pumps after each edit it saves.
 
+use std::collections::HashSet;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::Duration;
 
+use flowie_core::images::{self, BlobInfo, ImageDir};
 use flowie_sync::{Backend, ChangeBatch, Engine, Envelope, RecordStore, SaveResult};
 
 use crate::Workspace;
@@ -35,10 +37,50 @@ enum Call {
     Fetch { cursor: Option<String>, wait: Duration },
 }
 
-/// What they answer.
+/// What they answer. A fetch comes with the image files it downloaded.
 enum Answer {
     Saved(Result<Vec<SaveResult>, String>, Vec<String>),
-    Fetched(Result<ChangeBatch, String>),
+    Fetched(Result<(ChangeBatch, Vec<BlobInfo>), String>),
+}
+
+/// The image file a record refers to, if any.
+fn image_of(envelope: &Envelope) -> Option<String> {
+    let name = envelope.node_record()?.image?.v;
+    images::is_name(&name).then_some(name)
+}
+
+/// Upload the image files `saves` refer to that the backend doesn't have yet, before the
+/// records that refer to them (per-node-sync.md §3.5). A file missing here is left out: the
+/// record still goes, and shows a missing image elsewhere.
+fn upload_images(backend: &mut dyn Backend, images: &ImageDir, saves: &[Envelope], uploaded: &mut HashSet<String>) -> Result<(), String> {
+    for name in saves.iter().filter_map(image_of) {
+        if uploaded.contains(&name) || !images.has(&name) {
+            continue;
+        }
+        if !backend.has_blob(&name)? {
+            let bytes = images.read(&name).map_err(|e| e.to_string())?;
+            backend.put_blob(&name, bytes)?;
+        }
+        uploaded.insert(name);
+    }
+    Ok(())
+}
+
+/// Download the image files fetched records refer to and this device doesn't have, so a
+/// record shows its image as soon as it arrives. One the backend doesn't have is skipped.
+fn download_images(backend: &mut dyn Backend, images: &ImageDir, batch: &ChangeBatch) -> Result<Vec<BlobInfo>, String> {
+    let mut got: Vec<BlobInfo> = Vec::new();
+    for name in batch.records.iter().filter_map(image_of) {
+        if images.has(&name) || got.iter().any(|b| b.name == name) {
+            continue;
+        }
+        let Some(bytes) = backend.get_blob(&name)? else { continue };
+        // Only a file that matches its name is kept.
+        if images::info(&bytes).is_ok_and(|info| info.name == name) {
+            got.push(images.put(&bytes).map_err(|e| e.to_string())?);
+        }
+    }
+    Ok(got)
 }
 
 /// Sync with one backend for an open workspace.
@@ -72,6 +114,7 @@ fn backoff(failures: u32) -> Duration {
 
 fn spawn_lane(
     mut backend: Box<dyn Backend + Send>,
+    images: Option<ImageDir>,
     answers: Sender<Answer>,
     wake: Arc<dyn Fn() + Send + Sync>,
 ) -> Sender<(Duration, Call)> {
@@ -79,17 +122,30 @@ fn spawn_lane(
     std::thread::Builder::new()
         .name("flowie-sync".into())
         .spawn(move || {
+            // Image files known to be on the backend.
+            let mut uploaded = HashSet::new();
             // Ends when the driver is dropped (its sender goes) or nobody listens any more.
             while let Ok((delay, call)) = rx.recv() {
                 std::thread::sleep(delay);
                 let answer = match call {
                     Call::Save(saves) => {
                         let ids = saves.iter().map(|e| e.id.clone()).collect();
-                        Answer::Saved(backend.modify(saves), ids)
+                        let ready = match &images {
+                            Some(images) => upload_images(backend.as_mut(), images, &saves, &mut uploaded),
+                            None => Ok(()),
+                        };
+                        Answer::Saved(ready.and_then(|()| backend.modify(saves)), ids)
                     }
                     Call::Fetch { cursor, wait } => {
                         backend.set_wait(wait);
-                        Answer::Fetched(backend.changes(cursor.as_deref(), BATCH))
+                        let fetched = backend.changes(cursor.as_deref(), BATCH).and_then(|batch| {
+                            let got = match &images {
+                                Some(images) => download_images(backend.as_mut(), images, &batch)?,
+                                None => Vec::new(),
+                            };
+                            Ok((batch, got))
+                        });
+                        Answer::Fetched(fetched)
                     }
                 };
                 if answers.send(answer).is_err() {
@@ -103,15 +159,15 @@ fn spawn_lane(
 }
 
 impl SyncDriver {
-    /// Start syncing through backends from `connect` (one per thread). `wake` is called from
-    /// those threads whenever an answer is ready to [`pump`](Self::pump).
-    pub fn start(connect: impl Fn() -> Box<dyn Backend + Send>, wake: impl Fn() + Send + Sync + 'static) -> Self {
+    /// Start syncing `ws` through backends from `connect` (one per thread). `wake` is called
+    /// from those threads whenever an answer is ready to [`pump`](Self::pump).
+    pub fn start(ws: &Workspace, connect: impl Fn() -> Box<dyn Backend + Send>, wake: impl Fn() + Send + Sync + 'static) -> Self {
         let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(wake);
         let (answer_tx, answers) = channel();
         SyncDriver {
             engine: Engine::new(),
-            saves: spawn_lane(connect(), answer_tx.clone(), wake.clone()),
-            fetches: spawn_lane(connect(), answer_tx, wake),
+            saves: spawn_lane(connect(), ws.image_dir.clone(), answer_tx.clone(), wake.clone()),
+            fetches: spawn_lane(connect(), ws.image_dir.clone(), answer_tx, wake),
             answers,
             saving: false,
             fetching: false,
@@ -130,6 +186,7 @@ impl SyncDriver {
     /// anything from the backend changed the tree.
     pub fn pump(&mut self, ws: &mut Workspace) -> bool {
         let revision = ws.tree.revision();
+        let mut images = false;
         while let Ok(answer) = self.answers.try_recv() {
             match answer {
                 Answer::Saved(Ok(results), _) => {
@@ -144,11 +201,15 @@ impl SyncDriver {
                     self.engine.on_saved(ws, failed);
                     self.error = Some(error);
                 }
-                Answer::Fetched(Ok(batch)) => {
+                Answer::Fetched(Ok((batch, blobs))) => {
                     self.fetching = false;
                     self.fetch_failures = 0;
                     self.caught_up = !batch.more;
                     self.received += batch.records.len();
+                    images |= !blobs.is_empty();
+                    for blob in blobs {
+                        ws.record_blob(blob);
+                    }
                     self.engine.on_fetched(ws, batch);
                 }
                 Answer::Fetched(Err(error)) => {
@@ -174,7 +235,7 @@ impl SyncDriver {
                 self.fetching = true;
             }
         }
-        ws.tree.revision() != revision
+        images || ws.tree.revision() != revision
     }
 
     /// Send nothing until the first fetch has caught up with the backend and

@@ -103,6 +103,7 @@ impl Device {
         let (wake, woken) = std::sync::mpsc::channel();
         let (url, token) = (url.to_string(), token.to_string());
         let mut driver = flowie_doc::SyncDriver::start(
+            &ws,
             move || Box::new(HttpBackend::new(&url, "outline", &token)),
             move || {
                 let _ = wake.send(());
@@ -170,4 +171,31 @@ fn a_driver_reports_a_server_it_cant_reach_and_keeps_the_edit() {
         }
     }
     assert!(a.ws.sync.has_unsent(), "the edit waits to be sent");
+}
+
+#[test]
+fn an_image_row_arrives_with_its_file() {
+    let (url, token) = start();
+    let dir = tempfile::tempdir().unwrap();
+    let mut a = Device::start(open(&dir.path().join("a.sqlite")), &url, &token);
+    let mut b = Device::start(open(&dir.path().join("b.sqlite")), &url, &token);
+
+    let bytes = b"GIF89a\x02\x00\x03\x00".to_vec();
+    let info = a.ws.image_dir.as_ref().unwrap().put(&bytes).unwrap();
+    let name = info.name.clone();
+    a.ws.record_blob(info);
+    let row = a.ws.tree.create_at(ROOT, 0, "a picture");
+    let mut node = a.ws.tree.node(row).clone();
+    node.kind = flowie_core::BlockKind::Image;
+    node.image = name.clone();
+    a.ws.tree.put(node);
+    a.ws.commit_with_imports(None, None, None);
+    a.driver.pump(&mut a.ws);
+    a.until(|ws| !ws.sync.has_unsent());
+
+    b.until(|ws| ws.tree.contains(row));
+    assert_eq!(b.ws.tree.node(row).image, name);
+    assert_eq!(b.ws.image_dir.as_ref().unwrap().read(&name).unwrap(), bytes, "the file came before the row");
+    let known = &b.ws.blobs[&name];
+    assert_eq!((known.width, known.height), (2, 3));
 }

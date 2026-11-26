@@ -57,7 +57,38 @@ fn describe(error: ureq::Error) -> String {
     }
 }
 
+impl HttpBackend {
+    fn blob_url(&self, name: &str) -> String {
+        format!("{}/v1/blobs/{name}", self.base)
+    }
+}
+
 impl Backend for HttpBackend {
+    fn has_blob(&mut self, name: &str) -> Result<bool, String> {
+        match self.agent.head(&self.blob_url(name)).set("Authorization", &self.auth()).call() {
+            Ok(_) => Ok(true),
+            Err(ureq::Error::Status(404, _)) => Ok(false),
+            Err(e) => Err(describe(e)),
+        }
+    }
+
+    fn put_blob(&mut self, name: &str, bytes: Vec<u8>) -> Result<(), String> {
+        self.agent.put(&self.blob_url(name)).set("Authorization", &self.auth()).send_bytes(&bytes).map(drop).map_err(describe)
+    }
+
+    fn get_blob(&mut self, name: &str) -> Result<Option<Vec<u8>>, String> {
+        match self.agent.get(&self.blob_url(name)).set("Authorization", &self.auth()).call() {
+            Ok(response) => {
+                use std::io::Read;
+                let mut bytes = Vec::new();
+                Read::take(response.into_reader(), 64 << 20).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+                Ok(Some(bytes))
+            }
+            Err(ureq::Error::Status(404, _)) => Ok(None),
+            Err(e) => Err(describe(e)),
+        }
+    }
+
     fn modify(&mut self, saves: Vec<Envelope>) -> Result<Vec<SaveResult>, String> {
         let response: ModifyResponse = self
             .agent

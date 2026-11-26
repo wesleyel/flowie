@@ -164,6 +164,18 @@ pub trait Backend {
     /// How long `changes` may wait on the backend while nothing is new (long polling), for
     /// backends that can.
     fn set_wait(&mut self, _wait: std::time::Duration) {}
+    /// Whether the backend has the image file `name` (`<sha256>.<ext>`).
+    fn has_blob(&mut self, _name: &str) -> Result<bool, String> {
+        Err("this backend keeps no image files".into())
+    }
+    /// Store an image file under its name, which the backend may check against the bytes.
+    fn put_blob(&mut self, _name: &str, _bytes: Vec<u8>) -> Result<(), String> {
+        Err("this backend keeps no image files".into())
+    }
+    /// The image file `name`; `None` if the backend doesn't have it.
+    fn get_blob(&mut self, _name: &str) -> Result<Option<Vec<u8>>, String> {
+        Err("this backend keeps no image files".into())
+    }
 }
 
 /// What one round of [`sync_once`] did.
@@ -214,5 +226,18 @@ impl Backend for crate::MemoryServer {
 
     fn changes(&mut self, cursor: Option<&str>, limit: usize) -> Result<ChangeBatch, String> {
         Ok(crate::MemoryServer::changes(self, cursor, limit))
+    }
+
+    fn has_blob(&mut self, name: &str) -> Result<bool, String> {
+        Ok(self.blobs.contains_key(name))
+    }
+
+    fn put_blob(&mut self, name: &str, bytes: Vec<u8>) -> Result<(), String> {
+        self.blobs.insert(name.to_string(), bytes);
+        Ok(())
+    }
+
+    fn get_blob(&mut self, name: &str) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.blobs.get(name).cloned())
     }
 }

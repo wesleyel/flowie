@@ -94,6 +94,7 @@ impl Outline {
         let (server, token) = (config.server.trim().to_string(), config.token.trim().to_string());
         let tutorial = if first { self.untouched_tutorial() } else { None };
         let mut driver = SyncDriver::start(
+            &self.ws,
             move || Box::new(HttpBackend::new(&server, ZONE, &token)),
             move || {
                 let _ = wake.unbounded_send(());

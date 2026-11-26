@@ -76,6 +76,15 @@ pub struct Dirty {
     pub unsent: Vec<(NodeId, u16)>,
 }
 
+/// A record as another device has it, merged with this one's (`flowie-sync`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Remote {
+    /// The node exists, as it is now.
+    Put(Node),
+    /// The node was removed for good then.
+    Remove(NodeId, Hlc),
+}
+
 impl Dirty {
     pub fn is_empty(&self) -> bool {
         self.upserts.is_empty() && self.removed.is_empty() && self.unsent.is_empty()
@@ -215,6 +224,62 @@ impl Tree {
             self.clock.observe(*latest);
         }
         self.reindex();
+    }
+
+    /// Every record this tree knows was removed for good, with when.
+    pub fn purged(&self) -> impl Iterator<Item = (NodeId, Hlc)> + '_ {
+        self.purged.iter().map(|(id, at)| (*id, *at))
+    }
+
+    /// When `id` was removed for good, if this tree knows it was.
+    pub fn removed_at(&self, id: NodeId) -> Option<Hlc> {
+        self.purged.get(&id).copied()
+    }
+
+    /// Take records from another device, already merged with this tree's (`flowie-sync`).
+    /// Unlike a local edit, this is no undo step and nothing to send: the records are saved
+    /// as they are, and this tree's clock only catches up with theirs. The view is derived
+    /// again once for the whole batch. Returns the ids whose record changed.
+    pub fn apply_remote(&mut self, records: impl IntoIterator<Item = Remote>) -> Vec<NodeId> {
+        let mut changed = Vec::new();
+        // A tombstone for a record this tree never had still changes what shows: records
+        // waiting for it go to the top level.
+        let mut new_tombstone = false;
+        for record in records {
+            match record {
+                Remote::Put(node) => {
+                    if node.id == ROOT {
+                        continue;
+                    }
+                    self.clock.observe(node.sync.clocks.max());
+                    let id = node.id;
+                    let old = self.nodes.get(&id).cloned();
+                    if old.as_ref() == Some(&node) {
+                        continue;
+                    }
+                    self.purged.remove(&id);
+                    self.sync_index(old.as_ref(), Some(&node));
+                    self.nodes.insert(id, node);
+                    self.dirty.insert(id);
+                    changed.push(id);
+                }
+                Remote::Remove(id, at) => {
+                    self.clock.observe(at);
+                    let at = self.purged.get(&id).map_or(at, |known| (*known).max(at));
+                    new_tombstone |= self.purged.insert(id, at).is_none();
+                    if let Some(old) = self.nodes.remove(&id) {
+                        self.sync_index(Some(&old), None);
+                        self.dirty.insert(id);
+                        changed.push(id);
+                    }
+                }
+            }
+        }
+        if !changed.is_empty() || new_tombstone {
+            self.reindex();
+            self.revision += 1;
+        }
+        changed
     }
 
     /// Remove `id`'s record for good, remembering when (for sync, and for the records under

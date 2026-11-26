@@ -191,6 +191,10 @@
     },
     "appearance": {
       "title": "Appearance",
+      "section": {
+        "colors": "Colors",
+        "reading": "Reading"
+      },
       "theme": {
         "label": "Theme",
         "hint": "Follow {os}, or always use light or dark.",

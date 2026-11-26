@@ -17,6 +17,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ### Changed
 
+- **Settings**: the Appearance tab groups its settings in sections (Colors, Reading, Language), with the preview right under the theme and accent color it shows.
 - **Scrolling**: rows fade out as they scroll under the top bar instead of being cut off at its edge.
 
 ### Fixed

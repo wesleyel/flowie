@@ -176,25 +176,37 @@ impl Outline {
                 }),
             )
         }));
-        let field = |label: &'static str, hint: SharedString, control: AnyElement| {
+        // One setting: its name (none when the section's title already says it), what it
+        // does, and its control.
+        let field = |label: Option<&'static str>, hint: SharedString, control: AnyElement| {
             div()
                 .flex()
                 .flex_col()
                 .gap_2()
-                .py_3()
-                .border_b_1()
-                .border_color(theme.divider)
+                .py_2()
                 .child(
                     div()
                         .flex()
                         .flex_col()
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child(label))
+                        .children(label.map(|label| div().font_weight(FontWeight::SEMIBOLD).child(label)))
                         .child(div().text_size(px(12.)).text_color(theme.muted).child(hint)),
                 )
                 .child(control)
         };
+        // A group of related settings under a small title, set off from the next.
+        let section = |title: &'static str, last: bool| {
+            div()
+                .flex()
+                .flex_col()
+                .pt_3()
+                .pb_2()
+                .when(!last, |d| d.border_b_1().border_color(theme.divider))
+                .child(crate::ui::text::overline(theme, title.to_uppercase()).pb_1())
+        };
+        // How the colors look on bullets, right under the colors it shows.
         let preview = div()
-            .mt_3()
+            .mt_1()
+            .mb_2()
             .p_3()
             .rounded(px(crate::ui::theme::R_LG))
             .border_1()
@@ -224,6 +236,28 @@ impl Outline {
                     .child(div().w(px(2.)).h(px(16.)).bg(theme.caret)),
             );
         let os = crate::app::platform::name();
+        let colors = section(t!("settings.appearance.section.colors"), false)
+            .child(field(
+                Some(t!("settings.appearance.theme.label")),
+                t!("settings.appearance.theme.hint", os = os).into(),
+                segmented.into_any_element(),
+            ))
+            .child(field(
+                Some(t!("settings.appearance.accent.label")),
+                t!("settings.appearance.accent.hint").into(),
+                swatches.into_any_element(),
+            ))
+            .child(preview);
+        let reading = section(t!("settings.appearance.section.reading"), false).child(field(
+            Some(t!("settings.appearance.width.label")),
+            t!("settings.appearance.width.hint", shortcut = keymap::hint("content-width", &self.config.keys)).into(),
+            widths.into_any_element(),
+        ));
+        let language = section(t!("settings.appearance.language.label"), true).child(field(
+            None,
+            t!("settings.appearance.language.hint", os = os).into(),
+            languages.into_any_element(),
+        ));
         div()
             .id("appearance")
             .size_full()
@@ -231,24 +265,11 @@ impl Outline {
             .track_scroll(&scroll)
             .px_4()
             .pt_3()
-            .child(crate::ui::text::page_title(theme, t!("settings.appearance.title"), None).pb_1())
-            .child(field(
-                t!("settings.appearance.theme.label"),
-                t!("settings.appearance.theme.hint", os = os).into(),
-                segmented.into_any_element(),
-            ))
-            .child(field(t!("settings.appearance.accent.label"), t!("settings.appearance.accent.hint").into(), swatches.into_any_element()))
-            .child(field(
-                t!("settings.appearance.width.label"),
-                t!("settings.appearance.width.hint", shortcut = keymap::hint("content-width", &self.config.keys)).into(),
-                widths.into_any_element(),
-            ))
-            .child(field(
-                t!("settings.appearance.language.label"),
-                t!("settings.appearance.language.hint", os = os).into(),
-                languages.into_any_element(),
-            ))
-            .child(preview)
+            .pb_3()
+            .child(crate::ui::text::page_title(theme, t!("settings.appearance.title"), None))
+            .child(colors)
+            .child(reading)
+            .child(language)
             .into_any_element()
     }
 }

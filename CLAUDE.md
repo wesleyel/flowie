@@ -46,13 +46,15 @@ macOS, Windows and Linux. Pushing a `v*` tag runs `release.yml`. Other env vars:
 - **No migrations while iterating**: change the SQLite `SCHEMA` and the `settings.json` format directly, with no upgrade code and no readers for the old format. Tell the user when an existing DB has to be deleted.
 - **UI text** goes through `t!(…)`, with keys in `crates/flowie-app/locales/en.json` and `zh-CN.json`. `cargo test -p flowie-app i18n` checks both files. New features also get a lesson in the tutorial (`crates/flowie-app/tutorial/<locale>.md`).
 - **Docs scope**: the README, website, `llms.txt` and the App Store text cover core features only. Never add UX polish there. A big change in one area goes only in that area's doc (e.g. `docs/mcp.md`). Do fix wording that a change has made wrong.
-- **Feature requests**: when the user describes a feature, clarify it and record it in the backlog. Don't implement it unless they ask you to build it.
-- Keep a feature's state, actions and rendering together. New editing logic should not depend on GPUI where that can be avoided (see the roadmap).
+- **Feature requests**: when the user describes a feature, clarify it and record it in the backlog (`docs/roadmap/`). Don't implement it unless they ask you to build it.
+- Keep a feature's state, actions and rendering together. New editing logic should not depend on GPUI where that can be avoided (see `docs/roadmap/ios-cross-platform.md`).
 
 ## Backlog and direction
 
-The backlog is the public GitHub Project "Flowie Roadmap" (`gh project item-list 2 --owner wesleyel`), as
-draft items with the statuses Long-term, Todo, In Progress and Done. Long-term designs live there:
+The backlog lives in `docs/roadmap/`, which is **not part of this repository**: it's a separate, local-only
+git repo (hidden through `.git/info/exclude`), so commit roadmap edits inside `docs/roadmap/` and never add it
+here. One Markdown file per item (written in Chinese), indexed in `docs/roadmap/README.md`, which holds each
+item's status (长期 / 待办 / 进行中 / 已完成). Discuss and revise designs by editing those files. Long-term designs:
 - **Per-node sync**: an LWW-per-field engine with CloudKit and self-hosted backends. It needs fractional-index ranks, soft deletes and deterministic journal IDs first.
 - **iOS and cross-platform**: one GPUI UI on every platform (an iOS backend now exists upstream, as `gpui-pre-ios`), with a GPUI-free `flowie-session` crate for commands, selection and undo, and thin native shells. It starts with a small GPUI-on-iOS prototype.
 

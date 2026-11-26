@@ -177,6 +177,25 @@ impl Outline {
         (self.scroll_px() / TITLE_COLLAPSE).clamp(0., 1.)
     }
 
+    /// A soft edge where rows scroll under the top bar: a strip that fades from the
+    /// background to clear, so a row passing under the bar fades out instead of
+    /// being cut off. It appears as the page scrolls and is gone at the top.
+    fn render_top_fade(&self) -> AnyElement {
+        const FADE: f32 = 24.;
+        let shown = (self.scroll_px() / FADE).clamp(0., 1.);
+        let mut clear = self.theme.bg;
+        clear.a = 0.;
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .w_full()
+            .h(px(FADE))
+            .opacity(shown)
+            .bg(gpui::linear_gradient(180., gpui::linear_color_stop(self.theme.bg, 0.), gpui::linear_color_stop(clear, 1.)))
+            .into_any_element()
+    }
+
     fn scroll_px(&self) -> f32 {
         f32::from(-self.list.scroll_px_offset_for_scrollbar().y).max(0.)
     }
@@ -454,6 +473,7 @@ impl Render for Outline {
                         ),
                 )
                 .child(crate::ui::scrollbar::scrollbar("outline-bar", &self.list, self.theme))
+                .child(self.render_top_fade())
                 .into_any_element()
         };
         let app_menu_bar = self.render_app_menu_bar(window, cx);

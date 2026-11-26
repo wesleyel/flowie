@@ -13,6 +13,10 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 - **Content width**: limit how wide the outline's text grows in a wide or full-screen window, for easier reading: narrow, medium or full width, in Settings → Appearance or with ⌃⌘W (Alt+W on Windows and Linux), which switches between them. The page title and rows sit in a centered column; full width, as before, is the default.
 - **Slash menu**: `、` at the start of a word opens the slash menu too. Chinese input methods type it for the / key, so you no longer have to switch to English input first.
 
+### Changed
+
+- **Scrolling**: rows fade out as they scroll under the top bar instead of being cut off at its edge.
+
 ### Fixed
 
 - **Scrolling**: in a long outline the scrollbar has about the right size from the start, so you can drag it to the end in one go. Rows not drawn yet used to count as having no height, so the thumb kept shrinking as you scrolled.

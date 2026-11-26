@@ -482,6 +482,113 @@ fn plain_indented_lines_without_markers() {
 }
 
 #[test]
+fn markdown_headings_without_list_markers_parse_paragraphs() {
+    let md = "# Title\n\nFirst paragraph\nwraps onto two lines.\n\nSecond paragraph.\n\n## Section\n\n\
+              Section intro\nalso wraps.\n\n#### Detail\n\nDeep prose.\n";
+    let items = io::parse_text(md);
+    let shape = |it: &Item| (it.kind, it.text.clone(), it.note.clone());
+    assert_eq!(items.len(), 1);
+    let title = &items[0];
+    assert_eq!(shape(title), (BlockKind::H1, "Title".into(), String::new()));
+    let [first, second, section] = &title.children[..] else { panic!("{:#?}", title.children) };
+    assert_eq!(shape(first), (BlockKind::Paragraph, "First paragraph wraps onto two lines.".into(), String::new()));
+    assert_eq!(shape(second), (BlockKind::Paragraph, "Second paragraph.".into(), String::new()));
+    assert_eq!(shape(section), (BlockKind::H2, "Section".into(), String::new()));
+    let [intro, detail] = &section.children[..] else { panic!("{:#?}", section.children) };
+    assert_eq!(shape(intro), (BlockKind::Paragraph, "Section intro also wraps.".into(), String::new()));
+    assert_eq!(shape(detail), (BlockKind::H3, "Detail".into(), String::new()));
+    assert_eq!(detail.children.iter().map(shape).collect::<Vec<_>>(), [(BlockKind::Paragraph, "Deep prose.".into(), String::new())]);
+}
+
+#[test]
+fn markdown_fenced_code_blocks_stay_verbatim() {
+    fn shape(it: &Item) -> (BlockKind, &str) {
+        (it.kind, it.text.as_str())
+    }
+    let md = "\
+# Guide
+
+Intro with ```inline``` code.
+
+```python
+# comment, not a heading
+- not a list item
+
+def fib(n):
+    return n
+```
+
+After code.
+
+~~~sh
+# shell comment
+```
+still inside tilde fence
+~~~~
+
+````markdown
+```rust
+fn main() {}
+```
+````
+
+- step
+  ```sh
+  # run
+    indented
+  ```
+- next
+";
+    let items = io::parse_text(md);
+    assert_eq!(items.len(), 1);
+    let guide = &items[0];
+    assert_eq!(shape(guide), (BlockKind::H1, "Guide"));
+    let kids: Vec<_> = guide.children.iter().map(shape).collect();
+    assert_eq!(
+        kids,
+        [
+            (BlockKind::Paragraph, "Intro with ```inline``` code."),
+            (BlockKind::Code, "# comment, not a heading"),
+            (BlockKind::Code, "- not a list item"),
+            (BlockKind::Code, ""),
+            (BlockKind::Code, "def fib(n):"),
+            (BlockKind::Code, "    return n"),
+            (BlockKind::Paragraph, "After code."),
+            (BlockKind::Code, "# shell comment"),
+            (BlockKind::Code, "```"),
+            (BlockKind::Code, "still inside tilde fence"),
+            (BlockKind::Code, "```rust"),
+            (BlockKind::Code, "fn main() {}"),
+            (BlockKind::Code, "```"),
+            (BlockKind::Bullet, "step"),
+            (BlockKind::Bullet, "next"),
+        ]
+    );
+    let step = &guide.children[13];
+    assert_eq!(step.children.iter().map(shape).collect::<Vec<_>>(), [(BlockKind::Code, "# run"), (BlockKind::Code, "  indented")]);
+
+    // Unclosed fence at EOF flushes cleanly as code rows without panicking.
+    let unclosed = io::parse_text("# Notes\n\n```python\n# comment\n- item");
+    assert_eq!(unclosed.len(), 1);
+    assert_eq!(unclosed[0].children.iter().map(shape).collect::<Vec<_>>(), [(BlockKind::Code, "# comment"), (BlockKind::Code, "- item")]);
+    assert!(io::parse_text("```python").is_empty());
+
+    // Markers and headings inside a fence do not turn plain indented text into Markdown.
+    let plain = io::parse_text("parent\n  child\n  ```\n  - not a marker\n  # not a heading\n  ```\n  sibling\n");
+    assert_eq!(plain.len(), 1);
+    assert_eq!(shape(&plain[0]), (BlockKind::Bullet, "parent"));
+    assert_eq!(
+        plain[0].children.iter().map(shape).collect::<Vec<_>>(),
+        [
+            (BlockKind::Bullet, "child"),
+            (BlockKind::Code, "- not a marker"),
+            (BlockKind::Code, "# not a heading"),
+            (BlockKind::Bullet, "sibling"),
+        ]
+    );
+}
+
+#[test]
 fn import_opml_exported_by_rc3() {
     let items = io::parse_any(include_str!("../tests/fixtures/rc3-home.opml"));
     let mut tree = Tree::new();

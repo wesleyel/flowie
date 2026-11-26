@@ -10,6 +10,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ### Fixed
 
+- **Markdown import**: fenced code blocks (```` ``` ```` and `~~~`) now import line by line as code rows without turning `#` comments or `-` lines into headings or list items, and articles with headings and paragraphs (and no list markers) now import prose as joined paragraph rows instead of bullets.
 - **Scrolling**: editing text to the same length, changing an image, zooming between pages, or folding deeply nested rows no longer leaves the scrollbar height map out of sync, and large zoom or search switches no longer scan every row twice.
 
 ## [1.0.1] - 2026-11-26

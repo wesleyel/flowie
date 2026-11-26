@@ -94,38 +94,137 @@ fn heading(line: &str) -> Option<(usize, &str)> {
     (1..=6).contains(&level).then_some((level, title.trim()))
 }
 
+fn indent_of(line: &str) -> usize {
+    let mut indent = 0;
+    for c in line.chars() {
+        match c {
+            ' ' => indent += 1,
+            '\t' => indent += 4,
+            _ => break,
+        }
+    }
+    indent
+}
+
+/// Strip up to `cols` columns of leading indentation (tab = 4 columns),
+/// keeping any remaining indentation verbatim.
+fn strip_indent(line: &str, cols: usize) -> String {
+    let mut col = 0;
+    let mut rest = line;
+    while col < cols {
+        if let Some(r) = rest.strip_prefix(' ') {
+            col += 1;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix('\t') {
+            col += 4;
+            rest = r;
+            if col > cols {
+                let mut out = " ".repeat(col - cols);
+                out.push_str(rest);
+                return out;
+            }
+        } else {
+            break;
+        }
+    }
+    rest.to_string()
+}
+
+/// Opening code fence (at least 3 backticks or tildes). Backtick fences cannot
+/// have backticks in their info string (which also keeps inline ```` ```x``` ````
+/// from opening a block).
+fn opening_fence(trimmed: &str) -> Option<(u8, usize)> {
+    let ch = *trimmed.as_bytes().first()?;
+    if ch != b'`' && ch != b'~' {
+        return None;
+    }
+    let len = trimmed.bytes().take_while(|&b| b == ch).count();
+    if len < 3 {
+        return None;
+    }
+    if ch == b'`' && trimmed[len..].contains('`') {
+        return None;
+    }
+    Some((ch, len))
+}
+
+fn is_closing_fence(trimmed: &str, ch: u8, min_len: usize) -> bool {
+    trimmed.len() >= min_len && trimmed.bytes().all(|b| b == ch)
+}
+
+enum Entry<'a> {
+    Line { indent: usize, text: &'a str, blank_before: bool },
+    Code { indent: usize, lines: Vec<String> },
+}
+
+struct Fence {
+    ch: u8,
+    len: usize,
+    indent: usize,
+    lines: Vec<String>,
+}
+
 /// Parse indented text or Markdown.
 ///
 /// - Headings (`#` to `######`, without a list marker) open sections: what
 ///   follows, down to the next heading of the same or a higher level, goes
 ///   under them. Levels below 3 become H3 rows.
-/// - If any line has a list marker, a line without one is a continuation of
-///   the item above (its note) when it's indented under it or follows it with
-///   no blank line in between; otherwise it starts a paragraph row, which the
-///   lines right after it join.
-/// - Without list markers every line is an item and indentation alone gives
-///   the structure.
+/// - Fenced code blocks (```` ``` ```` or `~~~`) keep each line verbatim as a
+///   `Code` row (indentation relative to the fence), without interpreting
+///   headings or list markers inside them.
+/// - If any line outside a fenced code block has a list marker or heading, a
+///   line without a list marker is a continuation of the item above (its note)
+///   when it's indented under it or follows it with no blank line in between;
+///   otherwise it starts a paragraph row, which the lines right after it join.
+/// - Without list markers or headings every non-code line is an item and
+///   indentation alone gives the structure.
 pub fn parse_text(text: &str) -> Vec<Item> {
-    // (indent, trimmed line, blank line before it)
-    let mut lines: Vec<(usize, &str, bool)> = Vec::new();
+    let mut entries: Vec<Entry<'_>> = Vec::new();
     let mut blank = false;
-    for l in text.lines() {
-        if l.trim().is_empty() {
+    let mut fence: Option<Fence> = None;
+    for raw in text.lines() {
+        let trimmed = raw.trim();
+        if let Some(open) = &mut fence {
+            if is_closing_fence(trimmed, open.ch, open.len) && indent_of(raw) <= open.indent + 3 {
+                let indent = open.indent;
+                let lines = std::mem::take(&mut open.lines);
+                fence = None;
+                entries.push(Entry::Code { indent, lines });
+                blank = true;
+            } else if trimmed.is_empty() {
+                open.lines.push(String::new());
+            } else {
+                open.lines.push(strip_indent(raw, open.indent));
+            }
+            continue;
+        }
+        if trimmed.is_empty() {
             blank = true;
             continue;
         }
-        let mut indent = 0;
-        for c in l.chars() {
-            match c {
-                ' ' => indent += 1,
-                '\t' => indent += 4,
-                _ => break,
-            }
+        let indent = indent_of(raw);
+        if let Some((ch, len)) = opening_fence(trimmed) {
+            fence = Some(Fence { ch, len, indent, lines: Vec::new() });
+            blank = false;
+            continue;
         }
-        lines.push((indent, l.trim(), std::mem::take(&mut blank)));
+        entries.push(Entry::Line { indent, text: trimmed, blank_before: std::mem::take(&mut blank) });
     }
-    let has_markers = lines.iter().any(|(_, l, _)| strip_marker(l).is_some());
-    let min = lines.iter().map(|(i, _, _)| *i).min().unwrap_or(0);
+    if let Some(open) = fence {
+        entries.push(Entry::Code { indent: open.indent, lines: open.lines });
+    }
+
+    let markdown = entries.iter().any(|e| match e {
+        Entry::Line { text, .. } => strip_marker(text).is_some() || heading(text).is_some(),
+        Entry::Code { .. } => false,
+    });
+    let min = entries
+        .iter()
+        .map(|e| match e {
+            Entry::Line { indent, .. } | Entry::Code { indent, .. } => *indent,
+        })
+        .min()
+        .unwrap_or(0);
 
     // Items hang from `roots` by paths of child indices. `sections` are the open
     // headings (level, path); `stack` the list items (indent, path) inside the
@@ -157,63 +256,78 @@ pub fn parse_text(text: &str) -> Vec<Item> {
             }
         }
     }
-    for (indent, line, blank_before) in lines {
-        let indent = indent - min;
-        if strip_marker(line).is_none() {
-            if let Some((level, title)) = heading(line) {
-                while sections.last().is_some_and(|(l, _)| *l >= level) {
-                    sections.pop();
+    for entry in entries {
+        match entry {
+            Entry::Code { indent, lines } => {
+                let indent = indent - min;
+                while stack.last().is_some_and(|(i, _)| *i >= indent) {
+                    stack.pop();
                 }
-                let mut item = parse_line(title);
-                item.kind = [BlockKind::H1, BlockKind::H2, BlockKind::H3][level.min(3) - 1];
-                let path = attach(&mut roots, sections.last().map(|(_, p)| p.as_slice()), item);
-                sections.push((level, path));
-                stack.clear();
+                let parent = stack.last().or(sections.last()).map(|(_, p)| p.clone());
+                for line in lines {
+                    attach(&mut roots, parent.as_deref(), Item { text: line, kind: BlockKind::Code, ..Default::default() });
+                }
                 paragraph = None;
-                continue;
             }
-        }
-        let (is_item, content, numbered) = match strip_marker(line) {
-            Some(rest) => (true, rest, line.starts_with(|c: char| c.is_ascii_digit())),
-            None => (!has_markers, line, false),
-        };
-        if !is_item {
-            if let Some(path) = paragraph.as_ref().filter(|_| !blank_before) {
-                let item = at(&mut roots, path);
-                item.text.push(' ');
-                item.text.push_str(line);
-                continue;
-            }
-            if let Some((item_indent, path)) = stack.last() {
-                if indent > *item_indent || !blank_before {
-                    let item = at(&mut roots, path);
-                    if !item.note.is_empty() {
-                        item.note.push('\n');
+            Entry::Line { indent, text: line, blank_before } => {
+                let indent = indent - min;
+                if strip_marker(line).is_none() {
+                    if let Some((level, title)) = heading(line) {
+                        while sections.last().is_some_and(|(l, _)| *l >= level) {
+                            sections.pop();
+                        }
+                        let mut item = parse_line(title);
+                        item.kind = [BlockKind::H1, BlockKind::H2, BlockKind::H3][level.min(3) - 1];
+                        let path = attach(&mut roots, sections.last().map(|(_, p)| p.as_slice()), item);
+                        sections.push((level, path));
+                        stack.clear();
+                        paragraph = None;
+                        continue;
                     }
-                    item.note.push_str(line);
+                }
+                let (is_item, content, numbered) = match strip_marker(line) {
+                    Some(rest) => (true, rest, line.starts_with(|c: char| c.is_ascii_digit())),
+                    None => (!markdown, line, false),
+                };
+                if !is_item {
+                    if let Some(path) = paragraph.as_ref().filter(|_| !blank_before) {
+                        let item = at(&mut roots, path);
+                        item.text.push(' ');
+                        item.text.push_str(line);
+                        continue;
+                    }
+                    if let Some((item_indent, path)) = stack.last() {
+                        if indent > *item_indent || !blank_before {
+                            let item = at(&mut roots, path);
+                            if !item.note.is_empty() {
+                                item.note.push('\n');
+                            }
+                            item.note.push_str(line);
+                            continue;
+                        }
+                    }
+                    // A paragraph row of its own, ending any open list.
+                    let mut item = parse_line(content);
+                    if item.kind == BlockKind::Bullet {
+                        item.kind = BlockKind::Paragraph;
+                    }
+                    stack.clear();
+                    paragraph = Some(attach(&mut roots, sections.last().map(|(_, p)| p.as_slice()), item));
                     continue;
                 }
+                let mut item = parse_line(content);
+                if numbered && item.kind == BlockKind::Bullet {
+                    item.kind = BlockKind::Numbered;
+                }
+                while stack.last().is_some_and(|(i, _)| *i >= indent) {
+                    stack.pop();
+                }
+                let parent = stack.last().or(sections.last()).map(|(_, p)| p.clone());
+                let path = attach(&mut roots, parent.as_deref(), item);
+                stack.push((indent, path));
+                paragraph = None;
             }
-            // A paragraph between lists: a row of its own, and the end of the list.
-            let mut item = parse_line(content);
-            if item.kind == BlockKind::Bullet {
-                item.kind = BlockKind::Paragraph;
-            }
-            stack.clear();
-            paragraph = Some(attach(&mut roots, sections.last().map(|(_, p)| p.as_slice()), item));
-            continue;
         }
-        let mut item = parse_line(content);
-        if numbered && item.kind == BlockKind::Bullet {
-            item.kind = BlockKind::Numbered;
-        }
-        while stack.last().is_some_and(|(i, _)| *i >= indent) {
-            stack.pop();
-        }
-        let parent = stack.last().or(sections.last()).map(|(_, p)| p.clone());
-        let path = attach(&mut roots, parent.as_deref(), item);
-        stack.push((indent, path));
-        paragraph = None;
     }
     roots
 }

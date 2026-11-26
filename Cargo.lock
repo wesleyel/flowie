@@ -1737,6 +1737,7 @@ dependencies = [
  "flowie-core",
  "flowie-doc",
  "flowie-sync",
+ "serde_json",
  "tempfile",
  "uniffi",
 ]

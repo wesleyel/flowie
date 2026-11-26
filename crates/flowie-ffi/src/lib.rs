@@ -12,6 +12,7 @@ use flowie_core::images::ImageDir;
 use flowie_core::{flatten_mapped, BlockKind, NodeId, Tree, ViewOptions, ROOT};
 use flowie_doc::{SyncDriver, SyncPhase, Workspace};
 use flowie_sync::http::HttpBackend;
+use flowie_sync::{ChangeBatch, Engine, Envelope, RecordStore, SaveResult};
 
 uniffi::setup_scaffolding!();
 
@@ -68,9 +69,52 @@ pub trait SyncObserver: Send + Sync {
     fn wake(&self);
 }
 
+/// A record as a native sync engine moves it (CloudKit: one CKRecord). `etag` is opaque to
+/// Rust: for CloudKit, the record's archived system fields, which make the next save
+/// conditional on that version.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct WireRecord {
+    pub id: String,
+    pub etag: Option<String>,
+    /// The envelope as JSON (per-node-sync.md §4.1); stored in one encrypted field.
+    pub envelope: String,
+}
+
+/// How the native engine answered one save.
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum SaveOutcome {
+    Saved {
+        id: String,
+        etag: String,
+    },
+    /// The backend has a newer version (CloudKit: serverRecordChanged): here it is.
+    Conflict {
+        server: WireRecord,
+    },
+    /// Not saved for another reason; it is sent again later.
+    Failed {
+        id: String,
+        error: String,
+    },
+}
+
+fn to_envelope(record: &WireRecord) -> Option<Envelope> {
+    let mut envelope: Envelope = serde_json::from_str(&record.envelope).ok()?;
+    envelope.etag = record.etag.clone();
+    Some(envelope)
+}
+
+fn to_wire(mut envelope: Envelope) -> WireRecord {
+    let etag = envelope.etag.take();
+    WireRecord { id: envelope.id.clone(), etag, envelope: serde_json::to_string(&envelope).expect("an envelope is plain data") }
+}
+
 struct State {
     ws: Workspace,
     sync: Option<SyncDriver>,
+    /// The engine a native sync engine drives (CloudKit), between `begin_native_sync` and
+    /// `end_native_sync`.
+    native: Option<Engine>,
 }
 
 /// An open outline.
@@ -94,13 +138,13 @@ impl Outline {
     pub fn open(db: String) -> Result<Arc<Self>, FlowieError> {
         let db = PathBuf::from(db);
         let (ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).map_err(|e| FlowieError::Storage { message: e.to_string() })?;
-        Ok(Arc::new(Outline { state: Mutex::new(State { ws, sync: None }) }))
+        Ok(Arc::new(Outline { state: Mutex::new(State { ws, sync: None, native: None }) }))
     }
 
     /// An outline kept only in memory (previews and tests).
     #[uniffi::constructor]
     pub fn in_memory() -> Arc<Self> {
-        Arc::new(Outline { state: Mutex::new(State { ws: Workspace::new(Tree::new()), sync: None }) })
+        Arc::new(Outline { state: Mutex::new(State { ws: Workspace::new(Tree::new()), sync: None, native: None }) })
     }
 
     /// The rows of the page at `root` (none: Home), expanded bullets' children included.
@@ -215,7 +259,7 @@ impl Outline {
         let token = token.trim().to_string();
         let driver = SyncDriver::start(&state.ws, move || Box::new(HttpBackend::new(&server, "outline", &token)), move || observer.wake());
         state.sync = Some(driver);
-        let State { ws, sync } = &mut *state;
+        let State { ws, sync, .. } = &mut *state;
         if let Some(driver) = sync {
             driver.pump(ws);
         }
@@ -229,8 +273,68 @@ impl Outline {
     /// the app re-reads its page.
     pub fn pump_sync(&self) -> bool {
         let mut state = self.lock();
-        let State { ws, sync } = &mut *state;
+        let State { ws, sync, .. } = &mut *state;
         sync.as_mut().is_some_and(|driver| driver.pump(ws))
+    }
+
+    /// Let a native sync engine (CloudKit's CKSyncEngine) drive sync from now on, keeping its
+    /// place under `remote` (for example `icloud`). It schedules the calls below itself.
+    pub fn begin_native_sync(&self, remote: String) {
+        let mut state = self.lock();
+        state.sync = None;
+        state.ws.set_sync_remote(&remote);
+        state.native = Some(Engine::new());
+    }
+
+    pub fn end_native_sync(&self) {
+        self.lock().native = None;
+    }
+
+    /// Ids with something to send, for the native engine's list of pending saves.
+    pub fn unsent_ids(&self, limit: u32) -> Vec<String> {
+        let state = self.lock();
+        let mut ids: Vec<String> = state.ws.unsent(limit as usize).into_iter().map(|id| id.to_string()).collect();
+        if state.ws.prefs_unsent() && ids.len() < limit as usize {
+            ids.push(flowie_sync::PREFS_ID.to_string());
+        }
+        ids
+    }
+
+    /// The next records to save, at most `limit`, each from the version last seen.
+    pub fn next_saves(&self, limit: u32) -> Vec<WireRecord> {
+        let mut state = self.lock();
+        let State { ws, native, .. } = &mut *state;
+        let Some(engine) = native else { return Vec::new() };
+        engine.next_saves(ws, limit as usize).into_iter().map(to_wire).collect()
+    }
+
+    /// The native engine answered saves.
+    pub fn on_saved(&self, outcomes: Vec<SaveOutcome>) {
+        let mut state = self.lock();
+        let State { ws, native, .. } = &mut *state;
+        let Some(engine) = native else { return };
+        let results = outcomes
+            .into_iter()
+            .filter_map(|outcome| match outcome {
+                SaveOutcome::Saved { id, etag } => Some(SaveResult::Saved { id, etag }),
+                SaveOutcome::Conflict { server } => to_envelope(&server).map(|server| SaveResult::Conflict { server }),
+                SaveOutcome::Failed { id, error } => Some(SaveResult::Failed { id, error }),
+            })
+            .collect();
+        engine.on_saved(ws, results);
+    }
+
+    /// Records the native engine fetched, and where it is now (CloudKit keeps its own change
+    /// token: pass anything that marks progress, or an empty string). Returns whether the
+    /// outline changed.
+    pub fn on_fetched(&self, records: Vec<WireRecord>, cursor: String) -> bool {
+        let mut state = self.lock();
+        let State { ws, native, .. } = &mut *state;
+        let Some(engine) = native else { return false };
+        let revision = ws.tree.revision();
+        let records = records.iter().filter_map(to_envelope).collect();
+        engine.on_fetched(ws, ChangeBatch { records, cursor, more: false });
+        ws.tree.revision() != revision
     }
 
     pub fn sync_status(&self) -> SyncStatus {
@@ -286,6 +390,59 @@ mod tests {
         assert_eq!(outline.page(None).unwrap().len(), 2);
         assert!(matches!(outline.set_text("nope".into(), "x".into()), Err(FlowieError::NoSuchBullet { .. })));
         assert_eq!(outline.sync_status(), SyncStatus::Off);
+    }
+
+    /// What CKSyncEngine does, against the in-memory backend: send what is pending, answer
+    /// with the server's outcomes, fetch what changed.
+    fn native_round(outline: &Outline, server: &mut flowie_sync::MemoryServer, cursor: &mut Option<String>) {
+        loop {
+            let saves = outline.next_saves(50);
+            if saves.is_empty() {
+                break;
+            }
+            let results = server.modify(saves.iter().filter_map(to_envelope).collect());
+            let outcomes = results
+                .into_iter()
+                .map(|r| match r {
+                    SaveResult::Saved { id, etag } => SaveOutcome::Saved { id, etag },
+                    SaveResult::Conflict { server } => SaveOutcome::Conflict { server: to_wire(server) },
+                    SaveResult::Failed { id, error } => SaveOutcome::Failed { id, error },
+                })
+                .collect();
+            outline.on_saved(outcomes);
+        }
+        let batch = server.changes(cursor.as_deref(), 500);
+        *cursor = Some(batch.cursor.clone());
+        outline.on_fetched(batch.records.into_iter().map(to_wire).collect(), batch.cursor);
+    }
+
+    #[test]
+    fn a_native_engine_syncs_two_outlines_through_its_backend() {
+        let mut server = flowie_sync::MemoryServer::new();
+        let (a, b) = (Outline::in_memory(), Outline::in_memory());
+        let (mut ca, mut cb) = (None, None);
+        for outline in [&a, &b] {
+            outline.begin_native_sync("icloud".into());
+        }
+        let x = a.create(None, 0, "from a".into()).unwrap();
+        assert_eq!(a.unsent_ids(10), std::slice::from_ref(&x));
+        native_round(&a, &mut server, &mut ca);
+        assert!(a.unsent_ids(10).is_empty());
+        native_round(&b, &mut server, &mut cb);
+        assert_eq!(b.page(None).unwrap()[0].text, "from a");
+
+        // Both edit x; b saves second and its save conflicts, then both edits survive.
+        a.set_text(x.clone(), "a's text".into()).unwrap();
+        b.set_note(x.clone(), "b's note".into()).unwrap();
+        native_round(&a, &mut server, &mut ca);
+        native_round(&b, &mut server, &mut cb);
+        native_round(&b, &mut server, &mut cb);
+        native_round(&a, &mut server, &mut ca);
+        for outline in [&a, &b] {
+            let row = &outline.page(None).unwrap()[0];
+            assert_eq!((row.text.as_str(), row.note.as_str()), ("a's text", "b's note"));
+            assert!(outline.unsent_ids(10).is_empty());
+        }
     }
 
     #[test]

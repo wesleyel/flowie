@@ -25,6 +25,7 @@ bindgen = ["uniffi/cli"]
 flowie-core.workspace = true
 flowie-doc.workspace = true
 flowie-sync = { workspace = true, features = ["http"] }
+serde_json = "1"
 uniffi = "0.29"
 
 [dev-dependencies]

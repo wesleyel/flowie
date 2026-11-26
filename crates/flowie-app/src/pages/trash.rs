@@ -65,7 +65,7 @@ impl Outline {
                     button(theme, ("purge", ix), Variant::Destructive)
                         .child(crate::ui::icons::icon("trash-2", crate::ui::icons::SM, Variant::Destructive.fg(theme)))
                         .child(t!("trash.delete_forever"))
-                        .on_click(cx.listener(move |this, _, _, cx| this.purge_trash(root, cx))),
+                        .on_click(cx.listener(move |this, _, window, cx| this.confirm_purge_trash(root, window, cx))),
                 )
         });
         let page = div()
@@ -124,6 +124,28 @@ impl Outline {
         self.zoom_to(parent, cx);
         let len = self.ws.tree.node(root).text.len();
         self.start_edit(Target::Text(root), len, cx);
+    }
+
+    /// Ask first, then delete an entry for good: it can't be undone.
+    pub fn confirm_purge_trash(&mut self, root: NodeId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entry) = self.trash.as_ref().and_then(|trash| trash.entries.iter().find(|e| e.root == root)) else {
+            return;
+        };
+        let name = if entry.label.trim().is_empty() { t!("common.untitled").to_string() } else { entry.label.clone() };
+        let detail = t!("trash.confirm_detail", count = entry.count);
+        let answer = window.prompt(
+            gpui::PromptLevel::Warning,
+            &t!("trash.confirm_title", name = name),
+            Some(&detail),
+            &[gpui::PromptButton::cancel(t!("trash.cancel")), gpui::PromptButton::new(t!("trash.delete_forever"))],
+            cx,
+        );
+        cx.spawn_in(window, async move |outline, cx| {
+            if matches!(answer.await, Ok(1)) {
+                let _ = outline.update(cx, |outline, cx| outline.purge_trash(root, cx));
+            }
+        })
+        .detach();
     }
 
     /// Delete an entry for good (not an undo step).

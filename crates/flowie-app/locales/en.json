@@ -134,7 +134,13 @@
     "entry": {
       "one": "{count} bullet · {ago}",
       "other": "{count} bullets · {ago}"
-    }
+    },
+    "confirm_title": "Delete “{name}” forever?",
+    "confirm_detail": {
+      "one": "This deletes {count} bullet now. It can't be brought back, not even with Undo.",
+      "other": "This deletes {count} bullets now. They can't be brought back, not even with Undo."
+    },
+    "cancel": "Cancel"
   },
   "settings": {
     "heading": "Settings",

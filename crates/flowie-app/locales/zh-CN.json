@@ -107,7 +107,10 @@
     "delete_forever": "永久删除",
     "retention": "删除的条目会保留 30 天。",
     "empty": "废纸篓是空的。",
-    "entry": "{count} 个条目 · {ago}"
+    "entry": "{count} 个条目 · {ago}",
+    "confirm_title": "永久删除「{name}」？",
+    "confirm_detail": "将立即删除 {count} 个条目，无法找回，撤销也不行。",
+    "cancel": "取消"
   },
   "settings": {
     "heading": "设置",

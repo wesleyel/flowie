@@ -553,10 +553,9 @@ fn expand_to_level_and_restore_and_backlinks() {
     t.expand_to_level(ROOT, usize::MAX);
     assert!(!t.node(b).collapsed && !t.node(d).collapsed);
     // trash round trip
-    let snapshot = t.subtree_nodes(b);
-    t.delete(b);
+    t.trash(b);
     assert!(!t.contains(e));
-    t.restore(&snapshot);
+    assert!(t.untrash(b));
     assert_eq!(outline(&t, ROOT), "a\nb\n  d\n    e\nc");
     // links
     t.set_text(c, &format!("see [b](flowie:{b})"));
@@ -803,4 +802,58 @@ fn meta_and_prefs_keys_do_not_overlap() {
     }
     // Stars live on the nodes, not in a meta or pref list.
     assert!(!store::LOCAL_META.contains(&"starred") && !store::PREFS.contains(&"starred"));
+}
+
+/// A deleted subtree is out of every view built on the tree: rows, search, links,
+/// mirrors, stars, short ids (what MCP tools resolve) and counts. Its records stay.
+#[test]
+fn trashed_nodes_are_out_of_every_view() {
+    let (mut t, [a, b, _c, d]) = sample();
+    t.set_text(d, &format!("needle inside, see [a](flowie:{a})"));
+    let m = t.create_mirror(b, a, 0).unwrap();
+    t.star_at(d, usize::MAX);
+    let before = t.len();
+
+    t.trash(b);
+    assert!(!t.contains(b) && !t.contains(d) && t.has_record(d));
+    assert_eq!(t.len(), before - 2);
+    assert!(!flatten(&t, ROOT, &ViewOptions::default()).iter().any(|r| t.resolve(r.id) == d));
+    // Search: the rows filter and the node scan the MCP `search` tool does.
+    let q = Query::parse("needle");
+    assert!(flatten(&t, ROOT, &ViewOptions { query: Some(q.clone()), ..Default::default() }).is_empty());
+    assert!(!t.nodes().any(|n| q.matches(n)));
+    // Backlinks from deleted bullets; a mirror of a deleted bullet shows as an empty row, as
+    // one of a hard-deleted bullet did; stars.
+    assert!(t.backlinks(a).is_empty() && t.link_count(a) == 0);
+    assert_eq!(t.source(m), m);
+    assert!(t.children(t.source(m)).is_empty());
+    assert_eq!(t.starred().count(), 0);
+    // Short ids (MCP `read`/`update`/`move` targets) don't resolve to it.
+    let short = ShortIds::new(&t);
+    assert!(short.resolve(&d.to_string()[..8]).is_err());
+    // Copies and exports.
+    assert!(!t.to_indented_text(&[a, b]).contains("needle"));
+
+    // Restoring brings back exactly what was there.
+    assert!(t.untrash(b));
+    assert_eq!(t.len(), before);
+    assert_eq!(t.backlinks(a), vec![d]);
+    assert_eq!(t.starred().collect::<Vec<_>>(), [d]);
+    assert_eq!(t.source(m), b);
+}
+
+#[cfg(feature = "store")]
+#[test]
+fn trashed_nodes_are_left_out_of_share_packages_but_count_as_imported() {
+    let (mut t, [a, b, _c, d]) = sample();
+    t.trash(b);
+    let package = package::Package::export(&t, &[a, b], Default::default(), Default::default(), None);
+    assert_eq!(package.outline.roots, [a]);
+    assert!(!package.outline.nodes.iter().any(|n| n.id == d || n.id == b));
+    // A package holding a bullet that is in the Trash here was imported before: importing
+    // it again makes fresh ids instead of overwriting the deleted records.
+    let mut sender = Tree::from_nodes(t.records().cloned());
+    assert!(sender.untrash(b));
+    let package = package::Package::export(&sender, &[b], Default::default(), Default::default(), None);
+    assert_eq!(package.present_in(&t), [b, d]);
 }

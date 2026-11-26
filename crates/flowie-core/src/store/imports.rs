@@ -10,18 +10,6 @@ pub fn write_import_batch(conn: &mut Connection, upserts: &[Node], deletes: &[No
     let tx = conn.transaction()?;
     write_nodes_tx(&tx, upserts, deletes, &[])?;
     save_import_state_tx(&tx, state)?;
-    for (root, label, nodes) in &state.trash_removed {
-        tx.execute(
-            "DELETE FROM trash WHERE seq = (SELECT seq FROM trash WHERE root = ?1 AND label = ?2 AND payload = ?3 ORDER BY seq DESC LIMIT 1)",
-            params![root, label, serde_json::to_string(nodes).unwrap_or_default()],
-        )?;
-    }
-    for (root, label, nodes) in &state.trash_added {
-        tx.execute(
-            "INSERT INTO trash (root, deleted_at, label, payload) VALUES (?1, ?2, ?3, ?4)",
-            params![root, crate::tree::now_millis(), label, serde_json::to_string(nodes).unwrap_or_default()],
-        )?;
-    }
     tx.commit()
 }
 

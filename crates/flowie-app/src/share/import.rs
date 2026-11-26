@@ -265,18 +265,14 @@ impl Outline {
         let Some(p) = self.take_confirmed_import(cx) else { return };
         let Some(plan) = p.comparison.update.as_ref() else { return };
         let mut touched = p.package.apply_update(&mut self.ws.tree, plan, &p.take_theirs);
-        let mut trash = Vec::new();
         for &id in &plan.removed {
-            if self.ws.tree.contains(id) {
-                trash.push((id, node_label(self, id), self.ws.tree.subtree_nodes(id)));
-                self.ws.tree.delete(id);
-            }
+            self.ws.tree.trash(id);
         }
         self.edit = None;
         self.block = None;
         let m = &p.package.manifest;
         let after = package_import_state(&p.package, plan.id_map(), flowie_core::tree::now_millis());
-        self.commit_with_imports_and_trash(None, Some((p.comparison.before, after)), trash, cx);
+        self.commit_with_imports(None, Some((p.comparison.before, after)), cx);
         self.refresh(false);
         touched.retain(|id| self.ws.tree.contains(*id));
         for &id in &touched {

@@ -69,7 +69,7 @@ pub fn package_import_state(package: &Package, id_map: &HashMap<NodeId, NodeId>,
             source_ids: source_ids.remove(&root).unwrap_or_default(),
         })
         .collect();
-    ImportState { roots, records, bases, ..Default::default() }
+    ImportState { roots, records, bases }
 }
 
 pub fn compare_package(
@@ -86,16 +86,7 @@ pub fn compare_package(
     let source_bases = load_bases(source_roots)?;
     let can_update_original = !source_bases.is_empty() && source_roots.iter().all(|&root| tree.contains(root));
     let copies = if can_update_original { Vec::new() } else { copied_imports(package, tree, imports) };
-    let mut already =
-        !package.present_in(tree).is_empty() || imports.values().any(|record| record.package_id == package.manifest.package_id);
-    if let Some(connection) = connection.as_ref().filter(|_| !already) {
-        for &root in source_roots {
-            if store::in_trash(connection, root)? {
-                already = true;
-                break;
-            }
-        }
-    }
+    let already = !package.present_in(tree).is_empty() || imports.values().any(|record| record.package_id == package.manifest.package_id);
     let (roots, bases) = if copies.is_empty() {
         (source_roots.clone(), source_bases)
     } else {
@@ -112,14 +103,15 @@ pub fn compare_package(
         None
     };
     let records = roots.iter().filter_map(|id| imports.get(id).cloned()).collect();
-    let before = ImportState { records, roots, bases, ..Default::default() };
+    let before = ImportState { records, roots, bases };
     Ok(ImportComparison { revision: tree.revision(), before, already, update })
 }
 
 impl Package {
-    /// Ids of this package's bullets that `tree` has already: it was imported before.
+    /// Ids of this package's bullets that `tree` has already, in the outline or in the
+    /// Trash: it was imported before.
     pub fn present_in(&self, tree: &Tree) -> Vec<NodeId> {
-        self.outline.nodes.iter().map(|n| n.id).filter(|&id| tree.contains(id)).collect()
+        self.outline.nodes.iter().map(|n| n.id).filter(|&id| tree.has_record(id)).collect()
     }
 
     /// Add the package's bullets to `tree` at `index` under `parent`, one
@@ -169,6 +161,7 @@ impl Package {
                     mirror: n.mirror_of.map_or(ROOT, map),
                     image: n.image.clone().unwrap_or_default(),
                     star: String::new(),
+                    deleted_at: None,
                 });
                 if under == parent {
                     roots.push(new_id);

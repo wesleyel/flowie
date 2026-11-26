@@ -101,6 +101,23 @@ impl History {
         self.redo.last()?.imports.as_ref().map(|pair| &pair.1)
     }
 
+    /// Drop every recorded change to `ids` (records deleted for good, `Tree::purge`), and
+    /// every move into or out of them, so undo and redo never bring back part of what is
+    /// gone or put a node under it. Steps left with nothing to do go too.
+    pub fn forget(&mut self, ids: &[NodeId]) {
+        if ids.is_empty() {
+            return;
+        }
+        let ids: std::collections::HashSet<NodeId> = ids.iter().copied().collect();
+        let touches = |c: &Change| ids.contains(&c.id) || [&c.before, &c.after].into_iter().flatten().any(|n| ids.contains(&n.parent));
+        for stack in [&mut self.undo, &mut self.redo] {
+            for step in stack.iter_mut() {
+                step.changes.retain(|c| !touches(c));
+            }
+            stack.retain(|step| !step.changes.is_empty() || step.imports.is_some());
+        }
+    }
+
     pub fn undo(&mut self, tree: &mut Tree) -> Option<Option<Caret>> {
         let step = self.undo.pop()?;
         let inverse = tree.revert(&step.changes);

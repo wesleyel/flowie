@@ -110,6 +110,11 @@ pub struct Node {
     /// starred list, compared as bytes; empty when not starred.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub star: String,
+    /// When this node was moved to the Trash (milliseconds), `None` while it is
+    /// in the outline. Set only on the root of a deleted subtree: the nodes below
+    /// keep theirs, and are hidden because their parent is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
 }
 
 impl Node {
@@ -129,6 +134,7 @@ impl Node {
             mirror: ROOT,
             image: String::new(),
             star: String::new(),
+            deleted_at: None,
         }
     }
 }
@@ -144,7 +150,7 @@ pub fn set_clock(clock: Option<Clock>) {
     *CLOCK.write().unwrap_or_else(PoisonError::into_inner) = clock;
 }
 
-/// The time stamped on `created`/`modified` and Trash entries: the clock set with
+/// The time stamped on `created`/`modified` and `deleted_at`: the clock set with
 /// [`set_clock`], or the system clock.
 pub fn now_millis() -> i64 {
     match *CLOCK.read().unwrap_or_else(PoisonError::into_inner) {

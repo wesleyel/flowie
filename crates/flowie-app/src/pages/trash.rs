@@ -1,20 +1,33 @@
-//! Trash entries, recovery commands, and the Trash page.
+//! The Trash page: deleted subtrees (`Tree::trashed`), restoring them, and deleting them for good.
 
-use flowie_core::{
-    store::{self, TrashEntry},
-    NodeId,
-};
+use flowie_core::{markup, NodeId, Tree, ROOT};
 use gpui::{div, prelude::*, px, AnyElement, Context, ScrollHandle, Window};
 
 use super::OutlineSelection;
 use crate::app::i18n::t;
 use crate::outline::{Outline, ShowTrash, Target, PAD_X};
-use crate::overlays::palette::node_label;
+
+/// One deleted subtree as the page lists it.
+struct TrashEntry {
+    root: NodeId,
+    label: String,
+    /// How many bullets restoring it brings back.
+    count: usize,
+    deleted_at: i64,
+}
 
 pub(crate) struct TrashPage {
     entries: Vec<TrashEntry>,
     scroll: ScrollHandle,
     selection: OutlineSelection,
+}
+
+/// What a deleted bullet is called in the Trash: its text (a mirror's source's, if that's
+/// still around), cut short.
+fn label(tree: &Tree, id: NodeId) -> String {
+    let node = tree.node(id);
+    let shown = (node.mirror != ROOT).then(|| tree.record(node.mirror)).flatten().unwrap_or(node);
+    markup::plain_text(&shown.text).chars().take(80).collect()
 }
 
 impl Outline {
@@ -23,15 +36,8 @@ impl Outline {
         let theme = self.theme;
         let trash = self.trash.as_ref()?;
         let ago = crate::overlays::context_menu::ago;
-        let rows = trash.entries.iter().map(|e| {
-            let seq = e.seq;
-            let unrestorable = e.corrupted || e.nodes.is_empty();
-            let count = e.nodes.len();
-            let meta = if unrestorable {
-                t!("trash.unrestorable", ago = ago(e.deleted_at))
-            } else {
-                t!("trash.entry", count = count, ago = ago(e.deleted_at))
-            };
+        let rows = trash.entries.iter().enumerate().map(|(ix, e)| {
+            let root = e.root;
             div()
                 .flex()
                 .items_center()
@@ -39,31 +45,27 @@ impl Outline {
                 .py(px(6.))
                 .border_b_1()
                 .border_color(theme.border)
-                .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(if e.label.is_empty() {
+                .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(if e.label.trim().is_empty() {
                     t!("common.untitled").to_string()
                 } else {
                     e.label.clone()
                 }))
+                .child(div().text_size(px(12.)).text_color(theme.muted).whitespace_nowrap().child(t!(
+                    "trash.entry",
+                    count = e.count,
+                    ago = ago(e.deleted_at)
+                )))
                 .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(if unrestorable { theme.danger } else { theme.muted })
-                        .whitespace_nowrap()
-                        .child(meta),
+                    button(theme, ("restore", ix), Variant::Link)
+                        .child(crate::ui::icons::icon("rotate-ccw", crate::ui::icons::SM, Variant::Link.fg(theme)))
+                        .child(t!("trash.restore"))
+                        .on_click(cx.listener(move |this, _, _, cx| this.restore_trash(root, cx))),
                 )
-                .when(!unrestorable, |row| {
-                    row.child(
-                        button(theme, ("restore", seq as usize), Variant::Link)
-                            .child(crate::ui::icons::icon("rotate-ccw", crate::ui::icons::SM, Variant::Link.fg(theme)))
-                            .child(t!("trash.restore"))
-                            .on_click(cx.listener(move |this, _, _, cx| this.restore_trash(seq, cx))),
-                    )
-                })
                 .child(
-                    button(theme, ("purge", seq as usize), Variant::Destructive)
+                    button(theme, ("purge", ix), Variant::Destructive)
                         .child(crate::ui::icons::icon("trash-2", crate::ui::icons::SM, Variant::Destructive.fg(theme)))
                         .child(t!("trash.delete_forever"))
-                        .on_click(cx.listener(move |this, _, _, cx| this.purge_trash(seq, cx))),
+                        .on_click(cx.listener(move |this, _, _, cx| this.purge_trash(root, cx))),
                 )
         });
         let page = div()
@@ -79,40 +81,21 @@ impl Outline {
         Some(crate::ui::scrollbar::area("trash-bar", &trash.scroll, theme, page).size_full().into_any_element())
     }
 
-    pub fn send_to_trash(&mut self, id: NodeId) {
-        let entry = self.trash_entry(id);
-        self.write_trash(vec![entry]);
-    }
-
-    /// What Trash keeps of a bullet about to be deleted: its id, a label and
-    /// its subtree. Taken before the delete; written with `write_trash`.
-    pub fn trash_entry(&self, id: NodeId) -> (NodeId, String, Vec<flowie_core::Node>) {
-        (id, node_label(self, id).chars().take(80).collect(), self.ws.tree.subtree_nodes(id))
-    }
-
-    pub fn write_trash(&self, entries: Vec<(NodeId, String, Vec<flowie_core::Node>)>) {
-        if let Some(w) = &self.ws.writer {
-            for (id, label, nodes) in entries {
-                w.trash(id, &label, nodes);
-            }
-        }
-    }
-
     pub fn show_trash(&mut self, _: &ShowTrash, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(writer) = &self.ws.writer {
-            if let Err(error) = writer.flush() {
-                self.toast(t!("outline.save_error", error = error));
-                return cx.notify();
-            }
-        }
         self.close_auxiliary_page(true, cx);
-        let entries =
-            self.db_path.as_ref().and_then(|p| store::open(p).ok()).and_then(|c| store::list_trash(&c, 30).ok()).unwrap_or_default();
-        // Hide entries whose bullet came back (undo or restore). Restoring
-        // keeps the entry, so undoing the restore brings it back here; show
-        // only the newest entry for each bullet.
-        let mut shown = std::collections::HashSet::new();
-        let entries = entries.into_iter().filter(|e| !self.ws.tree.contains(e.root) && shown.insert(e.root)).collect();
+        // Entries past the retention period go now, as they do at launch.
+        self.ws.purge_expired();
+        let tree = &self.ws.tree;
+        let entries = tree
+            .trashed()
+            .into_iter()
+            .map(|root| TrashEntry {
+                root,
+                label: label(tree, root),
+                count: tree.trashed_subtree(root).len(),
+                deleted_at: tree.node(root).deleted_at.unwrap_or_default(),
+            })
+            .collect();
         let selection = self.suspend_outline_selection();
         self.trash = Some(TrashPage { entries, scroll: ScrollHandle::new(), selection });
         cx.notify();
@@ -124,35 +107,28 @@ impl Outline {
         true
     }
 
-    pub fn restore_trash(&mut self, seq: i64, cx: &mut Context<Self>) {
-        let Some(entry) = self.trash.as_ref().and_then(|trash| trash.entries.iter().find(|e| e.seq == seq)).cloned() else { return };
-        if entry.corrupted || entry.nodes.is_empty() {
-            self.toast(t!("toast.trash_unrestorable"));
-            cx.notify();
+    /// Bring an entry back where it was (an undo step), and go to it.
+    pub fn restore_trash(&mut self, root: NodeId, cx: &mut Context<Self>) {
+        let Some(name) = self.trash.as_ref().and_then(|trash| trash.entries.iter().find(|e| e.root == root)).map(|e| e.label.clone())
+        else {
+            return;
+        };
+        if !self.ws.tree.untrash(root) {
             return;
         }
-        // The entry stays in the database: undoing the restore deletes the
-        // bullets again, and they must still be in Trash then.
-        if let Some(root) = self.ws.tree.restore(&entry.nodes) {
-            self.toast(t!("toast.restored", name = entry.label));
-            self.close_trash(false, cx);
-            let parent = self.ws.tree.parent(root);
-            self.commit_structure(None, cx);
-            self.zoom_to(parent, cx);
-            let len = self.ws.tree.node(root).text.len();
-            self.start_edit(Target::Text(root), len, cx);
-        } else {
-            self.toast(t!("toast.trash_unrestorable"));
-            cx.notify();
-        }
+        let name = if name.trim().is_empty() { t!("common.untitled").to_string() } else { name };
+        self.toast(t!("toast.restored", name = name));
+        self.close_trash(false, cx);
+        let parent = self.ws.tree.parent(root);
+        self.commit_structure(None, cx);
+        self.zoom_to(parent, cx);
+        let len = self.ws.tree.node(root).text.len();
+        self.start_edit(Target::Text(root), len, cx);
     }
 
-    pub fn purge_trash(&mut self, seq: i64, cx: &mut Context<Self>) {
-        let Some(root) = self.trash.as_ref().and_then(|trash| trash.entries.iter().find(|e| e.seq == seq)).map(|e| e.root) else { return };
-        // Older entries for the same bullet go too, or they would take its place.
-        if let Some(w) = &self.ws.writer {
-            w.untrash_root(root);
-        }
+    /// Delete an entry for good (not an undo step).
+    pub fn purge_trash(&mut self, root: NodeId, cx: &mut Context<Self>) {
+        self.ws.purge(root);
         if let Some(page) = self.trash.as_mut() {
             page.entries.retain(|e| e.root != root);
         }

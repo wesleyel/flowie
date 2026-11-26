@@ -251,8 +251,7 @@ impl Outline {
             n
         });
         for id in &ids {
-            self.send_to_trash(*id);
-            self.ws.tree.delete(*id);
+            self.ws.tree.trash(*id);
         }
         self.block = None;
         self.edit = fallback.filter(|f| self.ws.tree.contains(*f)).map(|f| Edit::new(Target::Text(f), self.ws.tree.node(f).text.len()));

@@ -14,9 +14,6 @@ use crate::tree::{Node, NodeId};
 
 enum Msg {
     Write { upserts: Vec<Node>, deletes: Vec<NodeId> },
-    Trash { root: NodeId, label: String, nodes: Vec<Node> },
-    Untrash(i64),
-    UntrashRoot(NodeId),
     Meta(String, String),
     Pref(String, String),
     ImportState(ImportState),
@@ -29,9 +26,6 @@ enum Msg {
 
 enum PendingOp {
     Batch { upserts: Vec<Node>, deletes: Vec<NodeId>, meta: Vec<(String, String)> },
-    Trash { root: NodeId, label: String, nodes: Vec<Node>, deleted_at: i64 },
-    Untrash(i64),
-    UntrashRoot(NodeId),
     Pref(String, String),
     ImportState(ImportState),
     ImportBatch { upserts: Vec<Node>, deletes: Vec<NodeId>, state: ImportState },
@@ -78,27 +72,6 @@ impl Writer {
         }
         if let Some(tx) = &self.tx {
             let _ = tx.send(Msg::Write { upserts, deletes });
-        }
-    }
-
-    /// Keep a copy of a deleted subtree (root first) in the trash.
-    pub fn trash(&self, root: NodeId, label: &str, nodes: Vec<Node>) {
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(Msg::Trash { root, label: label.to_string(), nodes });
-        }
-    }
-
-    /// Remove a trash entry (after restoring it or deleting it for good).
-    pub fn untrash(&self, seq: i64) {
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(Msg::Untrash(seq));
-        }
-    }
-
-    /// Remove every trash entry for `root` (deleting it for good).
-    pub fn untrash_root(&self, root: NodeId) {
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(Msg::UntrashRoot(root));
         }
     }
 
@@ -264,9 +237,6 @@ where
             }
             Some(op_msg) => {
                 let op = match op_msg {
-                    Msg::Trash { root, label, nodes } => PendingOp::Trash { root, label, nodes, deleted_at: crate::tree::now_millis() },
-                    Msg::Untrash(seq) => PendingOp::Untrash(seq),
-                    Msg::UntrashRoot(root) => PendingOp::UntrashRoot(root),
                     Msg::Pref(key, value) => PendingOp::Pref(key, value),
                     Msg::ImportState(state) => PendingOp::ImportState(state),
                     Msg::ImportBatch { upserts, deletes, state } => PendingOp::ImportBatch { upserts, deletes, state },
@@ -307,22 +277,7 @@ const RETRY: Duration = Duration::from_secs(1);
 fn run_op(conn: &mut Connection, op: &PendingOp) -> rusqlite::Result<()> {
     match op {
         PendingOp::Batch { upserts, deletes, meta } => write_batch(conn, upserts, deletes, meta),
-        PendingOp::Trash { root, label, nodes, deleted_at } => {
-            let payload = serde_json::to_string(nodes).unwrap_or_default();
-            conn.execute(
-                "INSERT INTO trash (root, deleted_at, label, payload) VALUES (?1, ?2, ?3, ?4)",
-                params![root, deleted_at, label, payload],
-            )?;
-            Ok(())
-        }
-        PendingOp::Untrash(seq) => {
-            conn.execute("DELETE FROM trash WHERE seq = ?1", params![seq])?;
-            Ok(())
-        }
-        PendingOp::UntrashRoot(root) => {
-            conn.execute("DELETE FROM trash WHERE root = ?1", params![root])?;
-            Ok(())
-        }
+
         PendingOp::Pref(key, value) => write_pref(conn, key, value),
         PendingOp::ImportState(state) => save_import_state(conn, state),
         PendingOp::ImportBatch { upserts, deletes, state } => write_import_batch(conn, upserts, deletes, state),
@@ -368,28 +323,8 @@ fn flush_all(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{list_trash, load, open};
+    use crate::store::{load, load_prefs, open};
     use crate::ROOT;
-
-    #[test]
-    fn untrash_root_removes_every_entry_for_that_bullet_only() {
-        let work = std::env::temp_dir().join(format!("flowie-untrash-{}", NodeId::random()));
-        let db = work.join("flowie.sqlite");
-        let writer = Writer::spawn(open(&db).unwrap());
-        let (a, b) = (Node::new(NodeId::random(), ROOT, "a0".into()), Node::new(NodeId::random(), ROOT, "a1".into()));
-        writer.trash(a.id, "a", vec![a.clone()]);
-        writer.trash(a.id, "a again", vec![a.clone()]);
-        writer.trash(b.id, "b", vec![b.clone()]);
-        writer.untrash_root(a.id);
-        writer.flush().unwrap();
-        drop(writer);
-
-        let conn = open(&db).unwrap();
-        let roots: Vec<NodeId> = list_trash(&conn, 30).unwrap().into_iter().map(|e| e.root).collect();
-        assert_eq!(roots, vec![b.id]);
-        drop(conn);
-        std::fs::remove_dir_all(work).unwrap();
-    }
 
     #[test]
     fn failed_writes_retry_in_order_and_report_error_status() {
@@ -409,16 +344,17 @@ mod tests {
 
         let mut a = Node::new(NodeId::random(), ROOT, "a0".into());
         a.text = "kept after retry".into();
-        let b = Node::new(NodeId::random(), ROOT, "a1".into());
-        writer.write(vec![a.clone()], Vec::new());
-        writer.trash(b.id, "deleted b", vec![b.clone()]);
+        let mut b = Node::new(NodeId::random(), ROOT, "a1".into());
+        b.deleted_at = Some(7);
+        writer.write(vec![a.clone(), b.clone()], Vec::new());
+        writer.set_pref("saved_searches", "kept too");
         let error = writer.flush().unwrap_err();
 
         let reported_err = status_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         assert_eq!(reported_err.as_deref(), Some(error.as_str()));
         assert_eq!(writer.last_error().as_deref(), Some(error.as_str()));
 
-        // Release the lock: queued writes and trash must now land without being dropped.
+        // Release the lock: queued writes and the pref must now land without being dropped.
         blocker.execute_batch("COMMIT").unwrap();
         drop(blocker);
 
@@ -429,13 +365,10 @@ mod tests {
         drop(writer);
 
         let conn = open(&db).unwrap();
-        let (nodes, _) = load(&conn).unwrap();
-        assert_eq!(nodes.len(), 1);
-        assert_eq!(nodes[0].id, a.id);
-        assert_eq!(nodes[0].text, "kept after retry");
-        let trash = list_trash(&conn, 30).unwrap();
-        assert_eq!(trash.len(), 1);
-        assert_eq!(trash[0].root, b.id);
+        let (mut nodes, _) = load(&conn).unwrap();
+        nodes.sort_by_key(|n| n.rank.clone());
+        assert_eq!(nodes, [a, b], "including deleted_at");
+        assert_eq!(load_prefs(&conn).unwrap(), [("saved_searches".to_string(), "kept too".to_string())]);
         drop(conn);
         std::fs::remove_dir_all(work).unwrap();
     }

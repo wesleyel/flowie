@@ -55,33 +55,59 @@ pub fn find_day(tree: &Tree, date: &str) -> Option<NodeId> {
     tree.contains(id).then_some(id)
 }
 
-/// The journal bullet, created at the end of Home if needed.
+/// The journal bullet, created at the end of Home if needed. One in the Trash comes back
+/// from there, with the pages still in it, instead of being made again.
 pub fn journal_root(tree: &mut Tree) -> NodeId {
-    if let Some(id) = find_journal(tree) {
-        return id;
+    let id = journal_root_id();
+    if !revive(tree, id, ROOT, |t| t.children(ROOT).len()) {
+        let index = tree.children(ROOT).len();
+        create_with_id(tree, id, ROOT, index, JOURNAL_TEXT);
     }
-    let index = tree.children(ROOT).len();
-    create_with_id(tree, journal_root_id(), ROOT, index, JOURNAL_TEXT);
-    journal_root_id()
+    id
 }
 
 /// The journal page for `date` (YYYY-MM-DD). A missing page is created among
-/// the journal's pages, newest first, with a blank first line if `with_blank`.
+/// the journal's pages, newest first, with a blank first line if `with_blank`;
+/// a page in the Trash comes back from there as it was instead.
 /// Returns `day_id(date)`. Recorded on `tree` like any edit, not committed.
 pub fn ensure_day(tree: &mut Tree, date: &str, with_blank: bool) -> NodeId {
     if let Some(id) = find_day(tree, date) {
         return id;
     }
     let journal = journal_root(tree);
-    let kids = tree.children(journal);
-    let index = kids.iter().position(|id| tree.node(*id).text.as_str() < date).unwrap_or(kids.len());
     let day = day_id(date);
-    create_with_id(tree, day, journal, index, date);
+    let index = |tree: &Tree| {
+        let kids = tree.children(journal);
+        kids.iter().position(|id| tree.node(*id).text.as_str() < date).unwrap_or(kids.len())
+    };
+    if revive(tree, day, journal, index) {
+        return day;
+    }
+    create_with_id(tree, day, journal, index(tree), date);
     // (The blank line still exists if it was moved out of a page later deleted.)
     if with_blank && !tree.contains(day_blank_id(date)) {
         create_with_id(tree, day_blank_id(date), day, 0, "");
     }
     day
+}
+
+/// Bring back the record `id` if it exists but is out of the outline: if the bullet it sits
+/// under is out of reach too (in the Trash, or under a bullet that is), move it to
+/// `index(tree)` under `home` first; then take it out of the Trash. False if there is no
+/// record to bring back.
+fn revive(tree: &mut Tree, id: NodeId, home: NodeId, index: impl Fn(&Tree) -> usize) -> bool {
+    if tree.contains(id) {
+        return true;
+    }
+    if !tree.has_record(id) {
+        return false;
+    }
+    if !tree.contains(tree.node(id).parent) {
+        let at = index(tree);
+        tree.move_to(id, home, at);
+    }
+    tree.untrash(id);
+    true
 }
 
 /// Append `items` to the end of the journal page for `date` (YYYY-MM-DD),
@@ -246,5 +272,64 @@ mod tests {
         t.set_text(day_blank_id("2026-11-23"), "kept");
         journal_append(&mut t, "2026-11-23", &parse_text("- note"), None);
         assert_eq!(texts(&t, d), ["kept", "note"]);
+    }
+
+    #[test]
+    fn a_page_in_the_trash_comes_back_as_it_was() {
+        let mut t = Tree::new();
+        ensure_day(&mut t, "2026-11-26", false);
+        let d = ensure_day(&mut t, "2026-11-25", true);
+        let blank = day_blank_id("2026-11-25");
+        t.set_text(blank, "written that day");
+        t.trash(d);
+        assert_eq!(find_day(&t, "2026-11-25"), None);
+        let before = ids_with_records(&t);
+
+        assert_eq!(ensure_day(&mut t, "2026-11-25", true), d);
+        assert!(t.contains(d) && t.node(d).deleted_at.is_none());
+        assert_eq!(texts(&t, d), ["written that day"], "its content is back, with no new blank line");
+        assert_eq!(texts(&t, journal_root_id()), ["2026-11-26", "2026-11-25"], "in its old place");
+        assert_eq!(ids_with_records(&t), before, "nothing is created twice");
+        assert!(t.trashed().is_empty());
+    }
+
+    #[test]
+    fn a_journal_in_the_trash_comes_back_with_its_pages() {
+        let mut t = Tree::new();
+        let d = ensure_day(&mut t, "2026-11-25", true);
+        t.trash(journal_root_id());
+        assert_eq!(find_journal(&t), None);
+        let before = ids_with_records(&t);
+        assert_eq!(ensure_day(&mut t, "2026-11-25", true), d);
+        assert!(t.contains(journal_root_id()) && t.contains(d) && t.contains(day_blank_id("2026-11-25")));
+        assert_eq!(ids_with_records(&t), before);
+        assert_eq!(t.children(ROOT), &[journal_root_id()]);
+    }
+
+    #[test]
+    fn a_page_under_a_deleted_bullet_moves_back_to_the_journal() {
+        let mut t = Tree::new();
+        let other = t.create_at(ROOT, 0, "other");
+        let d = ensure_day(&mut t, "2026-11-25", false);
+        t.move_to(d, other, 0);
+        t.trash(other);
+        assert_eq!(ensure_day(&mut t, "2026-11-25", false), d);
+        assert_eq!(t.parent(d), journal_root_id());
+        assert!(t.contains(d));
+        assert!(!t.contains(other), "the deleted bullet stays in the Trash");
+        assert_eq!(t.trashed(), [other]);
+
+        // Both the page and the bullet above it in the Trash: the page comes back alone.
+        t.move_to(d, other, 0);
+        t.trash(d);
+        assert_eq!(ensure_day(&mut t, "2026-11-25", false), d);
+        assert_eq!(t.parent(d), journal_root_id());
+        assert!(t.contains(d) && t.node(d).deleted_at.is_none());
+    }
+
+    fn ids_with_records(tree: &Tree) -> Vec<NodeId> {
+        let mut ids: Vec<NodeId> = tree.records().map(|n| n.id).collect();
+        ids.sort();
+        ids
     }
 }

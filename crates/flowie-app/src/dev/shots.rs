@@ -33,6 +33,9 @@ impl Outline {
                 for kid in self.ws.tree.children(ROOT).to_vec() {
                     self.ws.tree.delete(kid);
                 }
+                for root in self.ws.tree.trashed() {
+                    self.ws.purge(root);
+                }
                 self.saved_searches.clear();
                 self.hide_completed = false;
                 self.save_searches();

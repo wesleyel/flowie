@@ -257,7 +257,8 @@ impl Tree {
         }
     }
 
-    /// Delete a node and its whole subtree.
+    /// Delete a node and its whole subtree right away, not to the Trash (for rows that
+    /// merge or get replaced; what the user deletes goes through `trash`).
     pub fn delete(&mut self, id: NodeId) {
         let id = self.resolve(id);
         if id == ROOT || !self.contains(id) {
@@ -312,34 +313,6 @@ impl Tree {
         node.kind = self.node(source).kind;
         self.put(node);
         Some(id)
-    }
-
-    /// Copies of `id` and its subtree, root first (for the trash).
-    pub fn subtree_nodes(&self, id: NodeId) -> Vec<Node> {
-        let mut out = vec![self.node(id).clone()];
-        out.extend(self.descendants(id).into_iter().map(|d| self.node(d).clone()));
-        out
-    }
-
-    /// Put back nodes from the trash. Nodes that still exist are skipped; a
-    /// root whose parent is gone goes to the end of the top level.
-    pub fn restore(&mut self, nodes: &[Node]) -> Option<NodeId> {
-        let root = nodes.first()?.clone();
-        if self.contains(root.id) {
-            return None;
-        }
-        let mut r = root.clone();
-        if !self.contains(r.parent) {
-            r.parent = ROOT;
-            r.rank = self.rank_at(ROOT, self.children(ROOT).len());
-        }
-        self.put(r);
-        for n in &nodes[1..] {
-            if !self.contains(n.id) && self.contains(n.parent) {
-                self.put(n.clone());
-            }
-        }
-        Some(root.id)
     }
 
     /// Show `levels` levels below `root`: deeper nodes with children are

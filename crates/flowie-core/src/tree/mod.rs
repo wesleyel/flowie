@@ -8,7 +8,9 @@
 //!   same indexes.
 //!
 //! What the outline shows is the reachable part: a node is reachable when its parent chain
-//! leads to the root through records that exist. `contains`, `get`, `nodes`, `children` and
+//! leads to the root through records that exist and are not in the Trash. Deleting a subtree
+//! marks only its root (`Node::deleted_at`); the nodes below keep their records unchanged and
+//! are unreachable because their ancestor is. `contains`, `get`, `nodes`, `children` and
 //! everything built on them see only reachable nodes; `node` reads any record.
 
 mod id;
@@ -19,6 +21,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub use id::{virtual_id, NodeId, ROOT};
 pub use node::{now_millis, set_clock, system_millis, BlockKind, Clock, Node};
+
+/// How long a deleted subtree stays in the Trash before it is deleted for good.
+pub const TRASH_DAYS: i64 = 30;
 
 /// One recorded change: the node before and after (None = absent).
 #[derive(Debug, Clone)]
@@ -48,9 +53,13 @@ pub struct Tree {
 /// the tree, and rebuilt from scratch (`Tree::reindex`) after bulk changes. Never saved.
 #[derive(Debug, Default)]
 struct Index {
-    /// Parent -> the records under it, in sibling order (rank, then id).
+    /// Parent -> every record under it, in the Trash or not, in sibling order (rank, then id).
     children: HashMap<NodeId, Vec<NodeId>>,
-    /// Records the root cannot reach: their parent chain hits a missing record.
+    /// Parent -> the records under it that are not deleted, in the same order: what
+    /// `Tree::children` returns.
+    live: HashMap<NodeId, Vec<NodeId>>,
+    /// Records the root cannot reach: deleted subtree roots, everything below them, and
+    /// records whose parent chain hits a missing record.
     hidden: HashSet<NodeId>,
     /// Reverse indexes over all records: target -> nodes linking to it (`flowie:ID`),
     /// source -> mirrors of it. Readers keep the reachable ones.
@@ -107,6 +116,7 @@ impl Tree {
             list.sort_by(|a, b| nodes[a].rank.cmp(&nodes[b].rank).then(a.cmp(b)));
         }
         tree.repair_ranks();
+        tree.derive_reach();
         tree.break_cycles();
         let all: Vec<Node> = tree.nodes.values().cloned().collect();
         for n in &all {
@@ -248,6 +258,8 @@ impl Tree {
             node.rank = rank;
             self.index.children.get_mut(&ROOT).unwrap().push(id);
             self.dirty.insert(id);
+            self.relist(old_parent);
+            self.relist(ROOT);
         }
     }
 
@@ -255,19 +267,43 @@ impl Tree {
     /// for its parent. The root is always reachable.
     fn derive_hidden(&self, id: NodeId) -> bool {
         let Some(node) = self.nodes.get(&id) else { return true };
-        id != ROOT && (!self.nodes.contains_key(&node.parent) || self.index.hidden.contains(&node.parent))
+        id != ROOT && (node.deleted_at.is_some() || !self.nodes.contains_key(&node.parent) || self.index.hidden.contains(&node.parent))
     }
 
-    /// Rebuild reachability from scratch: walk down from the root.
+    /// Rebuild the live children lists and reachability from scratch: walk down from the root.
     fn derive_reach(&mut self) {
+        let parents: Vec<NodeId> = self.index.children.keys().copied().collect();
+        self.index.live.clear();
+        for parent in parents {
+            self.relist(parent);
+        }
         let mut seen = HashSet::new();
         let mut stack = vec![ROOT];
         while let Some(id) = stack.pop() {
             if seen.insert(id) {
-                stack.extend(self.index.children.get(&id).into_iter().flatten().copied());
+                stack.extend(self.index.live.get(&id).into_iter().flatten().copied());
             }
         }
         self.index.hidden = self.nodes.keys().copied().filter(|id| !seen.contains(id)).collect();
+    }
+
+    /// Re-derive `parent`'s live children from its records.
+    fn relist(&mut self, parent: NodeId) {
+        let nodes = &self.nodes;
+        let live: Vec<NodeId> = self
+            .index
+            .children
+            .get(&parent)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|c| nodes.get(c).is_some_and(|n| n.deleted_at.is_none()))
+            .collect();
+        if live.is_empty() {
+            self.index.live.remove(&parent);
+        } else {
+            self.index.live.insert(parent, live);
+        }
     }
 
     /// Re-derive the reachability of `id` after its record changed, and of the records below
@@ -369,7 +405,95 @@ impl Tree {
         if self.index.hidden.contains(&id) {
             return &[];
         }
-        self.index.children.get(&id).map(Vec::as_slice).unwrap_or(&[])
+        self.index.live.get(&id).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Move `id` and its subtree to the Trash. Only `id`'s record changes (`deleted_at`);
+    /// the nodes below keep theirs and are hidden because it is. Recorded like any edit.
+    pub fn trash(&mut self, id: NodeId) {
+        let id = self.resolve(id);
+        if id == ROOT || !self.contains(id) {
+            return;
+        }
+        let mut node = self.node(id).clone();
+        node.deleted_at = Some(now_millis());
+        self.put(node);
+    }
+
+    /// Bring a subtree back from the Trash: clear its root's `deleted_at`. If its parent is
+    /// not in the outline any more (in the Trash itself, or gone), it goes to the end of the
+    /// top level. Recorded like any edit. False if `id` is not in the Trash.
+    pub fn untrash(&mut self, id: NodeId) -> bool {
+        let id = self.resolve(id);
+        let Some(node) = self.nodes.get(&id).filter(|n| n.deleted_at.is_some()) else { return false };
+        let mut node = node.clone();
+        node.deleted_at = None;
+        if !self.contains(node.parent) {
+            node.rank = self.rank_at(ROOT, self.children(ROOT).len());
+            node.parent = ROOT;
+        }
+        self.put(node);
+        true
+    }
+
+    /// The Trash: roots of deleted subtrees, most recently deleted first. One deleted while
+    /// already inside another deleted subtree isn't listed: it is part of that entry, and
+    /// becomes an entry of its own when the outer one is restored.
+    pub fn trashed(&self) -> Vec<NodeId> {
+        let outermost = |n: &Node| !self.nodes.contains_key(&n.parent) || !self.index.hidden.contains(&n.parent);
+        let mut roots: Vec<(i64, NodeId)> =
+            self.nodes.values().filter(|n| outermost(n)).filter_map(|n| Some((n.deleted_at?, n.id))).collect();
+        roots.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        roots.into_iter().map(|(_, id)| id).collect()
+    }
+
+    /// The records of the deleted subtree at `id`: `id` first, then everything below it,
+    /// parents before children, but not other deleted subtrees inside it (they stay in the
+    /// Trash when it is restored). What restoring it brings back. Empty if `id` is not in
+    /// the Trash.
+    pub fn trashed_subtree(&self, id: NodeId) -> Vec<NodeId> {
+        let id = self.resolve(id);
+        if self.nodes.get(&id).is_none_or(|n| n.deleted_at.is_none()) {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut stack = vec![id];
+        while let Some(n) = stack.pop() {
+            out.push(n);
+            let kids = self.index.children.get(&n).into_iter().flatten().rev();
+            stack.extend(kids.filter(|c| self.nodes.get(c).is_some_and(|c| c.deleted_at.is_none())));
+        }
+        out
+    }
+
+    /// Delete the subtree at `id` (which must be in the Trash) for good, with every record
+    /// below it: they are removed and saved as deletes, but not recorded for undo. Returns
+    /// the removed ids, for `History::forget`.
+    pub fn purge(&mut self, id: NodeId) -> Vec<NodeId> {
+        let id = self.resolve(id);
+        if self.nodes.get(&id).is_none_or(|n| n.deleted_at.is_none()) {
+            return Vec::new();
+        }
+        let mut ids = Vec::new();
+        let mut stack = vec![id];
+        while let Some(n) = stack.pop() {
+            ids.push(n);
+            stack.extend(self.index.children.get(&n).into_iter().flatten().copied());
+        }
+        for &n in ids.iter().rev() {
+            self.remove_record(n);
+        }
+        let gone: HashSet<NodeId> = ids.iter().copied().collect();
+        self.journal.retain(|c| !gone.contains(&c.id));
+        ids
+    }
+
+    /// Delete for good every Trash entry older than `TRASH_DAYS` at `now`. Returns the
+    /// removed ids.
+    pub fn purge_expired(&mut self, now: i64) -> Vec<NodeId> {
+        let cutoff = now - TRASH_DAYS * 86_400_000;
+        let expired: Vec<NodeId> = self.nodes.values().filter(|n| n.deleted_at.is_some_and(|at| at < cutoff)).map(|n| n.id).collect();
+        expired.into_iter().flat_map(|id| self.purge(id)).collect()
     }
 
     pub fn has_children(&self, id: NodeId) -> bool {
@@ -492,10 +616,19 @@ impl Tree {
         self.insert_sorted(&node);
         self.index.children.entry(node.id).or_default();
         self.sync_index(before.as_ref(), Some(&node));
-        let (id, new) = (node.id, before.is_none());
+        let (id, new, parent) = (node.id, before.is_none(), node.parent);
+        let old_parent = before.as_ref().map(|b| b.parent).filter(|p| *p != parent);
         self.journal.push(Change { id, before, after: Some(node.clone()) });
         self.dirty.insert(id);
         self.nodes.insert(id, node);
+        self.relist(parent);
+        if let Some(p) = old_parent {
+            self.relist(p);
+        }
+        if new {
+            // It may adopt records that were waiting for it.
+            self.relist(id);
+        }
         self.update_reach(id, new);
         self.revision += 1;
     }
@@ -513,10 +646,17 @@ impl Tree {
     /// Remove a single node (its children must already be gone or moved).
     pub fn remove(&mut self, id: NodeId) {
         let id = self.resolve(id);
-        let Some(before) = self.nodes.remove(&id) else { return };
+        let Some(before) = self.remove_record(id) else { return };
+        self.journal.push(Change { id, before: Some(before), after: None });
+    }
+
+    /// Remove a record and save that, without journaling it.
+    fn remove_record(&mut self, id: NodeId) -> Option<Node> {
+        let before = self.nodes.remove(&id)?;
         if let Some(list) = self.index.children.get_mut(&before.parent) {
             list.retain(|c| *c != id);
         }
+        self.relist(before.parent);
         self.index.hidden.remove(&id);
         // Records still under it (callers normally remove them first) lose the root's reach.
         let orphans = self.index.children.remove(&id).unwrap_or_default();
@@ -526,10 +666,11 @@ impl Tree {
             }
             self.index.children.insert(id, orphans);
         }
+        self.relist(id);
         self.sync_index(Some(&before), None);
-        self.journal.push(Change { id, before: Some(before), after: None });
         self.dirty.insert(id);
         self.revision += 1;
+        Some(before)
     }
 
     /// Apply a node state without journaling (used by undo/redo, which journal themselves).
@@ -567,9 +708,14 @@ impl Tree {
         std::mem::take(&mut self.journal)
     }
 
-    /// Nodes removed since the last `take_journal` (as they were).
+    /// Nodes removed or moved to the Trash since the last `take_journal` (as they were).
     pub fn journal_removed(&self) -> Vec<Node> {
-        self.journal.iter().filter(|c| c.after.is_none()).filter_map(|c| c.before.clone()).collect()
+        let gone = |c: &&Change| match (&c.before, &c.after) {
+            (Some(_), None) => true,
+            (Some(b), Some(a)) => b.deleted_at.is_none() && a.deleted_at.is_some(),
+            _ => false,
+        };
+        self.journal.iter().filter(gone).filter_map(|c| c.before.clone()).collect()
     }
 
     pub fn journal_is_empty(&self) -> bool {
@@ -668,10 +814,12 @@ mod tests {
         assert_eq!(t.index.hidden, fresh.index.hidden);
         let order =
             |m: &HashMap<NodeId, Vec<NodeId>>| m.iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>();
-        let (mut a, mut b) = (order(&t.index.children), order(&fresh.index.children));
-        a.sort();
-        b.sort();
-        assert_eq!(a, b);
+        for (mine, theirs) in [(&t.index.children, &fresh.index.children), (&t.index.live, &fresh.index.live)] {
+            let (mut a, mut b) = (order(mine), order(theirs));
+            a.sort();
+            b.sort();
+            assert_eq!(a, b);
+        }
     }
 
     const TARGET: &str = "0000000000000000000000000000abcd";

@@ -29,7 +29,6 @@
     "import_package_alone": "Import Flowie share packages one at a time, separately from other files.",
     "nothing_to_export": "Nothing to export",
     "bullet_deleted": "That bullet was deleted (see Trash)",
-    "trash_unrestorable": "This Trash entry is damaged and can't be restored",
     "cut_kept_in_trash": "Cut — also kept in Trash",
     "moved": {
       "one": "Moved {count} bullet to “{target}”",
@@ -135,8 +134,7 @@
     "entry": {
       "one": "{count} bullet · {ago}",
       "other": "{count} bullets · {ago}"
-    },
-    "unrestorable": "Damaged (can't restore) · {ago}"
+    }
   },
   "settings": {
     "heading": "Settings",

@@ -37,7 +37,6 @@
 mod blobs;
 mod imports;
 mod migrate;
-mod trash;
 #[cfg(feature = "writer-thread")]
 mod writer;
 
@@ -51,7 +50,6 @@ pub use crate::imports::{ImportRecord, ImportState};
 pub use blobs::{collect_unused_images, drop_blobs, image_names_in_use, load_blobs};
 pub use imports::{load_bases, load_imports, write_import_batch};
 pub use migrate::{Migration, OpenError};
-pub use trash::{in_trash, list_trash, TrashEntry};
 #[cfg(feature = "writer-thread")]
 pub use writer::Writer;
 
@@ -71,7 +69,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     kind      INTEGER NOT NULL DEFAULT 0,
     mirror    BLOB    NOT NULL,
     image     TEXT    NOT NULL DEFAULT '',
-    star      TEXT    NOT NULL DEFAULT ''   -- fractional index in the starred list; '' = not starred
+    star      TEXT    NOT NULL DEFAULT '',  -- fractional index in the starred list; '' = not starred
+    deleted_at INTEGER                      -- moved to the Trash then (ms); NULL = in the outline
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS blobs (   -- image files in the image folder
     name    TEXT    PRIMARY KEY,     -- <sha256>.<ext>
@@ -80,13 +79,7 @@ CREATE TABLE IF NOT EXISTS blobs (   -- image files in the image folder
     height  INTEGER NOT NULL,
     size    INTEGER NOT NULL
 ) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS trash (
-    seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-    root       BLOB    NOT NULL,
-    deleted_at INTEGER NOT NULL,
-    label      TEXT    NOT NULL,
-    payload    TEXT    NOT NULL
-);
+
 CREATE TABLE IF NOT EXISTS imports (
     root        BLOB    PRIMARY KEY,
     package_id  TEXT    NOT NULL,
@@ -154,8 +147,9 @@ pub fn open(path: &Path) -> Result<Connection, OpenError> {
 }
 
 pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, String)>)> {
-    let mut stmt =
-        conn.prepare("SELECT id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image, star FROM nodes")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image, star, deleted_at FROM nodes",
+    )?;
     let nodes = stmt
         .query_map([], |r| {
             Ok(Node {
@@ -172,6 +166,7 @@ pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, Stri
                 mirror: r.get(10)?,
                 image: r.get(11)?,
                 star: r.get(12)?,
+                deleted_at: r.get(13)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -200,10 +195,10 @@ pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], 
 
 fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, upserts: &[Node], deletes: &[NodeId], meta: &[(String, String)]) -> rusqlite::Result<()> {
     let mut up = tx.prepare_cached(
-        "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image, star)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+        "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image, star, deleted_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
          ON CONFLICT(id) DO UPDATE SET parent=?2, rank=?3, text=?4, note=?5,
-           completed=?6, collapsed=?7, modified=?9, kind=?10, mirror=?11, image=?12, star=?13",
+           completed=?6, collapsed=?7, modified=?9, kind=?10, mirror=?11, image=?12, star=?13, deleted_at=?14",
     )?;
     for n in upserts {
         up.execute(params![
@@ -219,7 +214,8 @@ fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, upserts: &[Node], deletes: &[N
             n.kind.to_u8() as i64,
             n.mirror,
             n.image,
-            n.star
+            n.star,
+            n.deleted_at
         ])?;
     }
     let mut del = tx.prepare_cached("DELETE FROM nodes WHERE id = ?1")?;

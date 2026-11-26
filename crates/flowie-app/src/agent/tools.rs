@@ -470,11 +470,9 @@ impl Outline {
                 Err(e)
             }
             Ok(done) => {
-                if self.ws.tree.journal_mark() == mark && done.trash.is_empty() {
+                if self.ws.tree.journal_mark() == mark {
                     return Ok(done.msg);
                 }
-                // Trash only learns of deletions that are kept.
-                self.write_trash(done.trash);
                 self.agent_commit(&done.touched, done.fallback, cx);
                 for id in done.completed {
                     if self.ws.tree.contains(id) {
@@ -651,7 +649,6 @@ impl Outline {
             Self::id_list(p)?.into_iter().map(|v| self.agent_existing_node(&json!({ "id": v }), "id")).collect::<Result<Vec<_>, _>>()?;
         let mut fallback_chain = Vec::new();
         let mut done = Vec::new();
-        let mut trash = Vec::new();
         for id in ids {
             // Skip Home, and bullets already gone with an earlier id's subtree.
             if id == ROOT || !self.ws.tree.contains(id) {
@@ -663,12 +660,11 @@ impl Outline {
                 fallback_chain.push(ROOT);
             }
             done.push(self.line_for(id));
-            trash.push(self.trash_entry(id));
-            self.ws.tree.delete(id);
+            self.ws.tree.trash(id);
         }
         let fallback = fallback_chain.into_iter().find(|&a| a == ROOT || self.ws.tree.contains(a));
         let msg = format!("Moved {} bullet(s) to Trash (restorable from File → Trash):\n- {}", done.len(), done.join("\n- "));
-        Ok(Applied { msg, trash, fallback, ..Applied::default() })
+        Ok(Applied { msg, fallback, ..Applied::default() })
     }
 
     pub(super) fn agent_journal(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
@@ -725,7 +721,6 @@ impl Outline {
                 lines.push(format!("{}. {}", i + 1, done.msg));
                 all.touched.extend(done.touched);
                 all.completed.extend(done.completed);
-                all.trash.extend(done.trash);
                 all.fallback = all.fallback.or(done.fallback);
             }
             all.touched.retain(|id| this.ws.tree.contains(*id));
@@ -759,8 +754,7 @@ struct Applied {
     created: Vec<NodeId>,
     /// Bullets that were completed or reopened (they get the check animation).
     completed: Vec<NodeId>,
-    /// Deleted subtrees to record in Trash once the edit is kept.
-    trash: Vec<(NodeId, String, Vec<flowie_core::Node>)>,
+
     /// Where to go if the bullet in focus was deleted.
     fallback: Option<NodeId>,
 }

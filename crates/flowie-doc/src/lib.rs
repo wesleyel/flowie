@@ -6,7 +6,7 @@ use std::path::Path;
 
 use flowie_core::images::{BlobInfo, ImageDir};
 use flowie_core::store::{self, ImportRecord, ImportState, Writer};
-use flowie_core::{Caret, History, HistoryKind, Node, NodeId, Tree};
+use flowie_core::{Caret, History, HistoryKind, NodeId, Tree};
 
 /// An open outline and what saving it needs.
 pub struct Workspace {
@@ -51,7 +51,7 @@ impl Workspace {
             (store::load(&conn)?, store::load_imports(&conn)?, store::load_blobs(&conn)?, store::load_prefs(&conn)?);
         collect_images(db);
         let writer = Writer::spawn_with_error_hook(conn, on_save_status);
-        let ws = Workspace {
+        let mut ws = Workspace {
             tree: Tree::from_nodes(nodes),
             history: History::new(),
             writer: Some(writer),
@@ -60,6 +60,7 @@ impl Workspace {
             image_dir: Some(images),
             prefs: prefs.into_iter().collect(),
         };
+        ws.purge_expired();
         Ok((ws, meta))
     }
 
@@ -119,18 +120,9 @@ impl Workspace {
     }
 
     /// Record a structural command as one undo step and save it, together with the
-    /// import state it changes (before, after) and the subtrees it moves to the Trash.
-    pub fn commit_with_imports_and_trash(
-        &mut self,
-        before: Option<Caret>,
-        after: Option<Caret>,
-        mut imports: Option<(ImportState, ImportState)>,
-        trash: Vec<(NodeId, String, Vec<Node>)>,
-    ) {
-        if let Some((previous, next)) = imports.as_mut() {
-            previous.trash_removed = trash.clone();
-            next.trash_added = trash.clone();
-        }
+    /// import state it changes (before, after). Moving to and from the Trash is part of the
+    /// command's tree changes (`Tree::trash`, `Tree::untrash`).
+    pub fn commit_with_imports(&mut self, before: Option<Caret>, after: Option<Caret>, imports: Option<(ImportState, ImportState)>) {
         self.history.commit_with_imports(&mut self.tree, HistoryKind::Structure, before, after, imports.clone());
         let (upserts, deletes) = self.tree.take_dirty();
         if let Some((_, state)) = imports {
@@ -140,9 +132,29 @@ impl Workspace {
             }
         } else if let Some(writer) = &self.writer {
             writer.write(upserts, deletes);
-            for (root, label, nodes) in trash {
-                writer.trash(root, &label, nodes);
-            }
+        }
+    }
+
+    /// Delete the Trash entry `root` for good. Not an undo step: undo and redo forget the
+    /// removed nodes too, so they can't bring back part of it.
+    pub fn purge(&mut self, root: NodeId) {
+        let ids = self.tree.purge(root);
+        self.forget_purged(ids);
+    }
+
+    /// Delete for good what has been in the Trash longer than `tree::TRASH_DAYS`. Returns
+    /// how many nodes went.
+    pub fn purge_expired(&mut self) -> usize {
+        let ids = self.tree.purge_expired(flowie_core::tree::now_millis());
+        let n = ids.len();
+        self.forget_purged(ids);
+        n
+    }
+
+    fn forget_purged(&mut self, ids: Vec<NodeId>) {
+        if !ids.is_empty() {
+            self.history.forget(&ids);
+            self.persist();
         }
     }
 
@@ -183,7 +195,7 @@ impl Workspace {
     }
 }
 
-/// Delete image files no bullet (or trashed bullet) uses any more. Runs once at launch,
+/// Delete image files no bullet (in the outline or the Trash) uses any more. Runs once at launch,
 /// off the calling thread, before this session adds any.
 fn collect_images(db: &Path) {
     let db = db.to_path_buf();
@@ -211,7 +223,7 @@ mod tests {
         let db = dir.path().join("outline.sqlite");
         let (mut ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
         let id = ws.tree.create_at(ROOT, 0, "hello");
-        ws.commit_with_imports_and_trash(None, None, None, Vec::new());
+        ws.commit_with_imports(None, None, None);
         ws.flush().unwrap();
         drop(ws);
 
@@ -236,7 +248,7 @@ mod tests {
         let (mut ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
         let a = ws.tree.create_at(ROOT, 0, "a");
         let b = ws.tree.create_at(ROOT, 1, "b");
-        ws.commit_with_imports_and_trash(None, None, None, Vec::new());
+        ws.commit_with_imports(None, None, None);
         ws.set_starred(b, true);
         ws.set_starred(a, true);
         ws.set_starred(b, true); // already starred: stays in place
@@ -259,5 +271,163 @@ mod tests {
 
         let (ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
         assert_eq!(ws.tree.starred().collect::<Vec<_>>(), vec![a]);
+    }
+
+    /// Text of the reachable outline, one line per node, indented.
+    fn outline(tree: &Tree) -> String {
+        let mut out = String::new();
+        let mut stack: Vec<(NodeId, usize)> = tree.children(ROOT).iter().rev().map(|&c| (c, 0)).collect();
+        while let Some((id, depth)) = stack.pop() {
+            out.push_str(&format!("{}{}\n", "  ".repeat(depth), tree.node(id).text));
+            stack.extend(tree.children(id).iter().rev().map(|&c| (c, depth + 1)));
+        }
+        out
+    }
+
+    #[test]
+    fn soft_delete_undo_restore_and_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("outline.sqlite");
+        let (mut ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        let a = ws.tree.create_at(ROOT, 0, "a");
+        let b = ws.tree.create_at(a, 0, "b");
+        let c = ws.tree.create_at(b, 0, "c");
+        let d = ws.tree.create_at(ROOT, 1, "d");
+        ws.commit_with_imports(None, None, None);
+        ws.set_starred(c, true);
+        let whole = outline(&ws.tree);
+        let records = |ws: &Workspace| {
+            let mut all: Vec<_> = ws.tree.records().cloned().collect();
+            all.sort_by_key(|n| n.id);
+            all
+        };
+        let before = records(&ws);
+
+        // Deleting marks only the subtree's root; the nodes below keep their records.
+        ws.tree.trash(a);
+        ws.commit_with_imports(None, None, None);
+        assert_eq!(outline(&ws.tree), "d\n");
+        assert!(!ws.tree.contains(b) && !ws.tree.contains(c));
+        assert_eq!(ws.tree.node(c), &before.iter().find(|n| n.id == c).unwrap().clone());
+        assert!(ws.tree.node(a).deleted_at.is_some() && ws.tree.node(b).deleted_at.is_none());
+        assert_eq!(ws.tree.trashed(), [a]);
+        assert_eq!(ws.tree.trashed_subtree(a), [a, b, c]);
+        assert_eq!(ws.tree.starred().count(), 0);
+        assert_eq!(ws.tree.len(), 1);
+
+        // Undo and redo are ordinary field changes.
+        assert!(ws.undo().is_some());
+        assert_eq!(outline(&ws.tree), whole);
+        assert_eq!(records(&ws), before);
+        assert!(ws.redo().is_some());
+        assert_eq!(outline(&ws.tree), "d\n");
+
+        // The Trash survives a restart.
+        ws.flush().unwrap();
+        drop(ws);
+        let (mut ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        assert_eq!(outline(&ws.tree), "d\n");
+        assert_eq!(ws.tree.trashed(), [a]);
+        assert_eq!(ws.tree.records().count(), 4);
+
+        // Restoring clears the mark: everything is back as it was, and saved that way.
+        assert!(ws.tree.untrash(a));
+        ws.commit_with_imports(None, None, None);
+        assert_eq!(outline(&ws.tree), whole);
+        assert_eq!(records(&ws), before);
+        assert_eq!(ws.tree.starred().collect::<Vec<_>>(), [c]);
+        assert!(ws.undo().is_some(), "restoring is an undo step");
+        assert!(!ws.tree.contains(a));
+        assert!(ws.redo().is_some());
+        ws.flush().unwrap();
+        drop(ws);
+        let (ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        assert_eq!(outline(&ws.tree), whole);
+        assert_eq!(records(&ws), before);
+        assert!(ws.tree.trashed().is_empty());
+        let _ = d;
+    }
+
+    #[test]
+    fn purging_deletes_for_good_and_undo_forgets_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("outline.sqlite");
+        let (mut ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        let a = ws.tree.create_at(ROOT, 0, "a");
+        let b = ws.tree.create_at(a, 0, "b");
+        let c = ws.tree.create_at(b, 0, "c");
+        let keep = ws.tree.create_at(ROOT, 1, "keep");
+        ws.commit_with_imports(None, None, None);
+        // Delete `c`, then `a` around it: two Trash entries, newest first.
+        ws.tree.trash(c);
+        ws.commit_with_imports(None, None, None);
+        ws.tree.trash(a);
+        ws.commit_with_imports(None, None, None);
+        // `c` is part of `a`'s entry, but doesn't come back with it.
+        assert_eq!(ws.tree.trashed(), [a]);
+        assert_eq!(ws.tree.trashed_subtree(a), [a, b]);
+
+        // Deleting `a` for good takes everything below it.
+        ws.purge(a);
+        assert!(!ws.tree.has_record(a) && !ws.tree.has_record(b) && !ws.tree.has_record(c));
+        assert!(ws.tree.trashed().is_empty());
+        // Undo can't bring back part of it: the steps that only touched those are gone, and
+        // the next undo is creating the bullets (now just `keep`).
+        assert!(ws.undo().is_some());
+        assert!(!ws.tree.has_record(a) && !ws.tree.has_record(c));
+        assert!(!ws.tree.has_record(keep));
+        assert!(ws.undo().is_none());
+        assert!(ws.redo().is_some());
+        ws.flush().unwrap();
+        drop(ws);
+        let (ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        assert_eq!(outline(&ws.tree), "keep\n");
+        assert_eq!(ws.tree.records().count(), 1);
+    }
+
+    #[test]
+    fn restoring_an_entry_lists_the_ones_deleted_inside_it() {
+        let mut ws = Workspace::new(Tree::new());
+        let a = ws.tree.create_at(ROOT, 0, "a");
+        let b = ws.tree.create_at(a, 0, "b");
+        ws.commit_with_imports(None, None, None);
+        ws.tree.trash(b);
+        ws.tree.trash(a);
+        ws.commit_with_imports(None, None, None);
+        assert_eq!(ws.tree.trashed(), [a]);
+        assert!(ws.tree.untrash(a));
+        assert_eq!(ws.tree.trashed(), [b]);
+        assert!(ws.tree.untrash(b));
+        assert_eq!(outline(&ws.tree), "a\n  b\n");
+    }
+
+    #[test]
+    fn the_trash_empties_itself_after_the_retention_period() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("outline.sqlite");
+        let (mut ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        let old = ws.tree.create_at(ROOT, 0, "old");
+        let below = ws.tree.create_at(old, 0, "below");
+        let recent = ws.tree.create_at(ROOT, 1, "recent");
+        ws.commit_with_imports(None, None, None);
+        ws.tree.trash(old);
+        ws.tree.trash(recent);
+        let now = flowie_core::tree::now_millis();
+        let mut node = ws.tree.node(old).clone();
+        node.deleted_at = Some(now - flowie_core::tree::TRASH_DAYS * 86_400_000 - 1);
+        ws.tree.put(node);
+        ws.commit_with_imports(None, None, None);
+        ws.flush().unwrap();
+        drop(ws);
+
+        // Expired entries go at launch.
+        let (mut ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        assert!(!ws.tree.has_record(old) && !ws.tree.has_record(below));
+        assert_eq!(ws.tree.trashed(), [recent]);
+        assert_eq!(ws.purge_expired(), 0);
+        ws.flush().unwrap();
+        drop(ws);
+        let (ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        assert_eq!(ws.tree.records().count(), 1);
     }
 }

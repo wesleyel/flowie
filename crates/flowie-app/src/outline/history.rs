@@ -25,22 +25,12 @@ impl Outline {
         imports: Option<(flowie_core::store::ImportState, flowie_core::store::ImportState)>,
         cx: &mut Context<Self>,
     ) {
-        self.commit_with_imports_and_trash(before, imports, Vec::new(), cx);
-    }
-
-    pub(crate) fn commit_with_imports_and_trash(
-        &mut self,
-        before: Option<Caret>,
-        imports: Option<(flowie_core::store::ImportState, flowie_core::store::ImportState)>,
-        trash: Vec<(NodeId, String, Vec<flowie_core::Node>)>,
-        cx: &mut Context<Self>,
-    ) {
         for n in self.ws.tree.journal_removed() {
             self.ghosts.insert(n.id, n);
         }
         let after = self.caret();
         let follow = after != before || before.is_some_and(|c| self.row_on_screen(c.node));
-        self.ws.commit_with_imports_and_trash(before, after, imports, trash);
+        self.ws.commit_with_imports(before, after, imports);
         self.refresh(true);
         if follow {
             self.reveal_edit();

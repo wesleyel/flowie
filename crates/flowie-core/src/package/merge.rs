@@ -89,7 +89,7 @@ impl Package {
 
     /// Apply the package side of `plan` to `tree`: changed bullets, new
     /// ones, and the conflicts listed in `take_theirs`. Removals are left to
-    /// the caller (they go to the Trash). Returns the bullets touched.
+    /// the caller (they go to the Trash, `Tree::trash`). Returns the bullets touched.
     pub fn apply_update(&self, tree: &mut Tree, plan: &UpdatePlan, take_theirs: &HashSet<NodeId>) -> Vec<NodeId> {
         let complete = plan.id_map();
         let map = |id: NodeId| complete[&id];
@@ -132,6 +132,7 @@ impl Package {
                     mirror: ROOT,
                     image: n.image.clone().unwrap_or_default(),
                     star: String::new(),
+                    deleted_at: None,
                 });
                 touched.push(id);
             } else if take.contains(&id) && tree.contains(id) {

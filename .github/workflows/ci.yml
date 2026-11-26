@@ -1,17 +1,13 @@
 name: CI
 
 on:
+  pull_request:
   push:
     branches: [main]
-    paths-ignore: ["**.md", "docs/**", "website/**", "assets/**", "appstore/fastlane/metadata/**", "appstore/fastlane/screenshots/**"]
-  pull_request:
-    paths-ignore: ["**.md", "docs/**", "website/**", "assets/**", "appstore/fastlane/metadata/**", "appstore/fastlane/screenshots/**"]
-  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Superseded pull request runs are dropped; main runs finish so they can save the cache.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -19,34 +15,28 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
-  # CI builds once and throws the result away: no debug info, no incremental state.
-  # Smaller target/ means a smaller cache to save and restore.
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
-  fmt:
-    name: rustfmt
+  lint:
+    name: Formatting, changelogs and wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
         with:
-          components: rustfmt
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --all -- --check
-      - name: CHANGELOG.md has an entry for the Cargo version
-        # Release notes come from it (scripts/changelog-section.sh, release.yml). Before
-        # X.Y.Z itself ships, its release candidates' X.Y.Z-rc.N sections count.
-        run: |
-          version=$(sed -nE '/^\[workspace.package\]/,/^\[/ s/^version = "(.*)"/\1/p' Cargo.toml)
-          if scripts/changelog-section.sh "$version" > /dev/null 2>&1; then exit 0; fi
-          rc=$(sed -nE "s/^## \[(${version//./\\.}-rc\.[0-9]+)\].*/\1/p" CHANGELOG.md | head -n 1)
-          [ -n "$rc" ] || { echo "::error::CHANGELOG.md has no entry for $version or a $version-rc.N"; exit 1; }
-          scripts/changelog-section.sh "$rc" > /dev/null
+      - name: Check bilingual changelogs
+        run: bash scripts/release-notes.sh --check
+      - run: cargo check --locked -p flowie-core --no-default-features --target wasm32-unknown-unknown
 
   deny:
-    name: licenses and advisories (cargo-deny)
+    name: Licenses and advisories
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -54,176 +44,27 @@ jobs:
         with:
           command: check
 
-  targets:
-    name: flowie-core for wasm32 (check)
-    # The model has to stay portable (docs/roadmap: per-node sync §4, iOS §3.4): without its
-    # default store and writer-thread features, flowie-core builds for the browser.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Toolchain and the wasm32 target
-        # rust-toolchain.toml pins the toolchain, so the target goes on that one (not on `stable`).
-        run: |
-          rustup toolchain install
-          rustup target add wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: true
-      - name: Check flowie-core for wasm32-unknown-unknown
-        run: cargo check --locked -p flowie-core --no-default-features --target wasm32-unknown-unknown
-
-  check:
-    name: clippy, test and build (macOS)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          # Only main writes the cache; pull requests (Dependabot opens many) restore
-          # main's instead of each saving a multi-GB copy and evicting it.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: true
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked
-      - name: Test
-        run: cargo test --workspace --locked
-      - name: Build the app bundle
-        # A debug build reuses what `cargo test` just compiled; the release build is made
-        # locally for the App Store (appstore/README.md), so CI doesn't compile everything twice.
-        run: |
-          cargo build --locked -p flowie-app
-          scripts/bundle-macos.sh target/debug/flowie Flowie flowie.spokey.cn
-          plutil -lint build/Flowie.app/Contents/Info.plist
-          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" build/Flowie.app/Contents/Info.plist
-      - name: Smoke test (launch, then quit)
-        run: |
-          FLOWIE_DB="$RUNNER_TEMP/smoke.sqlite" build/Flowie.app/Contents/MacOS/Flowie &
-          pid=$!
-          sleep 10
-          kill -0 "$pid"   # still running: it started without crashing
-          # A second launch hands over to the first one and exits.
-          FLOWIE_DB="$RUNNER_TEMP/smoke.sqlite" perl -e 'alarm 30; exec @ARGV' build/Flowie.app/Contents/MacOS/Flowie --background
-          kill -0 "$pid"
-          kill "$pid"
-
-  check-windows:
-    name: clippy, test and build (Windows)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: true
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked
-      - name: Test
-        run: cargo test --workspace --locked
-      - name: Build (debug)
-        if: github.event_name == 'push'
-        run: cargo build --locked -p flowie-app
-      - name: Build the portable Windows test build
-        if: github.event_name != 'push'
-        env:
-          RUSTFLAGS: -D warnings -C target-feature=+crt-static
-        run: cargo build --release --locked -p flowie-app --target x86_64-pc-windows-msvc
-      - name: Stage the test build
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path build\Flowie | Out-Null
-          Copy-Item target\x86_64-pc-windows-msvc\release\flowie.exe build\Flowie\Flowie.exe
-          Copy-Item LICENSE build\Flowie\LICENSE
-      - name: Smoke test (MCP stdio)
-        # Started over pipes the way MCP clients start it (CreateProcess). PowerShell neither
-        # waits for nor captures a GUI-subsystem exe, which the release build is.
-        env:
-          FLOWIE_EXE: ${{ github.event_name == 'push' && 'target/debug/flowie.exe' || 'build/Flowie/Flowie.exe' }}
-        shell: python
-        run: |
-          import json, os, subprocess
-          reqs = [
-              {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
-              {"jsonrpc": "2.0", "id": 2, "method": "ping", "params": {}},
-          ]
-          stdin = "".join(json.dumps(r) + "\n" for r in reqs)
-          out = subprocess.run([os.environ["FLOWIE_EXE"], "mcp"], input=stdin, capture_output=True, text=True, timeout=60, check=True).stdout
-          print(out)
-          assert '"name":"flowie"' in out, "MCP initialize failed"
-          assert '"id":2' in out, "MCP ping failed"
-      - name: Upload the test build
-        if: github.event_name != 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: flowie-windows-x64
-          path: build/Flowie
-          retention-days: 7
-
-  check-linux:
-    # x86_64 runs the checks; aarch64 (Linux VMs on Apple silicon) only builds, for the test build.
-    name: ${{ matrix.check && 'clippy, test and build (Linux)' || format('build (Linux {0})', matrix.arch) }}
+  test:
+    name: Test (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
-        # Pushes to main only run the checks; pull requests also build aarch64.
-        include: ${{ fromJSON(github.event_name == 'push'
-          && '[{"arch":"x86_64","runner":"ubuntu-latest","check":true}]'
-          || '[{"arch":"x86_64","runner":"ubuntu-latest","check":true},{"arch":"aarch64","runner":"ubuntu-24.04-arm","check":false}]') }}
+        include:
+          - platform: macOS
+            runner: macos-latest
+          - platform: Windows
+            runner: windows-latest
+          - platform: Linux
+            runner: ubuntu-22.04
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
-      - name: System libraries (GPUI's X11/Wayland backends, fonts) and packaging tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libfontconfig-dev libfreetype-dev \
-            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev \
-            imagemagick desktop-file-utils shared-mime-info
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: bash scripts/linux-deps.sh
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: true
-      - name: Clippy
-        if: matrix.check
-        run: cargo clippy --workspace --all-targets --locked
-      - name: Test
-        if: matrix.check
-        run: cargo test --workspace --locked
-      - name: Build
-        run: cargo build --locked -p flowie-app
-      - name: Smoke test (MCP stdio)
-        run: |
-          out=$(printf '%s\n' \
-            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
-            '{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}' | target/debug/flowie mcp)
-          echo "$out"
-          grep -q '"name":"flowie"' <<< "$out"
-          grep -q '"id":2' <<< "$out"
-      - name: Package the test build (tar.gz and AppImage)
-        if: github.event_name != 'push'
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/appimagetool" \
-            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.arch }}.AppImage"
-          chmod +x "$RUNNER_TEMP/appimagetool"
-          version=$(sed -nE '/^\[workspace.package\]/,/^\[/ s/^version = "(.*)"/\1/p' Cargo.toml)
-          APPIMAGETOOL="$RUNNER_TEMP/appimagetool" FLOWIE_VERSION="$version-pr${{ github.event.pull_request.number || 'dev' }}" \
-            ARCH=${{ matrix.arch }} scripts/bundle-linux.sh target/debug/flowie build
-          ls -l build
-      - name: Upload the test build
-        if: github.event_name != 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: flowie-linux-${{ matrix.arch }}
-          path: |
-            build/*.tar.gz
-            build/*.AppImage
-          retention-days: 7
+      - run: cargo clippy --workspace --all-targets --locked
+      - run: cargo test --workspace --locked

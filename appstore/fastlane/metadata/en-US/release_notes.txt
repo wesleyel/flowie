@@ -1,0 +1,7 @@
+Flowie 1.0 is here. Start with the built-in tutorial, open any bullet as its own page, and keep daily notes in the Journal.
+
+• Restoring a deleted journal day brings back its contents.
+• Deleting items permanently from the Trash now asks for confirmation.
+• If your outline can't be opened, Flowie explains why instead of showing a tutorial in an unsaved window.
+
+If you used a 1.0 release candidate, export your outline before updating and import it into Flowie 1.0. The old database is kept separately.

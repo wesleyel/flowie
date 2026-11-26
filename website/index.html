@@ -1,7 +1,6 @@
 ---
 layout: default
 main_class: home
-og_description: A keyboard-first outliner for Mac and Windows. Zoom into any bullet, link and mirror notes, and write LaTeX math.
 ---
 <section class="hero">
   <div class="container">
@@ -11,7 +10,7 @@ og_description: A keyboard-first outliner for Mac and Windows. Zoom into any bul
       <p class="tagline">{{ t.tagline }}</p>
       <div class="cta">
         {% include badge.html t=t %}
-        <a class="button" href="{{ site.github_url }}/releases/latest">{{ t.download }}<span class="chevron" aria-hidden="true">›</span></a>
+        <a class="button" href="{{ '/download.html' | relative_url }}">{{ t.download }}<span class="chevron" aria-hidden="true">›</span></a>
       </div>
     </div>
     {%- endfor %}

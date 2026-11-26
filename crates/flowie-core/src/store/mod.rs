@@ -118,7 +118,7 @@ pub const PREFS: &[&str] = &["saved_searches"];
 
 /// The 1.0 format, the oldest one Flowie upgrades: an older database is moved
 /// aside, not converted. See the module docs.
-const BASELINE: i64 = 4;
+const BASELINE: i64 = 5;
 
 /// Upgrade steps: entry `i` takes a database from format `BASELINE + i` to
 /// `BASELINE + i + 1`. Only ever appended to; see the module docs.

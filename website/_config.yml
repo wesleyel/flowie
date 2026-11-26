@@ -3,7 +3,7 @@
 # link to /flowie/, /flowie/privacy.html, /flowie/terms.html and /flowie/#support,
 # so keep those paths stable.
 title: Flowie
-description: "Flowie is a keyboard-first outliner for Mac and Windows. Zoom into any bullet, link and mirror notes, write LaTeX math, and keep your notes on your device."
+description: "Flowie is a keyboard-first outliner for Mac, with previews for Windows and Linux. Zoom into any bullet, link and mirror notes, and keep your notes on your device."
 url: https://wesleyel.github.io
 baseurl: /flowie
 

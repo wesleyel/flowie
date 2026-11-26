@@ -13,7 +13,7 @@
   <a href="https://github.com/wesleyel/flowie/actions/workflows/ci.yml"><img src="https://github.com/wesleyel/flowie/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="许可证：GPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13+">
-  <img src="https://img.shields.io/badge/Windows-10%2F11-black" alt="Windows 10 和 11（64 位）">
+  <img src="https://img.shields.io/badge/Windows-preview-black" alt="Windows 预览版（10 和 11，x64）">
 </p>
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b> · <a href="https://wesleyel.github.io/flowie/">官网</a></p>
@@ -92,15 +92,15 @@
 
 Homebrew 和 GitHub 提供的版本未经公证。如果 macOS 15 或更高版本阻止打开，先尝试打开一次，再到「系统设置 → 隐私与安全性」点「仍要打开」。在更早的 macOS 上，右键点按应用，选择「打开」。
 
-### Windows
+### Windows（预览）
 
-需要 Windows 10 或 11（64 位）。下载 `Flowie-<版本号>-windows-x64.zip`，解压后运行 `Flowie.exe`。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。
+需要 Windows 10 或 11（x64）。下载 `Flowie-<版本号>-windows-x64.zip`，解压后运行 `Flowie.exe`。暂不提供原生 Windows ARM64 包。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。
 
 ### Linux（预览）
 
 适用于 x86_64、glibc 2.35 及以上（Ubuntu 22.04 及更新版本）。下载 `Flowie-<版本号>-linux-x86_64.AppImage`，加上可执行权限后运行；或把 `Flowie-<版本号>-linux-x86_64.tar.gz` 解压到 `~/.local`（`tar -xzf Flowie-<版本号>-linux-x86_64.tar.gz -C ~/.local --strip-components=1`），再运行 `flowie`。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。Linux 版目前是预览版，[运行要求见这里](docs/building.md#linux)。
 
-GitHub Releases 和 Homebrew 都提供候选版（`-rc.N`）。
+Homebrew 跟随最新版本，包括[候选版](https://github.com/wesleyel/flowie/releases)；GitHub 的「最新版本」链接指向正式版。[安装指南](https://wesleyel.github.io/flowie/download.html)有文件校验和从候选版升级到 1.0 时保留大纲的说明。
 
 ### 从源码构建
 

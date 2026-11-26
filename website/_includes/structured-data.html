@@ -19,7 +19,7 @@ _data/support.yml, English). Search engines and AI answer engines read these fac
       "screenshot": [{{ '/images/01-outline-en-US.jpg' | absolute_url | jsonify }}, {% for g in site.data.gallery %}{{ '/images/' | append: g.file | append: '-en-US.jpg' | absolute_url | jsonify }}{% unless forloop.last %}, {% endunless %}{% endfor %}],
       "applicationCategory": "ProductivityApplication",
       "applicationSubCategory": "Outliner",
-      "operatingSystem": "macOS 13 or later (Apple silicon and Intel), Windows 10 or 11 (64-bit), Linux (build from source)",
+      "operatingSystem": "macOS 13 or later (Apple silicon and Intel), Windows 10 or 11 (x64 preview), Linux x86_64 (preview, glibc 2.35 or later)",
       "inLanguage": ["en", "zh-CN"],
       "license": "https://www.gnu.org/licenses/gpl-3.0.html",
       "downloadUrl": [{{ site.app_store_url | jsonify }}, {{ site.github_url | append: '/releases/latest' | jsonify }}],

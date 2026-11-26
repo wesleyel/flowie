@@ -23,6 +23,7 @@ KEEP AND SHARE YOUR NOTES
 • Share a branch and its images as a .flowie file. The recipient can preview it, choose where to import it, and merge later updates while keeping their own edits
 • Import and export Markdown, plain text and OPML, including imports from Workflowy. Flowie's OPML exports keep internal links and mirrors
 • Restore deleted bullets from the Trash for up to 30 days
+• Use the built-in tutorial to get started, adapt an example or look up a feature
 
 AI ASSISTANTS
 • Connect Claude or another MCP client. Choose Off, Read only or Read & write in Settings. You can undo each edit an assistant makes

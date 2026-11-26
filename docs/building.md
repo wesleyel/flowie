@@ -17,6 +17,7 @@ build time. `third_party/gpui-pre-macos` is GPUI's macOS backend with its privat
 calls removed, for the App Store; see `FLOWIE-PATCH.md` there.
 
 ### Windows
+- The prebuilt Windows x64 package is a preview.
 - Windows 10 or 11 (64-bit)
 - Visual Studio Build Tools with the **Desktop development with C++** workload (MSVC + Windows SDK)
 - Rust via [rustup](https://rustup.rs) (`x86_64-pc-windows-msvc`)
@@ -157,7 +158,7 @@ docs/                these documents
 
 ## Checks
 
-The same checks run in CI (`.github/workflows/ci.yml`) on every push and pull request:
+CI (`.github/workflows/ci.yml`) checks pull requests and pushes to `main` with the same macOS, Windows and Linux matrix. It also checks both changelogs and runs `cargo deny check`. It does not create release archives.
 
 ```bash
 cargo fmt --all -- --check
@@ -174,6 +175,12 @@ Handy extras:
 cargo run -p flowie-math --example math_demo      # formula rendering playground
 cargo test -p flowie-app i18n -- --nocapture       # translation coverage report
 ```
+
+## Desktop releases and website
+
+- **Test packages:** manually run **Desktop Packages** (`release.yml`) against a branch or tag. Download the seven-day workflow artifacts. This does not publish a release.
+- **Releases:** push a `vX.Y.Z` or `vX.Y.Z-rc.N` tag matching the workspace version and both changelogs. The same package jobs build and smoke-test the macOS universal zip and the Windows x64 and Linux x86_64 preview packages. When all succeed, the workflow uploads the archives and SHA-256 files to a draft, then publishes it. A rerun does not overwrite an already published version. RCs are GitHub prereleases; Homebrew follows the newest published version, including RCs.
+- **Website:** changes under `website/` are built and checked on pull requests and deployed to GitHub Pages from `main`. The public [installation guide](https://wesleyel.github.io/flowie/download.html) covers all three platforms.
 
 ## Mac App Store build
 

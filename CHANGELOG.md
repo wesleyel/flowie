@@ -3,10 +3,14 @@
 All notable changes to Flowie are documented in this file.
 
 Each version's section becomes its [GitHub release](https://github.com/wesleyel/flowie/releases)
-notes (`scripts/changelog-section.sh`). A version first ships as release candidates
-(`X.Y.Z-rc.N`, as GitHub releases and in the `flowie` Homebrew cask), then as `X.Y.Z`.
+notes (`scripts/release-notes.sh`). Release candidates (`X.Y.Z-rc.N`) are GitHub
+prereleases. The `flowie` Homebrew cask follows the newest version, including candidates.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-11-26
+
+**Upgrading from a release candidate?** Export your outline as OPML or as a `.flowie` share package before updating, then import it into 1.0. Flowie preserves the old database as `flowie.sqlite.old-<timestamp>` and starts a fresh one. Do not rename the old database over the new one.
 
 ### Added
 
@@ -15,12 +19,13 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ### Changed
 
-- **Journal**: the Journal bullet and each day's page now have fixed IDs derived from the date, so they are found by ID instead of by their text, and two devices that open the same day will share one page once sync arrives. A journal made by an earlier release candidate isn't recognized: Today and the calendar start a new Journal bullet beside it.
+- **Platform support**: macOS is the primary release; Windows x64 and Linux x86_64 are available as previews.
+- **Journal**: the Journal and each day's page now have fixed IDs instead of being found by their text. Imported copies of older journal pages remain ordinary outline pages; Today and the calendar use the new journal.
 - **Linux**: the socket that `flowie mcp` and a second launch use to reach the running app is now in your runtime folder (`$XDG_RUNTIME_DIR`, usually `/run/user/<uid>`) rather than in `/tmp`.
 - **Storage**: a bullet's position among its siblings is now a short text key that a new bullet or a move can always fit between, so inserting or moving a bullet changes only that bullet and never renumbers its siblings. This changes the database format: a database from an earlier release candidate is kept beside the new one as `<database>.old-<timestamp>` and Flowie starts with an empty outline.
 - **Storage**: a star is now saved on its bullet, with its place in the starred list, instead of in one shared list, so two devices can star bullets at the same time once sync arrives. Saved searches are kept apart from this device's own state (window, scroll, open page), as preferences that will sync. Starring is still not an undo step, and undo no longer touches stars.
 - **Trash**: a deleted bullet now stays in the outline's data, marked as deleted, instead of being copied into a separate Trash list, so deleting and restoring can sync once sync arrives. The Trash page lists and restores entries as before. A few things differ: **Delete forever** asks first and is final, and undo no longer brings back what it removed; a bullet deleted inside one you deleted later is part of that entry and gets its own entry once the outer one is restored; entries older than 30 days are also cleared at launch; and opening a journal day whose page is in the Trash brings the page back with what you wrote instead of starting an empty one.
-- **Storage**: from 1.0 on, a database from an older Flowie is upgraded in place rather than set aside. Flowie first saves a copy beside it as `<database>.backup-v<format>-<timestamp>`, keeping the three newest, and if the copy or the upgrade fails the database is left untouched. Databases from release candidates are still set aside.
+- **Storage**: 1.0 establishes database format 5. Future updates can migrate 1.0 and later databases in place after making a backup as `<database>.backup-v<format>-<timestamp>`. Flowie keeps the three newest backups; if the copy or upgrade fails, the database is left untouched.
 
 ### Fixed
 

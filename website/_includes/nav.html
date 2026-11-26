@@ -2,6 +2,7 @@
   <nav class="toolbar-inner" aria-label="Site">
     <a class="brand" href="{{ '/' | relative_url }}"><img src="{{ '/images/icon.png' | relative_url }}" width="28" height="28" alt="">Flowie</a>
     <div class="nav-links">
+      <a href="{{ '/download.html' | relative_url }}"{% if page.url == '/download.html' %} aria-current="page"{% endif %}><span lang="en">Downloads</span><span lang="zh-CN">下载</span></a>
       <a href="{{ '/privacy.html' | relative_url }}"{% if page.url == '/privacy.html' %} aria-current="page"{% endif %}><span lang="en">{{ site.data.i18n.en.privacy }}</span><span lang="zh-CN">{{ site.data.i18n.zh.privacy }}</span></a>
       <a href="{{ '/terms.html' | relative_url }}"{% if page.url == '/terms.html' %} aria-current="page"{% endif %}><span lang="en">{{ site.data.i18n.en.terms }}</span><span lang="zh-CN">{{ site.data.i18n.zh.terms }}</span></a>
       <a href="{{ '/#support' | relative_url }}"><span lang="en">{{ site.data.i18n.en.support }}</span><span lang="zh-CN">{{ site.data.i18n.zh.support }}</span></a>

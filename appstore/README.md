@@ -125,24 +125,19 @@ before running `fastlane mac metadata`.
 
 ## Releasing a new version
 
-1. Bump `version` in the workspace `Cargo.toml` (the app, the package and App Store
-   Connect must all agree; `submit` checks), move the `[Unreleased]` notes in
-   `CHANGELOG.md` under the new version (CI fails without an entry), update the listing
-   text if needed, commit.
+1. Set the workspace version in `Cargo.toml` (the app, the package and App Store Connect
+   must all agree; `submit` checks). Move `[Unreleased]` under the new version in both
+   changelogs, and update the two locales' `metadata/<locale>/release_notes.txt` before committing.
 2. Create the version in App Store Connect (or let `metadata` do it), then
    `fastlane mac metadata` for "What's New" and URLs.
 3. `fastlane mac beta` → try it from TestFlight.
 4. `fastlane mac submit`.
-5. Release candidates first: put the notes under `## [X.Y.Z-rc.N]` in `CHANGELOG.md`, tag
-   the commit `vX.Y.Z-rc.N` and push the tag. `.github/workflows/release.yml` checks the
-   tag against `Cargo.toml` (still `X.Y.Z`, which is what the App Store gets), publishes a
-   GitHub release (not a pre-release) with that section as its notes and `Flowie-X.Y.Z-rc.N-macos.zip`,
-   and updates the `flowie` cask.
-6. Once a candidate holds up (and App Review has passed), gather the candidates' notes
-   under `## [X.Y.Z]`, tag `vX.Y.Z` and push: the stable release, and the `flowie` cask
-   again. Whichever tag is the newest version is marked latest and goes into the cask; re-running
-   an older tag changes neither. To fix notes later, edit `CHANGELOG.md` on main and run the
-   Release workflow by hand with the tag.
+
+GitHub desktop distribution is independent of App Review and does not use App Store
+credentials. Push `vX.Y.Z` for a stable release or `vX.Y.Z-rc.N` for a GitHub prerelease
+after the checks pass. **Desktop Packages** builds the macOS universal zip alongside the
+Windows x64 and Linux x86_64 previews. The `flowie` Homebrew cask follows the newest
+published version, including release candidates. See [desktop releases](../docs/building.md#desktop-releases-and-website).
 
 The build number is the git commit count, so commit between uploads.
 

@@ -13,7 +13,7 @@ Zoom into any bullet, link and mirror ideas, write math, and search your outline
   <a href="https://github.com/wesleyel/flowie/actions/workflows/ci.yml"><img src="https://github.com/wesleyel/flowie/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13+">
-  <img src="https://img.shields.io/badge/Windows-10%2F11-black" alt="Windows 10 and 11 (64-bit)">
+  <img src="https://img.shields.io/badge/Windows-preview-black" alt="Windows preview (10 and 11, x64)">
 </p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="https://wesleyel.github.io/flowie/">Website</a></p>
@@ -92,15 +92,15 @@ Requires macOS 13 or later on Apple silicon or Intel.
 
 The Homebrew and GitHub builds are not notarized. On macOS 15 or later, try opening `Flowie.app` first, then go to **System Settings → Privacy & Security → Open Anyway** if macOS blocks it. On older macOS versions, right-click the app and choose **Open**.
 
-### Windows
+### Windows (preview)
 
-Requires Windows 10 or 11 (64-bit). Download `Flowie-<version>-windows-x64.zip`, unzip it and run `Flowie.exe`. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest).
+Requires Windows 10 or 11 (x64). Download `Flowie-<version>-windows-x64.zip`, unzip it and run `Flowie.exe`. There is no native Windows ARM64 package. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest).
 
 ### Linux (preview)
 
 For x86_64 with glibc 2.35 or later (Ubuntu 22.04 and newer). Download `Flowie-<version>-linux-x86_64.AppImage`, make it executable and run it, or extract `Flowie-<version>-linux-x86_64.tar.gz` into `~/.local` (`tar -xzf Flowie-<version>-linux-x86_64.tar.gz -C ~/.local --strip-components=1`) and run `flowie`. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest). The Linux build is a preview; [what it needs](docs/building.md#linux).
 
-GitHub Releases and Homebrew include release candidates (`-rc.N`).
+Homebrew follows the newest version, including [release candidates](https://github.com/wesleyel/flowie/releases). The latest-release link is for stable versions. See the [installation guide](https://wesleyel.github.io/flowie/download.html) for checksums and how to preserve an outline when upgrading from a candidate to 1.0.
 
 ### Build from source
 

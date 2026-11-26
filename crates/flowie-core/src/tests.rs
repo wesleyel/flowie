@@ -1183,9 +1183,9 @@ fn local_writes_stamp_only_the_fields_they_change() {
     assert!(Reg::ALL.iter().all(|r| t.node(e).sync.clocks.get(*r) == created), "a new node writes every field");
     assert_eq!(t.node(e).sync.moved_from, b);
 
-    let before = t.node(a).sync.clocks;
+    let before = t.node(a).sync.clocks.clone();
     t.set_text(a, "A");
-    let after = t.node(a).sync.clocks;
+    let after = t.node(a).sync.clocks.clone();
     assert!(after.get(Reg::Text) > before.get(Reg::Text));
     assert!(Reg::ALL.iter().filter(|r| **r != Reg::Text).all(|r| after.get(*r) == before.get(*r)));
 

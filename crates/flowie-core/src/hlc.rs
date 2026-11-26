@@ -159,35 +159,65 @@ pub const REMOVED: u16 = 1 << 15;
 pub const ALL_REGS: u16 = (1 << Reg::ALL.len()) - 1;
 
 /// When a node was created, and when each of its synced fields was last written.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+///
+/// Every node has one, so it is kept small: until a field is written on its own, all of them
+/// share one clock (`base`: the creation, or the edit time of a node saved before Flowie kept
+/// clocks), and only a node with a field written since holds a clock per field.
+#[derive(Debug, Clone, Default)]
 pub struct Clocks {
     pub created: Hlc,
-    regs: [Hlc; 9],
+    base: Hlc,
+    regs: Option<Box<[Hlc; 9]>>,
+}
+
+impl PartialEq for Clocks {
+    fn eq(&self, other: &Self) -> bool {
+        self.created == other.created && Reg::ALL.into_iter().all(|reg| self.get(reg) == other.get(reg))
+    }
+}
+
+impl Eq for Clocks {}
+
+impl std::hash::Hash for Clocks {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.created.hash(state);
+        for reg in Reg::ALL {
+            self.get(reg).hash(state);
+        }
+    }
 }
 
 impl Clocks {
     /// Every field written when the node was created.
     pub fn new(created: Hlc) -> Self {
-        Clocks { created, regs: [created; 9] }
+        Clocks { created, base: created, regs: None }
     }
 
     /// For a node saved before Flowie kept clocks: created at `created`, every field last
     /// written at `modified` (milliseconds), by actor 0.
     pub fn derived(created: i64, modified: i64) -> Self {
-        Clocks { created: Hlc::at_millis(created), regs: [Hlc::at_millis(modified); 9] }
+        Clocks { created: Hlc::at_millis(created), base: Hlc::at_millis(modified), regs: None }
     }
 
     pub fn get(&self, reg: Reg) -> Hlc {
-        self.regs[reg.index()]
+        self.regs.as_ref().map_or(self.base, |regs| regs[reg.index()])
     }
 
     pub fn set(&mut self, reg: Reg, at: Hlc) {
-        self.regs[reg.index()] = at;
+        match &mut self.regs {
+            Some(regs) => regs[reg.index()] = at,
+            None if at == self.base => {}
+            None => {
+                let mut regs = Box::new([self.base; 9]);
+                regs[reg.index()] = at;
+                self.regs = Some(regs);
+            }
+        }
     }
 
     /// The latest clock of the node: when it was last written.
     pub fn max(&self) -> Hlc {
-        self.regs.iter().copied().fold(self.created, Hlc::max)
+        Reg::ALL.into_iter().map(|reg| self.get(reg)).fold(self.created, Hlc::max)
     }
 
     /// The saved form: `created`, then a (register, clock) pair for each field written after
@@ -257,6 +287,25 @@ mod tests {
     }
 
     #[test]
+    fn clocks_hold_one_clock_until_a_field_is_written_on_its_own() {
+        // Every node has clocks (#18): 56 bytes, not ten clocks inline.
+        assert!(std::mem::size_of::<Clocks>() <= 56, "{}", std::mem::size_of::<Clocks>());
+        let created = Hlc { wall: 100, counter: 0, actor: 1 };
+        let mut clocks = Clocks::new(created);
+        clocks.set(Reg::Text, created);
+        assert!(clocks.regs.is_none());
+        let mut spelled_out = Clocks::new(created);
+        spelled_out.regs = Some(Box::new([created; 9]));
+        assert_eq!(clocks, spelled_out, "equal by what they say, not how they keep it");
+
+        let later = Hlc { wall: 200, ..created };
+        clocks.set(Reg::Note, later);
+        assert_eq!((clocks.get(Reg::Note), clocks.get(Reg::Text), clocks.max()), (later, created, later));
+        let derived = Clocks::derived(100, 300);
+        assert_eq!((derived.created.wall, derived.get(Reg::Position).wall, derived.max().wall), (100, 300, 300));
+    }
+
+    #[test]
     fn clocks_save_only_the_fields_written_after_creation() {
         let created = Hlc { wall: 100, counter: 0, actor: 3 };
         let mut clocks = Clocks::new(created);
@@ -265,7 +314,7 @@ mod tests {
         clocks.set(Reg::Position, Hlc { wall: 300, counter: 0, actor: 4 });
         let saved = clocks.to_bytes();
         assert_eq!(saved.len(), 16 + 2 * 17);
-        assert_eq!(Clocks::from_bytes(&saved), Some(clocks));
+        assert_eq!(Clocks::from_bytes(&saved), Some(clocks.clone()));
         assert_eq!(clocks.max(), Hlc { wall: 300, counter: 0, actor: 4 });
         assert_eq!(Clocks::from_bytes(&[]), None);
         assert_eq!(Clocks::from_bytes(&saved[..20]), None);

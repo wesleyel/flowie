@@ -179,7 +179,12 @@ fn backup(conn: &Connection, path: &Path, version: i64) -> Result<PathBuf, OpenE
     let saved = (|| {
         let target = backup.to_str().ok_or_else(|| rusqlite::Error::InvalidPath(backup.clone()))?;
         conn.execute("VACUUM INTO ?1", [target])?;
-        std::fs::File::open(&backup).and_then(|f| f.sync_all()).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+        // Opened for writing: Windows only flushes (FlushFileBuffers) a handle with write access.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&backup)
+            .and_then(|f| f.sync_all())
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
     })();
     match saved {
         Ok(()) => Ok(backup),

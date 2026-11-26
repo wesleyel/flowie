@@ -442,6 +442,39 @@ fn markdown_notes_kinds_roundtrip() {
 }
 
 #[test]
+fn markdown_headings_open_sections_and_paragraphs_stay_rows() {
+    let md = "# Article\n\nIntro paragraph.\n\n## History\n\nFirst paragraph\nwraps here.\n\nSecond paragraph.\n\n\
+              #### Detail\n\nDeep text.\n\n- a list\n  under the item\n- another\n\nAfter the list.\n\n## Later\n- x\n";
+    let items = io::parse_text(md);
+    let shape = |it: &Item| (it.kind, it.text.clone(), it.note.clone());
+    assert_eq!(items.len(), 1);
+    let article = &items[0];
+    assert_eq!(shape(article), (BlockKind::H1, "Article".into(), String::new()));
+    let [intro, history, later] = &article.children[..] else { panic!("{:#?}", article.children) };
+    assert_eq!(shape(intro), (BlockKind::Paragraph, "Intro paragraph.".into(), String::new()));
+    assert_eq!(history.kind, BlockKind::H2);
+    // A line right after a paragraph, with no blank line, is part of it.
+    let [first, second, detail] = &history.children[..] else { panic!("{:#?}", history.children) };
+    assert_eq!(shape(first), (BlockKind::Paragraph, "First paragraph wraps here.".into(), String::new()));
+    assert_eq!(second.text, "Second paragraph.");
+    // `####` is a heading too (an H3 row) and nests under the `##` above it.
+    assert_eq!((detail.kind, detail.text.as_str()), (BlockKind::H3, "Detail"));
+    let texts: Vec<_> = detail.children.iter().map(shape).collect();
+    assert_eq!(
+        texts,
+        [
+            (BlockKind::Paragraph, "Deep text.".into(), String::new()),
+            (BlockKind::Bullet, "a list".into(), "under the item".into()),
+            (BlockKind::Bullet, "another".into(), String::new()),
+            (BlockKind::Paragraph, "After the list.".into(), String::new()),
+        ]
+    );
+    assert_eq!((later.kind, later.children[0].text.as_str()), (BlockKind::H2, "x"));
+    // Not headings: no space after the hashes, or seven of them.
+    assert_eq!(io::parse_text("#tag line\n####### seven")[0].text, "#tag line");
+}
+
+#[test]
 fn plain_indented_lines_without_markers() {
     let items = io::parse_text("a\n    b\n    c\nd");
     assert_eq!(items.len(), 2);

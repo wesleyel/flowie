@@ -86,31 +86,55 @@ fn strip_marker(s: &str) -> Option<&str> {
     None
 }
 
-/// Parse indented text or Markdown. If any line has a list marker, lines
-/// without one that are indented under an item become its note; otherwise
-/// every line is an item and indentation alone gives the structure.
-pub fn parse_text(text: &str) -> Vec<Item> {
-    let lines: Vec<(usize, &str)> = text
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| {
-            let mut indent = 0;
-            for c in l.chars() {
-                match c {
-                    ' ' => indent += 1,
-                    '\t' => indent += 4,
-                    _ => break,
-                }
-            }
-            (indent, l.trim())
-        })
-        .collect();
-    let has_markers = lines.iter().any(|(_, l)| strip_marker(l).is_some());
-    let min = lines.iter().map(|(i, _)| *i).min().unwrap_or(0);
+/// A Markdown heading line (`# Title` to `###### Title`, no list marker): its
+/// level and title.
+fn heading(line: &str) -> Option<(usize, &str)> {
+    let level = line.chars().take_while(|&c| c == '#').count();
+    let title = line[level..].strip_prefix([' ', '\t'])?;
+    (1..=6).contains(&level).then_some((level, title.trim()))
+}
 
-    // Build with a stack of (indent, path into the tree).
+/// Parse indented text or Markdown.
+///
+/// - Headings (`#` to `######`, without a list marker) open sections: what
+///   follows, down to the next heading of the same or a higher level, goes
+///   under them. Levels below 3 become H3 rows.
+/// - If any line has a list marker, a line without one is a continuation of
+///   the item above (its note) when it's indented under it or follows it with
+///   no blank line in between; otherwise it starts a paragraph row, which the
+///   lines right after it join.
+/// - Without list markers every line is an item and indentation alone gives
+///   the structure.
+pub fn parse_text(text: &str) -> Vec<Item> {
+    // (indent, trimmed line, blank line before it)
+    let mut lines: Vec<(usize, &str, bool)> = Vec::new();
+    let mut blank = false;
+    for l in text.lines() {
+        if l.trim().is_empty() {
+            blank = true;
+            continue;
+        }
+        let mut indent = 0;
+        for c in l.chars() {
+            match c {
+                ' ' => indent += 1,
+                '\t' => indent += 4,
+                _ => break,
+            }
+        }
+        lines.push((indent, l.trim(), std::mem::take(&mut blank)));
+    }
+    let has_markers = lines.iter().any(|(_, l, _)| strip_marker(l).is_some());
+    let min = lines.iter().map(|(i, _, _)| *i).min().unwrap_or(0);
+
+    // Items hang from `roots` by paths of child indices. `sections` are the open
+    // headings (level, path); `stack` the list items (indent, path) inside the
+    // innermost one, whose children new top-level items join.
     let mut roots: Vec<Item> = Vec::new();
+    let mut sections: Vec<(usize, Vec<usize>)> = Vec::new();
     let mut stack: Vec<(usize, Vec<usize>)> = Vec::new();
+    // The paragraph row the last line went into, which a following line joins.
+    let mut paragraph: Option<Vec<usize>> = None;
     fn at<'a>(roots: &'a mut [Item], path: &[usize]) -> &'a mut Item {
         let mut cur = &mut roots[path[0]];
         for &i in &path[1..] {
@@ -118,16 +142,50 @@ pub fn parse_text(text: &str) -> Vec<Item> {
         }
         cur
     }
-    for (indent, line) in lines {
+    fn attach(roots: &mut Vec<Item>, parent: Option<&[usize]>, item: Item) -> Vec<usize> {
+        match parent {
+            Some(parent_path) => {
+                let parent = at(roots, parent_path);
+                parent.children.push(item);
+                let mut p = parent_path.to_vec();
+                p.push(parent.children.len() - 1);
+                p
+            }
+            None => {
+                roots.push(item);
+                vec![roots.len() - 1]
+            }
+        }
+    }
+    for (indent, line, blank_before) in lines {
         let indent = indent - min;
+        if strip_marker(line).is_none() {
+            if let Some((level, title)) = heading(line) {
+                while sections.last().is_some_and(|(l, _)| *l >= level) {
+                    sections.pop();
+                }
+                let mut item = parse_line(title);
+                item.kind = [BlockKind::H1, BlockKind::H2, BlockKind::H3][level.min(3) - 1];
+                let path = attach(&mut roots, sections.last().map(|(_, p)| p.as_slice()), item);
+                sections.push((level, path));
+                stack.clear();
+                paragraph = None;
+                continue;
+            }
+        }
         let (is_item, content, numbered) = match strip_marker(line) {
             Some(rest) => (true, rest, line.starts_with(|c: char| c.is_ascii_digit())),
-            None if line.starts_with('#') => (true, line, false),
             None => (!has_markers, line, false),
         };
         if !is_item {
+            if let Some(path) = paragraph.as_ref().filter(|_| !blank_before) {
+                let item = at(&mut roots, path);
+                item.text.push(' ');
+                item.text.push_str(line);
+                continue;
+            }
             if let Some((item_indent, path)) = stack.last() {
-                if indent > *item_indent || has_markers {
+                if indent > *item_indent || !blank_before {
                     let item = at(&mut roots, path);
                     if !item.note.is_empty() {
                         item.note.push('\n');
@@ -136,6 +194,14 @@ pub fn parse_text(text: &str) -> Vec<Item> {
                     continue;
                 }
             }
+            // A paragraph between lists: a row of its own, and the end of the list.
+            let mut item = parse_line(content);
+            if item.kind == BlockKind::Bullet {
+                item.kind = BlockKind::Paragraph;
+            }
+            stack.clear();
+            paragraph = Some(attach(&mut roots, sections.last().map(|(_, p)| p.as_slice()), item));
+            continue;
         }
         let mut item = parse_line(content);
         if numbered && item.kind == BlockKind::Bullet {
@@ -144,20 +210,10 @@ pub fn parse_text(text: &str) -> Vec<Item> {
         while stack.last().is_some_and(|(i, _)| *i >= indent) {
             stack.pop();
         }
-        let path = match stack.last() {
-            Some((_, parent_path)) => {
-                let parent = at(&mut roots, parent_path);
-                parent.children.push(item);
-                let mut p = parent_path.clone();
-                p.push(parent.children.len() - 1);
-                p
-            }
-            None => {
-                roots.push(item);
-                vec![roots.len() - 1]
-            }
-        };
+        let parent = stack.last().or(sections.last()).map(|(_, p)| p.clone());
+        let path = attach(&mut roots, parent.as_deref(), item);
         stack.push((indent, path));
+        paragraph = None;
     }
     roots
 }
@@ -176,7 +232,16 @@ fn parse_line(s: &str) -> Item {
         }
     }
     let mut s = s;
-    for (prefix, kind) in [("### ", BlockKind::H3), ("## ", BlockKind::H2), ("# ", BlockKind::H1), ("> ", BlockKind::Quote)] {
+    // Flowie has three heading levels: deeper ones become H3.
+    for (prefix, kind) in [
+        ("###### ", BlockKind::H3),
+        ("##### ", BlockKind::H3),
+        ("#### ", BlockKind::H3),
+        ("### ", BlockKind::H3),
+        ("## ", BlockKind::H2),
+        ("# ", BlockKind::H1),
+        ("> ", BlockKind::Quote),
+    ] {
         if let Some(rest) = s.strip_prefix(prefix) {
             it.kind = kind;
             s = rest;

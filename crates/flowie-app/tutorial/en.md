@@ -117,7 +117,8 @@
       - Open a `.flowie` file someone sent you to import it; new arrivals show a dot until you open them (search `is:new` to find them)
       - Deleted bullets ({{key:delete-bullet}}) stay in the Trash for 30 days: File → Trash
     - ## Make it yours, and AI {{collapsed}}
-      - [ ] Press {{key:settings}} for Settings: theme, accent color, language
+      - [ ] Press {{key:settings}} for Settings: theme, accent color, content width, language
+      - [ ] In a wide window, press {{key:content-width}} to switch the text column between narrow, medium and full width
       - [ ] Click any shortcut in Settings to change it; + adds another key or a mouse side button
       - AI assistants can read your outline — and edit it if you allow it — through Flowie's MCP server: Settings → Agent
         For Claude Code, run this in a terminal:

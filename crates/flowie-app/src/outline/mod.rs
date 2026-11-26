@@ -83,6 +83,7 @@ actions!(
         Find,
         Escape,
         ToggleCompletedVisible,
+        CycleContentWidth,
         Quit,
         Jump,
         MoveTo,

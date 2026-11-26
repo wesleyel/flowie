@@ -119,7 +119,7 @@ impl Outline {
             );
             for id in ids {
                 let (label, note) = self.plain_text_and_note(id);
-                let path = self.render_path(id, f32::from(window.viewport_size().width) - 156., true, window, cx);
+                let path = self.render_path(id, self.content_width(window) - 156., true, window, cx);
                 let target = if mirror { self.ws.tree.parent(id) } else { id };
                 section.push(
                     div()

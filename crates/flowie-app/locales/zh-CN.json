@@ -30,6 +30,7 @@
     "nothing_to_export": "没有可导出的内容",
     "bullet_deleted": "该条目已删除（见废纸篓）",
     "cut_kept_in_trash": "已剪切，废纸篓中也保留了一份",
+    "content_width": "内容宽度：{width}",
     "deleted_hidden": "搜索隐藏的 {count} 个条目也一并移到了废纸篓",
     "moved": "已将 {count} 个条目移动到“{target}”",
     "starred": "已收藏“{name}”，按 {shortcut} 跳转",
@@ -171,6 +172,13 @@
         "orange": "橙色",
         "pink": "粉色",
         "graphite": "石墨色"
+      },
+      "width": {
+        "label": "内容宽度",
+        "hint": "宽窗口里大纲文字最多能有多宽。按 {shortcut} 在三档之间切换。",
+        "narrow": "窄",
+        "medium": "适中",
+        "full": "全宽"
       },
       "language": {
         "label": "语言",
@@ -315,7 +323,8 @@
       "level_2": "显示 2 层",
       "level_3": "显示 3 层",
       "level_4": "显示 4 层",
-      "toggle_completed": "显示 / 隐藏已完成"
+      "toggle_completed": "显示 / 隐藏已完成",
+      "content_width": "切换内容宽度"
     }
   },
   "shortcut": {
@@ -389,6 +398,7 @@
     "link-to": "链接到条目…",
     "delete-bullet": "删除条目",
     "toggle-completed": "显示 / 隐藏已完成",
+    "content-width": "切换内容宽度",
     "page-back": "后退",
     "page-forward": "前进",
     "zoom-in": "进入条目",

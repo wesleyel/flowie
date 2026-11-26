@@ -30,6 +30,7 @@
     "nothing_to_export": "Nothing to export",
     "bullet_deleted": "That bullet was deleted (see Trash)",
     "cut_kept_in_trash": "Cut — also kept in Trash",
+    "content_width": "Content width: {width}",
     "deleted_hidden": {
       "one": "Also moved {count} bullet the search hides to Trash",
       "other": "Also moved {count} bullets the search hides to Trash"
@@ -205,6 +206,13 @@
         "pink": "Pink",
         "graphite": "Graphite"
       },
+      "width": {
+        "label": "Content width",
+        "hint": "How wide the outline's text can grow in a wide window. {shortcut} switches between them.",
+        "narrow": "Narrow",
+        "medium": "Medium",
+        "full": "Full"
+      },
       "language": {
         "label": "Language",
         "hint": "Follow {os}, or always use one language.",
@@ -348,7 +356,8 @@
       "level_2": "Show 2 Levels",
       "level_3": "Show 3 Levels",
       "level_4": "Show 4 Levels",
-      "toggle_completed": "Show/Hide Completed"
+      "toggle_completed": "Show/Hide Completed",
+      "content_width": "Switch Content Width"
     }
   },
   "shortcut": {
@@ -422,6 +431,7 @@
     "link-to": "Link to bullet…",
     "delete-bullet": "Delete bullet",
     "toggle-completed": "Show / hide completed",
+    "content-width": "Switch content width",
     "page-back": "Page back",
     "page-forward": "Page forward",
     "zoom-in": "Zoom in",

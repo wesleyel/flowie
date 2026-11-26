@@ -5,7 +5,7 @@ The first launch opens a tutorial outline in three parts: Getting started (a few
 lessons collapsed. Help → Flowie Tutorial adds a fresh copy. Its text lives in
 `crates/flowie-app/tutorial/<locale>.md`.
 
-Settings (⌘,) hold the theme (system / light / dark), accent color, language and shortcuts.
+Settings (⌘,) hold the theme (system / light / dark), accent color, content width (narrow / medium / full), language and shortcuts.
 Click a shortcut to replace it, use `+` to add another keyboard or mouse side-button binding,
 and press Backspace while recording to remove that binding.
 
@@ -30,7 +30,7 @@ and press Backspace while recording to remove that binding.
 | ⌘⇧↑ / ⌘⇧↓ | Move bullet |
 | ⌘⇧Backspace | Delete bullet (kept in Trash for 30 days) |
 | Esc | Select whole bullets; Shift-↑/↓ or dragging across rows extends |
-| `/` | Command menu: block types, colors, highlight, math, date, link, mirror, move |
+| `/` (or `、` from a Chinese input method) | Command menu: block types, colors, highlight, math, date, link, mirror, move |
 | `#` / `@` | Tag / mention completion |
 | ⌘⌥0–8 | Bullet, H1, H2, H3, text, to-do, numbered, quote, code block |
 | ⌘B ⌘I ⌘E ⌘M ⌘K ⌘⇧Y | Bold, italic, code, math, link, highlight |
@@ -38,6 +38,7 @@ and press Backspace while recording to remove that binding.
 | ⌘⇧D | Today's journal page |
 | ⌘⇧C | Calendar (click a day: its journal page; ⌥-click: bullets dated that day) |
 | ⌘O | Show / hide completed |
+| ⌃⌘W | Content width: narrow, medium or full (cycles) |
 | ⌘Z / ⌘⇧Z | Undo / redo |
 | ⌘⇧I / ⌘⇧E | Import (OPML, Markdown, text — Workflowy exports work) / export Markdown |
 | ⌘, | Settings: rebind any shortcut, theme (system / light / dark), accent color, language, about |

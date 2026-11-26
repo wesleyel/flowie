@@ -444,8 +444,13 @@ impl Render for Outline {
                             }
                         }))
                         .child(
-                            list(self.list.clone(), move |ix, window, cx| entity.update(cx, |this, cx| this.render_row(ix, window, cx)))
-                                .size_full(),
+                            list(self.list.clone(), move |ix, window, cx| {
+                                entity.update(cx, |this, cx| {
+                                    let item = this.render_row(ix, window, cx);
+                                    this.in_content_column(item)
+                                })
+                            })
+                            .size_full(),
                         ),
                 )
                 .child(crate::ui::scrollbar::scrollbar("outline-bar", &self.list, self.theme))
@@ -544,6 +549,7 @@ impl Render for Outline {
                     .on_action(cx.listener(Self::find))
                     .on_action(cx.listener(Self::escape))
                     .on_action(cx.listener(Self::toggle_completed_visible))
+                    .on_action(cx.listener(Self::cycle_content_width))
                     .on_action(cx.listener(Self::jump))
                     .on_action(cx.listener(Self::move_to_action))
                     .on_action(cx.listener(Self::link_to_bullet))

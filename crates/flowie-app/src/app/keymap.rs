@@ -142,6 +142,7 @@ pub static BINDINGS: &[Binding] = &[
     b!("link-to", "outline", primary "shift-k", E, LinkToBullet),
     b!("delete-bullet", "outline", primary "shift-backspace", O, DeleteNode),
     b!("toggle-completed", "outline", primary "o", O, ToggleCompletedVisible),
+    b!("content-width", "outline", mac "cmd-ctrl-w", other "alt-w", O, CycleContentWidth),
     // Navigation. Off macOS, Alt+←/→ is Back/Forward as in every browser, so
     // it doesn't also zoom while bullets are selected.
     b!("page-back", "navigation", "mouse-back", O, PageBack),
@@ -468,6 +469,7 @@ fn menus_for(os: Os) -> Vec<AppMenu> {
                 item::<Level4>(t!("menu.outline.level_4"), Some("level-4")),
                 AppMenuItem::Separator,
                 item::<ToggleCompletedVisible>(t!("menu.outline.toggle_completed"), Some("toggle-completed")),
+                item::<CycleContentWidth>(t!("menu.outline.content_width"), Some("content-width")),
             ],
         },
         AppMenu { name: t!("menu.help.title"), items: help_items },

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::i18n::t;
 use crate::outline::{OpenSettings, Outline};
 
-pub(crate) use appearance::ThemeMode;
+pub(crate) use appearance::{ContentWidth, ThemeMode};
 pub(crate) use general::Author;
 use shortcuts::Recording;
 
@@ -38,6 +38,9 @@ pub struct Config {
     /// Jump and scroll to bullets as an AI agent edits them.
     #[serde(default = "yes")]
     pub agent_follow_edits: bool,
+    /// How wide the outline's text column may grow.
+    #[serde(default)]
+    pub content_width: ContentWidth,
     /// UI language: a locale code from `locales/`; empty = follow macOS.
     #[serde(default)]
     pub language: String,
@@ -66,6 +69,7 @@ impl Default for Config {
             author: Default::default(),
             agent: Default::default(),
             agent_follow_edits: true,
+            content_width: ContentWidth::default(),
             language: String::new(),
             smooth_scroll: true,
             seen_version: None,

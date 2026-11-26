@@ -1,11 +1,11 @@
-//! Theme, accent, and language preferences.
+//! Theme, accent, content width, and language preferences.
 
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, SharedString, Window};
 use serde::{Deserialize, Serialize};
 
 use crate::app::i18n::{self, t};
 use crate::app::keymap;
-use crate::outline::Outline;
+use crate::outline::{CycleContentWidth, Outline};
 use crate::ui::theme::{Theme, ACCENTS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -17,7 +17,85 @@ pub enum ThemeMode {
     Dark,
 }
 
+/// How wide the outline's text column may grow: three steps. Narrow and Medium
+/// center a column of at most that width (bullets and padding included) in a wide
+/// window; Full uses the whole window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ContentWidth {
+    Narrow,
+    Medium,
+    #[default]
+    Full,
+}
+
+impl ContentWidth {
+    pub const ALL: [ContentWidth; 3] = [ContentWidth::Narrow, ContentWidth::Medium, ContentWidth::Full];
+
+    /// The column's largest width in pixels (`None`: the whole window).
+    pub fn max_px(self) -> Option<f32> {
+        match self {
+            ContentWidth::Narrow => Some(680.),
+            ContentWidth::Medium => Some(960.),
+            ContentWidth::Full => None,
+        }
+    }
+
+    /// The next step, after Full back to Narrow (the shortcut cycles).
+    pub fn next(self) -> ContentWidth {
+        match self {
+            ContentWidth::Narrow => ContentWidth::Medium,
+            ContentWidth::Medium => ContentWidth::Full,
+            ContentWidth::Full => ContentWidth::Narrow,
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            ContentWidth::Narrow => "narrow",
+            ContentWidth::Medium => "medium",
+            ContentWidth::Full => "full",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ContentWidth::Narrow => t!("settings.appearance.width.narrow"),
+            ContentWidth::Medium => t!("settings.appearance.width.medium"),
+            ContentWidth::Full => t!("settings.appearance.width.full"),
+        }
+    }
+}
+
 impl Outline {
+    /// The width of the outline's text column in `window`.
+    pub fn content_width(&self, window: &Window) -> f32 {
+        let full = f32::from(window.viewport_size().width);
+        self.config.content_width.max_px().map_or(full, |max| full.min(max))
+    }
+
+    /// One list item (page header, row, footer) placed in the text column.
+    pub fn in_content_column(&self, item: AnyElement) -> AnyElement {
+        match self.config.content_width.max_px() {
+            None => item,
+            Some(max) => div().w_full().flex().justify_center().child(div().w_full().max_w(px(max)).child(item)).into_any_element(),
+        }
+    }
+
+    pub fn set_content_width(&mut self, width: ContentWidth, cx: &mut Context<Self>) {
+        self.config.content_width = width;
+        self.save_config();
+        // Rows wrap at the new width, so every height changes.
+        self.list.remeasure();
+        cx.notify();
+    }
+
+    pub fn cycle_content_width(&mut self, _: &CycleContentWidth, _: &mut Window, cx: &mut Context<Self>) {
+        let width = self.config.content_width.next();
+        self.set_content_width(width, cx);
+        self.toast(t!("toast.content_width", width = width.label()));
+    }
+
     pub fn apply_theme(&mut self, window: &Window) {
         self.theme = Theme::build(window.appearance(), &self.config);
     }
@@ -78,6 +156,12 @@ impl Outline {
                     this.apply_theme(window);
                     cx.notify();
                 }))
+        }));
+        let width = self.config.content_width;
+        let widths = crate::ui::segmented::track(theme).children(ContentWidth::ALL.into_iter().map(|w| {
+            crate::ui::segmented::segment(theme, SharedString::from(format!("width-{}", w.id())), w == width)
+                .child(w.label())
+                .on_click(cx.listener(move |this, _, _, cx| this.set_content_width(w, cx)))
         }));
         let language = self.config.language.clone();
         let choices = std::iter::once(("", t!("settings.appearance.language.system"))).chain(i18n::languages());
@@ -154,6 +238,11 @@ impl Outline {
                 segmented.into_any_element(),
             ))
             .child(field(t!("settings.appearance.accent.label"), t!("settings.appearance.accent.hint").into(), swatches.into_any_element()))
+            .child(field(
+                t!("settings.appearance.width.label"),
+                t!("settings.appearance.width.hint", shortcut = keymap::hint("content-width", &self.config.keys)).into(),
+                widths.into_any_element(),
+            ))
             .child(field(
                 t!("settings.appearance.language.label"),
                 t!("settings.appearance.language.hint", os = os).into(),

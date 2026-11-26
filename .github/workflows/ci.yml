@@ -143,17 +143,40 @@ jobs:
           print(out)
           assert '"name":"flowie"' in out, "MCP initialize failed"
           assert '"id":2' in out, "MCP ping failed"
+      - name: Stage the test build
+        if: github.event_name != 'push'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build\Flowie | Out-Null
+          Copy-Item target\debug\flowie.exe build\Flowie\Flowie.exe
+          Copy-Item LICENSE build\Flowie\LICENSE
+      - name: Upload the test build
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowie-windows-x64
+          path: build/Flowie
+          retention-days: 7
 
   check-linux:
-    name: clippy, test and build (Linux)
-    runs-on: ubuntu-latest
+    # x86_64 runs the checks; aarch64 (Linux VMs on Apple silicon) only builds, for the test build.
+    name: ${{ matrix.check && 'clippy, test and build (Linux)' || format('build (Linux {0})', matrix.arch) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Pushes to main only run the checks; pull requests also build aarch64.
+        include: ${{ fromJSON(github.event_name == 'push'
+          && '[{"arch":"x86_64","runner":"ubuntu-latest","check":true}]'
+          || '[{"arch":"x86_64","runner":"ubuntu-latest","check":true},{"arch":"aarch64","runner":"ubuntu-24.04-arm","check":false}]') }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
-      - name: System libraries (GPUI's X11/Wayland backends, fonts)
+      - name: System libraries (GPUI's X11/Wayland backends, fonts) and packaging tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libfontconfig-dev libfreetype-dev \
-            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev
+            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev \
+            imagemagick desktop-file-utils shared-mime-info
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -162,8 +185,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
       - name: Clippy
+        if: matrix.check
         run: cargo clippy --workspace --all-targets --locked
       - name: Test
+        if: matrix.check
         run: cargo test --workspace --locked
       - name: Build
         run: cargo build --locked -p flowie-app
@@ -175,3 +200,22 @@ jobs:
           echo "$out"
           grep -q '"name":"flowie"' <<< "$out"
           grep -q '"id":2' <<< "$out"
+      - name: Package the test build (tar.gz and AppImage)
+        if: github.event_name != 'push'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/appimagetool" \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.arch }}.AppImage"
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          version=$(sed -nE '/^\[workspace.package\]/,/^\[/ s/^version = "(.*)"/\1/p' Cargo.toml)
+          APPIMAGETOOL="$RUNNER_TEMP/appimagetool" FLOWIE_VERSION="$version-pr${{ github.event.pull_request.number || 'dev' }}" \
+            ARCH=${{ matrix.arch }} scripts/bundle-linux.sh target/debug/flowie build
+          ls -l build
+      - name: Upload the test build
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowie-linux-${{ matrix.arch }}
+          path: |
+            build/*.tar.gz
+            build/*.AppImage
+          retention-days: 7

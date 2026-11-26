@@ -161,6 +161,9 @@ pub trait Backend {
     fn modify(&mut self, saves: Vec<Envelope>) -> Result<Vec<SaveResult>, String>;
     /// Records saved after `cursor`, oldest first.
     fn changes(&mut self, cursor: Option<&str>, limit: usize) -> Result<ChangeBatch, String>;
+    /// How long `changes` may wait on the backend while nothing is new (long polling), for
+    /// backends that can.
+    fn set_wait(&mut self, _wait: std::time::Duration) {}
 }
 
 /// What one round of [`sync_once`] did.

@@ -4,11 +4,13 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+pub use driver::{SyncDriver, SyncPhase};
 use flowie_core::images::{BlobInfo, ImageDir};
 use flowie_core::store::{self, ImportRecord, ImportState, Writer};
 use flowie_core::{Caret, History, HistoryKind, NodeId, Tree};
 pub use sync::SyncState;
 
+mod driver;
 mod sync;
 
 /// An open outline and what saving it needs.

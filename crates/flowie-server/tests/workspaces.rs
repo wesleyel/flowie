@@ -90,3 +90,84 @@ fn two_outlines_sync_through_the_server_across_restarts() {
     assert_eq!(outline(&open(&db_b)), before_b);
     assert_eq!(before_a, before_b);
 }
+
+/// A workspace with its sync driver, woken through a channel.
+struct Device {
+    ws: Workspace,
+    driver: flowie_doc::SyncDriver,
+    woken: std::sync::mpsc::Receiver<()>,
+}
+
+impl Device {
+    fn start(ws: Workspace, url: &str, token: &str) -> Device {
+        let (wake, woken) = std::sync::mpsc::channel();
+        let (url, token) = (url.to_string(), token.to_string());
+        let mut driver = flowie_doc::SyncDriver::start(
+            move || Box::new(HttpBackend::new(&url, "outline", &token)),
+            move || {
+                let _ = wake.send(());
+            },
+        );
+        driver.long_poll = std::time::Duration::from_secs(20);
+        let mut device = Device { ws, driver, woken };
+        device.driver.pump(&mut device.ws);
+        device
+    }
+
+    /// Pump on every wake until `done` holds; panics after 10 seconds.
+    fn until(&mut self, mut done: impl FnMut(&Workspace) -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !done(&self.ws) {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "timed out; phase {:?}", self.driver.phase(&self.ws));
+            if self.woken.recv_timeout(left).is_ok() {
+                self.driver.pump(&mut self.ws);
+            }
+        }
+    }
+}
+
+#[test]
+fn drivers_push_edits_while_a_pull_waits() {
+    let (url, token) = start();
+    let dir = tempfile::tempdir().unwrap();
+    let mut a = Device::start(open(&dir.path().join("a.sqlite")), &url, &token);
+    let mut b = Device::start(open(&dir.path().join("b.sqlite")), &url, &token);
+
+    let x = a.ws.tree.create_at(ROOT, 0, "x");
+    a.ws.commit_with_imports(None, None, None);
+    a.driver.pump(&mut a.ws);
+    b.until(|ws| ws.tree.contains(x));
+
+    // a's pull is waiting on the server by now; b's edit still reaches it at once.
+    let started = std::time::Instant::now();
+    b.ws.tree.set_text(x, "from b");
+    b.ws.commit_typing(x, None, None);
+    b.driver.pump(&mut b.ws);
+    a.until(|ws| ws.tree.node(x).text == "from b");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+    b.until(|ws| !ws.sync.has_unsent());
+    a.until(|ws| !ws.sync.has_unsent());
+    assert_eq!(a.driver.phase(&a.ws), flowie_doc::SyncPhase::Synced);
+    assert_eq!(b.driver.phase(&b.ws), flowie_doc::SyncPhase::Synced);
+}
+
+#[test]
+fn a_driver_reports_a_server_it_cant_reach_and_keeps_the_edit() {
+    let dir = tempfile::tempdir().unwrap();
+    // Nothing listens on this port.
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let mut a = Device::start(open(&dir.path().join("a.sqlite")), &format!("http://127.0.0.1:{port}"), "token");
+    a.ws.tree.create_at(ROOT, 0, "kept");
+    a.ws.commit_with_imports(None, None, None);
+    a.driver.pump(&mut a.ws);
+    let offline = |d: &Device| matches!(d.driver.phase(&d.ws), flowie_doc::SyncPhase::Offline(_));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !offline(&a) {
+        assert!(std::time::Instant::now() < deadline, "{:?}", a.driver.phase(&a.ws));
+        if a.woken.recv_timeout(std::time::Duration::from_secs(1)).is_ok() {
+            a.driver.pump(&mut a.ws);
+        }
+    }
+    assert!(a.ws.sync.has_unsent(), "the edit waits to be sent");
+}

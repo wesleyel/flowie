@@ -70,6 +70,10 @@ impl Backend for HttpBackend {
         Ok(response.results)
     }
 
+    fn set_wait(&mut self, wait: Duration) {
+        self.wait = wait;
+    }
+
     fn changes(&mut self, cursor: Option<&str>, limit: usize) -> Result<ChangeBatch, String> {
         let mut request = self
             .agent

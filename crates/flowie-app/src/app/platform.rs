@@ -25,6 +25,19 @@ pub const OS: Os = if cfg!(target_os = "macos") {
 /// Windows and Linux have no global menu bar, so the window draws its own.
 pub const MENU_BAR_IN_WINDOW: bool = !matches!(OS, Os::Mac);
 
+/// Linux: the display server to run on. Wayland when the session has it, else X11;
+/// `FLOWIE_X11=1` runs on X11 (XWayland under a Wayland session) instead, where the window
+/// manager always draws the title bar. Only a fallback: XWayland blurs text under
+/// fractional scaling.
+pub fn choose_display(app: gpui::Application) -> gpui::Application {
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    if std::env::var_os("FLOWIE_X11").is_some_and(|v| !v.is_empty() && v != "0") {
+        let x11 = gpui::GraphicalEnvironment { wayland_display: None, ..gpui::GraphicalEnvironment::detect() };
+        return app.with_windowing(gpui::WindowingRequest::Windowed(x11));
+    }
+    app
+}
+
 /// The code font. `monospace` is fontconfig's alias for the desktop's choice.
 pub const MONO_FONT: &str = match OS {
     Os::Mac => "Menlo",

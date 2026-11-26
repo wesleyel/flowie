@@ -477,7 +477,7 @@ impl Render for Outline {
             window.request_animation_frame();
         }
 
-        div()
+        let outline = div()
             .id("outline")
             .key_context(kc)
             .track_focus(&self.focus)
@@ -722,7 +722,9 @@ impl Render for Outline {
             .children(palette)
             .children(image_preview)
             .children(settings)
-            .children(toast)
+            .children(toast);
+        // Linux under GNOME: the border, shadow and resize edges Flowie draws itself.
+        crate::app::window_frame::frame(outline, theme, window)
     }
 }
 

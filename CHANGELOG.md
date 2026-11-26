@@ -8,6 +8,10 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+### Added
+
+- **Linux**: the window has a title bar on every desktop. Flowie asks the window manager to draw one, and on GNOME under Wayland, which doesn't, the menu bar becomes the title bar: drag it to move the window, double-click it to maximize, right-click it for the window menu. It carries the window buttons in the desktop's layout, and the window gets a border, a shadow and resize edges. `FLOWIE_X11=1` runs Flowie through X11 (XWayland) instead.
+
 ### Changed
 
 - **Journal**: the Journal bullet and each day's page now have fixed IDs derived from the date, so they are found by ID instead of by their text, and two devices that open the same day will share one page once sync arrives. A journal made by an earlier release candidate isn't recognized: Today and the calendar start a new Journal bullet beside it.

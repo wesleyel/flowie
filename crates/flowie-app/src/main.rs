@@ -147,7 +147,7 @@ fn main() {
     if let Some(p) = open_path {
         let _ = open_tx.unbounded_send(p);
     }
-    let app = gpui::application().with_assets(Assets);
+    let app = platform::choose_display(gpui::application()).with_assets(Assets);
     let url_tx = open_tx.clone();
     app.on_open_urls(move |urls| {
         for p in urls.iter().filter_map(|u| share::path_from_url(u)).filter(|p| share::is_package(p)) {
@@ -186,6 +186,9 @@ fn main() {
                     titlebar: Some(TitlebarOptions { title: Some("Flowie".into()), ..Default::default() }),
                     window_min_size: Some(min_size),
                     app_id: Some("flowie.spokey.cn".into()),
+                    // Linux: the window manager's title bar where it offers one; GNOME on
+                    // Wayland doesn't, and Flowie draws its own (app::window_frame).
+                    window_decorations: Some(gpui::WindowDecorations::Server),
                     // Started for an agent: appear without taking focus.
                     focus: !background,
                     ..Default::default()

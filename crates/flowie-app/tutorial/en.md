@@ -124,4 +124,5 @@
       - AI assistants can read your outline — and edit it if you allow it — through Flowie's MCP server: Settings → Agent
         For Claude Code, run this in a terminal:
         - {{mcp-command}} {{code}}
+      - On Windows and Linux, closing the window can keep Flowie running in the system tray, where AI assistants still reach it and the icon brings the window back: Settings → General
       - Help → What's New lists what changed in each version; ideas or problems? Help → Send Feedback…

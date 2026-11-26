@@ -5,6 +5,10 @@ use gpui::px;
 
 use super::{Outline, Target, HEAD};
 
+/// Above this many rows appearing or disappearing at once, they do without the
+/// grow and shrink animation.
+const MAX_ANIMATED_ROWS: usize = 150;
+
 /// Above this many new rows at once, the list is reset rather than spliced (see
 /// `Outline::row_height_hint`).
 const BULK_ROWS: usize = 200;
@@ -22,6 +26,11 @@ impl Outline {
         self.highlight_terms = opts.query.as_ref().map(|q| q.highlight_terms()).unwrap_or_default();
         let (new_rows, virtuals) = flowie_core::flatten_mapped(&self.ws.tree, self.zoom, &opts);
         self.ws.tree.add_virtuals(virtuals);
+        // Rows growing in or shrinking out are each drawn every frame until done, so
+        // folding a big subtree (or expand all) would animate thousands at once and
+        // stutter: past a screenful or so, rows come and go at once instead.
+        let shown = self.display.iter().filter(|d| !d.leaving).count();
+        let animate = animate && new_rows.len().abs_diff(shown) <= MAX_ANIMATED_ROWS;
         let old_display = std::mem::take(&mut self.display);
         let new_display: Vec<DisplayRow> = if animate {
             let old: Vec<Row> = old_display

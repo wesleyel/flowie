@@ -8,7 +8,9 @@ use std::time::Instant;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 use web_time::Instant;
 
-use crate::tree::{Change, NodeId, Tree};
+use std::collections::HashMap;
+
+use crate::tree::{Change, Edit, Field, NodeId, Tree};
 
 /// Where the caret was, so undo/redo can put it back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +33,40 @@ struct Step {
     caret_before: Option<Caret>,
     caret_after: Option<Caret>,
     at: Instant,
+}
+
+/// What a step keeps of its changes (oldest first): one patch per field of each record,
+/// from the value before the step to the value after it, so typing a sentence keeps one
+/// text patch instead of one per keystroke, and none for a field that ends where it
+/// started. A record created or removed in between starts its fields afresh, so they still
+/// undo in order around it.
+fn compact(changes: Vec<Change>) -> Vec<Change> {
+    let mut kept: Vec<Change> = Vec::with_capacity(changes.len());
+    let mut open: HashMap<(NodeId, Field), usize> = HashMap::new();
+    for change in changes {
+        match change.edit {
+            Edit::Set(patch) => {
+                let key = (change.id, patch.after.field());
+                if let Some(&ix) = open.get(&key) {
+                    if let Edit::Set(first) = &mut kept[ix].edit {
+                        first.after = patch.after;
+                    }
+                    continue;
+                }
+                open.insert(key, kept.len());
+                kept.push(Change { id: change.id, edit: Edit::Set(patch) });
+            }
+            edit => {
+                for field in Field::ALL {
+                    open.remove(&(change.id, field));
+                }
+                kept.push(Change { id: change.id, edit });
+            }
+        }
+    }
+    kept.retain(|c| !matches!(&c.edit, Edit::Set(patch) if patch.before == patch.after));
+    kept.shrink_to_fit();
+    kept
 }
 
 #[derive(Debug, Default)]
@@ -67,13 +103,15 @@ impl History {
         self.redo.clear();
         if let (Kind::Typing(id), Some(last)) = (kind, self.undo.last_mut()) {
             if last.kind == Kind::Typing(id) && last.at.elapsed() < COALESCE {
-                last.changes.extend(changes);
+                let mut all = std::mem::take(&mut last.changes);
+                all.extend(changes);
+                last.changes = compact(all);
                 last.caret_after = caret_after;
                 last.at = Instant::now();
                 return;
             }
         }
-        self.undo.push(Step { imports, changes, kind, caret_before, caret_after, at: Instant::now() });
+        self.undo.push(Step { imports, changes: compact(changes), kind, caret_before, caret_after, at: Instant::now() });
         if self.undo.len() > LIMIT {
             self.undo.remove(0);
         }
@@ -132,5 +170,58 @@ impl History {
         let caret = step.caret_after;
         self.undo.push(Step { changes: inverse, kind: Kind::Structure, ..step });
         Some(caret)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tree::ROOT;
+
+    #[test]
+    fn a_change_stays_small() {
+        // An import keeps one of these per bullet (#18).
+        assert!(std::mem::size_of::<Change>() <= 48, "{}", std::mem::size_of::<Change>());
+    }
+
+    #[test]
+    fn a_step_keeps_one_patch_per_field() {
+        let mut t = Tree::new();
+        let a = t.create_at(ROOT, 0, "");
+        t.take_journal();
+        let mut h = History::new();
+        for len in 1..=50 {
+            t.set_text(a, &"x".repeat(len));
+            h.commit(&mut t, Kind::Typing(a), None, None);
+        }
+        t.set_note(a, "n");
+        t.set_note(a, "");
+        h.commit(&mut t, Kind::Typing(a), None, None);
+        let step = &h.undo[0].changes;
+        let texts = step.iter().filter(|c| c.field() == Some(Field::Text)).count();
+        assert_eq!(texts, 1, "{step:?}");
+        assert!(step.iter().all(|c| c.field() != Some(Field::Note)), "a note back where it was keeps no patch");
+
+        h.undo(&mut t).unwrap();
+        assert_eq!(t.node(a).text, "");
+        h.redo(&mut t).unwrap();
+        assert_eq!(t.node(a).text, "x".repeat(50));
+    }
+
+    #[test]
+    fn a_record_created_and_removed_in_one_step_undoes_in_order() {
+        let mut t = Tree::new();
+        let mut h = History::new();
+        let a = t.create_at(ROOT, 0, "one");
+        t.set_text(a, "two");
+        t.remove(a);
+        let b = t.create_at(ROOT, 0, "three");
+        t.set_text(b, "four");
+        h.commit(&mut t, Kind::Structure, None, None);
+        h.undo(&mut t).unwrap();
+        assert!(!t.contains(a) && !t.contains(b));
+        h.redo(&mut t).unwrap();
+        assert!(!t.contains(a));
+        assert_eq!(t.node(b).text, "four");
     }
 }

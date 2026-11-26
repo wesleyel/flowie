@@ -33,7 +33,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::hlc::{Clocks, Hlc, HlcClock, Reg, ALL_REGS, REMOVED};
 
-pub use change::{Change, Edit, Field, Value};
+pub use change::{Change, Edit, Field, Patch, Value};
 pub use id::{virtual_id, NodeId, ROOT};
 pub use node::{now_millis, set_clock, system_millis, BlockKind, Clock, Node, NodeSync};
 
@@ -949,7 +949,7 @@ impl Tree {
     /// Journal the patches that took a record from `before` (None: it is new) to `after`.
     fn journal_put(&mut self, before: Option<&Node>, after: &Node) {
         match before {
-            None => self.journal.push(Change { id: after.id, edit: Edit::Create(after.clone()) }),
+            None => self.journal.push(Change { id: after.id, edit: Edit::Create { parent: after.parent } }),
             Some(before) => self.journal.extend(Change::diff(before, after)),
         }
     }
@@ -973,7 +973,7 @@ impl Tree {
         if had_children || before.deleted_at.is_some() || !self.index.moved.is_empty() || !self.index.revived.is_empty() {
             self.reindex();
         }
-        self.journal.push(Change { id, edit: Edit::Remove(before) });
+        self.journal.push(Change { id, edit: Edit::Remove(Box::new(before)) });
     }
 
     /// Remove a record and save that, without journaling it. Updates the indexes
@@ -1010,8 +1010,8 @@ impl Tree {
         self.journal
             .iter()
             .filter_map(|c| match &c.edit {
-                Edit::Remove(node) => Some(node.clone()),
-                Edit::Set { before: before @ Value::Deleted(_), after: after @ Value::Deleted(Some(_)) } if before != after => {
+                Edit::Remove(node) => Some((**node).clone()),
+                Edit::Set(patch) if matches!(patch.after, Value::Deleted(Some(_))) && patch.before != patch.after => {
                     self.nodes.get(&c.id).map(|n| Node { deleted_at: None, ..n.clone() })
                 }
                 _ => None,
@@ -1076,27 +1076,28 @@ impl Tree {
             let id = change.id;
             let old = self.nodes.get(&id).cloned();
             let undo = match &change.edit {
-                Edit::Create(_) => self.tombstone(id).map(Edit::Remove),
+                Edit::Create { .. } => self.tombstone(id).map(|node| Edit::Remove(Box::new(node))),
                 Edit::Remove(node) if old.is_none() => {
                     // Bringing a record back is a new write of all its fields.
-                    let mut node = node.clone();
+                    let mut node = (**node).clone();
                     let at = self.clock.tick(now_millis());
                     for reg in Reg::ALL {
                         node.sync.clocks.set(reg, at);
                     }
                     self.purged.remove(&id);
                     self.unsent.insert(id, ALL_REGS);
-                    self.nodes.insert(id, node.clone());
-                    Some(Edit::Create(node))
+                    let parent = node.parent;
+                    self.nodes.insert(id, node);
+                    Some(Edit::Create { parent })
                 }
                 Edit::Remove(_) => None,
-                Edit::Set { before, after } => match &old {
-                    Some(current) if Value::of(current, after.field()) == *after => {
+                Edit::Set(patch) => match &old {
+                    Some(current) if Value::of(current, patch.after.field()) == patch.after => {
                         let mut node = current.clone();
-                        before.apply(&mut node);
+                        patch.before.apply(&mut node);
                         self.stamp(Some(current), &mut node);
                         self.nodes.insert(id, node);
-                        Some(Edit::Set { before: after.clone(), after: before.clone() })
+                        Some(Edit::set(patch.after.clone(), patch.before.clone()))
                     }
                     _ => None,
                 },

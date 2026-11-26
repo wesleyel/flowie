@@ -142,15 +142,30 @@ pub fn changed_regs(before: &Node, after: &Node) -> Vec<Reg> {
     regs
 }
 
-/// What happened to a record.
+/// One field going from `before` to `after` (always the same field).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Patch {
+    pub before: Value,
+    pub after: Value,
+}
+
+/// What happened to a record. Undo steps keep these, so they stay small: a creation
+/// keeps no copy of the record (undoing it takes the record as it is then, which is what
+/// redo brings back), and the larger cases are boxed.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Edit {
-    /// The record was created, as it was then.
-    Create(Node),
+    /// The record was created under `parent`.
+    Create { parent: NodeId },
     /// The record was removed for good, as it was then.
-    Remove(Node),
-    /// One field went from `before` to `after` (always the same field).
-    Set { before: Value, after: Value },
+    Remove(Box<Node>),
+    /// One field changed.
+    Set(Box<Patch>),
+}
+
+impl Edit {
+    pub fn set(before: Value, after: Value) -> Edit {
+        Edit::Set(Box::new(Patch { before, after }))
+    }
 }
 
 /// One journaled change to one record.
@@ -167,7 +182,7 @@ impl Change {
             .into_iter()
             .filter_map(|field| {
                 let (b, a) = (Value::of(before, field), Value::of(after, field));
-                (b != a).then_some(Change { id: after.id, edit: Edit::Set { before: b, after: a } })
+                (b != a).then(|| Change { id: after.id, edit: Edit::set(b, a) })
             })
             .collect()
     }
@@ -175,7 +190,7 @@ impl Change {
     /// The field this sets, if it sets one.
     pub fn field(&self) -> Option<Field> {
         match &self.edit {
-            Edit::Set { after, .. } => Some(after.field()),
+            Edit::Set(patch) => Some(patch.after.field()),
             _ => None,
         }
     }
@@ -183,8 +198,9 @@ impl Change {
     /// Parents this change puts the record under or takes it from.
     pub fn parents(&self) -> Vec<NodeId> {
         match &self.edit {
-            Edit::Create(n) | Edit::Remove(n) => vec![n.parent],
-            Edit::Set { before, after } => [before.parent(), after.parent()].into_iter().flatten().collect(),
+            Edit::Create { parent } => vec![*parent],
+            Edit::Remove(n) => vec![n.parent],
+            Edit::Set(patch) => [patch.before.parent(), patch.after.parent()].into_iter().flatten().collect(),
         }
     }
 }

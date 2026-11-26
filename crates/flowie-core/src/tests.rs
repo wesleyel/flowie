@@ -1110,7 +1110,7 @@ fn an_edit_is_journaled_one_field_at_a_time() {
     assert_eq!(fields, [Field::Position]);
     let e = t.create_at(b, 0, "e");
     let journal = t.take_journal();
-    assert!(matches!(journal.as_slice(), [c] if c.id == e && matches!(c.edit, Edit::Create(_))));
+    assert!(matches!(journal.as_slice(), [c] if c.id == e && matches!(c.edit, Edit::Create { parent } if parent == b)));
 }
 
 #[test]

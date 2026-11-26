@@ -399,15 +399,13 @@ impl Outline {
                     ix += 1;
                     continue;
                 }
-                if let Some(cached) = self.heights.rows.get(&d.row.id) {
-                    if cached.measured.is_none_or(|prev| (prev - h).abs() >= 0.5) {
-                        let key = self.row_key(d.row.id, d.row.depth).map(|(k, _)| k);
-                        if let Some(cached) = self.heights.rows.get_mut(&d.row.id) {
-                            if let Some(key) = key {
-                                cached.key = key;
-                            }
-                            cached.measured = Some(h);
-                        }
+                // A new measurement is for the row as drawn now, so it takes the current key.
+                let changed = self.heights.rows.get(&d.row.id).is_some_and(|c| c.measured.is_none_or(|prev| (prev - h).abs() >= 0.5));
+                if changed {
+                    let key = self.row_key(d.row.id, d.row.depth).map(|(k, _)| k);
+                    if let Some(cached) = self.heights.rows.get_mut(&d.row.id) {
+                        cached.key = key.unwrap_or(cached.key);
+                        cached.measured = Some(h);
                     }
                 }
             }

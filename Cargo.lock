@@ -1559,6 +1559,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "flowie-sync"
+version = "1.0.1"
+dependencies = [
+ "flowie-core",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fluent-uri"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -11,6 +11,7 @@ Rust on GPUI (Zed's UI framework, taken through `gpui-kit`'s `gpui-pre` snapshot
 |---|---|
 | `crates/flowie-core` | Model and persistence, **no UI**: `tree/` (`NodeId` UUIDs, `Node`, `Tree`, edit ops), `rank.rs` (fractional-index sibling keys: base-62 strings compared as bytes, never renumbered), `store/` (SQLite schema in `store/mod.rs`, background `Writer` batching changes about every 200 ms, Trash, imports, image metadata), `history.rs` (undo), `flatten.rs` (tree → visible `Row`/`DisplayRow`), `markup.rs` (inline formatting), `search.rs`, `io/` (text/Markdown/OPML), `package/` (share packages, three-way merge), `images.rs` (sha256 content-addressed files). Default features `store` (store, package, `ImageDir`) and `writer-thread` (`Writer`); without them it builds for wasm |
 | `crates/flowie-doc` | The document layer, **no GPUI**: `Workspace` owns the open outline's `tree`, `history` and `writer` (plus imports and image metadata), opens the database and runs the commit/undo path every edit takes |
+| `crates/flowie-sync` | Per-node sync, **no IO, no GPUI**, builds for wasm: `wire` (the JSON `Envelope`/`NodeRecord` devices exchange, golden vectors in `testdata/`), `merge` (field-by-field, last writer wins by `flowie_core::hlc` clock) |
 | `crates/flowie-math` | KaTeX-compatible math via RaTeX, plus a GPUI element |
 | `crates/flowie-app` | The GPUI app (binary `flowie`) |
 | `third_party/gpui-pre-macos` | GPUI's macOS backend with private AppKit calls removed for App Review (`FLOWIE-PATCH.md`). Keep the patch when bumping gpui-kit. |
@@ -33,7 +34,7 @@ cargo run -p flowie-app                         # dev run; FLOWIE_DB=/tmp/x.sqli
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked
 cargo test --workspace --locked
-cargo check -p flowie-core --no-default-features --target wasm32-unknown-unknown   # the model without store/writer-thread
+cargo check -p flowie-core -p flowie-sync --no-default-features --target wasm32-unknown-unknown   # the model and sync without store/writer-thread
 scripts/bundle-macos.sh target/release/flowie Flowie flowie.spokey.cn   # local .app
 ```
 
@@ -60,7 +61,7 @@ The backlog lives in `docs/roadmap/`, which is **not part of this repository**: 
 git repo (hidden through `.git/info/exclude`), so commit roadmap edits inside `docs/roadmap/` and never add it
 here. One Markdown file per item (written in Chinese), indexed in `docs/roadmap/README.md`, which holds each
 item's status (长期 / 待办 / 进行中 / 已完成). Discuss and revise designs by editing those files. Long-term designs:
-- **Per-node sync**: an LWW-per-field engine with CloudKit and self-hosted backends. It needs fractional-index ranks, soft deletes and deterministic journal IDs first.
-- **iOS and cross-platform**: one GPUI UI on every platform (an iOS backend now exists upstream, as `gpui-pre-ios`), with a GPUI-free `flowie-session` crate for commands, selection and undo, and thin native shells. It starts with a small GPUI-on-iOS prototype.
+- **Per-node sync**: an LWW-per-field engine (`flowie-sync`) with CloudKit and self-hosted backends. The format it needs (fractional-index ranks, soft deletes, deterministic journal IDs, per-field clocks, outbox and tombstones) is in place since database format 6.
+- **iOS and cross-platform**: a native iOS app (SwiftUI + UIKit, a reduced feature set) over the Rust core through UniFFI (`flowie-ffi` over `flowie-doc`); the desktop stays on GPUI; the browser comes last as a TypeScript UI over a wasm core. See `docs/roadmap/release-plan.md` for the order.
 
 More docs: `docs/building.md` (platforms, data paths), `docs/usage.md`, `docs/mcp.md`, `docs/translations.md`, `CONTRIBUTING.md`.

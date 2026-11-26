@@ -65,6 +65,19 @@ impl Hlc {
     }
 }
 
+impl serde::Serialize for Hlc {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_wire())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Hlc {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Hlc, D::Error> {
+        let s = String::deserialize(d)?;
+        Hlc::from_wire(&s).ok_or_else(|| serde::de::Error::custom("expected a clock (wall12-counter4-actor16 in hex)"))
+    }
+}
+
 /// One process's clock.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HlcClock {

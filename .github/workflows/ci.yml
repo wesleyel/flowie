@@ -33,7 +33,7 @@ jobs:
       - run: cargo fmt --all -- --check
       - name: Check bilingual changelogs
         run: bash scripts/release-notes.sh --check
-      - run: cargo check --locked -p flowie-core --no-default-features --target wasm32-unknown-unknown
+      - run: cargo check --locked -p flowie-core -p flowie-sync --no-default-features --target wasm32-unknown-unknown
 
   deny:
     name: Licenses and advisories

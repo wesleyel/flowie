@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/flowie-core", "crates/flowie-doc", "crates/flowie-math", "crates/flowie-app"]
+members = ["crates/flowie-core", "crates/flowie-doc", "crates/flowie-sync", "crates/flowie-math", "crates/flowie-app"]
 exclude = ["third_party/gpui-pre-macos"]
 
 [workspace.package]
@@ -26,6 +26,7 @@ ratex-types = "0.1.16"
 ratex-katex-fonts = "0.1.16"
 flowie-core = { path = "crates/flowie-core" }
 flowie-doc = { path = "crates/flowie-doc" }
+flowie-sync = { path = "crates/flowie-sync" }
 flowie-math = { path = "crates/flowie-math" }
 
 [profile.release]

@@ -382,7 +382,9 @@ impl Outline {
             this.set_meta("device", &this.device_id.clone());
         }
         this.ensure_author();
-        if this.ws.tree.children(ROOT).is_empty() {
+        // A new database starts with the tutorial. Without one (it couldn't be opened, and the
+        // window's banner says so) the outline stays empty: nothing in it would be saved.
+        if this.ws.writer.is_some() && this.ws.tree.children(ROOT).is_empty() {
             this.seed_welcome();
         }
         this.refresh(false);

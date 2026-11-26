@@ -24,7 +24,7 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ### Fixed
 
-- **Storage**: a database saved by a newer Flowie, or one that can't be opened, no longer opens silently as an empty outline: a banner says what happened and that nothing in the window is saved, and the database file is left untouched.
+- **Storage**: a database saved by a newer Flowie, or one that can't be opened, no longer opens silently as an empty outline: the window stays empty, without the tutorial, a banner says what happened and that nothing in the window is saved, and the database file is left untouched.
 - **Files**: when the file dialog can't open, importing, exporting and inserting images say so instead of doing nothing. On Linux this happens without xdg-desktop-portal, and the message says what to install.
 
 ## [1.0.0-rc.6] - 2026-11-25

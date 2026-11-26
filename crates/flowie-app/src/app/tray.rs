@@ -421,8 +421,8 @@ mod imp {
         let bytes = &buf[..info.buffer_size()];
         let rgba: Vec<u8> = match info.color_type {
             png::ColorType::Rgba => bytes.to_vec(),
-            png::ColorType::Rgb => bytes.chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
-            png::ColorType::GrayscaleAlpha => bytes.chunks_exact(2).flat_map(|c| [c[0], c[0], c[0], c[1]]).collect(),
+            png::ColorType::Rgb => bytes.as_chunks::<3>().0.iter().flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
+            png::ColorType::GrayscaleAlpha => bytes.as_chunks::<2>().0.iter().flat_map(|c| [c[0], c[0], c[0], c[1]]).collect(),
             png::ColorType::Grayscale => bytes.iter().flat_map(|&g| [g, g, g, 255]).collect(),
             png::ColorType::Indexed => return Vec::new(),
         };

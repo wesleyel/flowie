@@ -189,6 +189,10 @@ impl Binding {
     pub fn label(&self) -> &'static str {
         i18n::text(&format!("shortcut.{}", self.id))
     }
+
+    pub fn english_label(&self) -> &'static str {
+        i18n::english_text(&format!("shortcut.{}", self.id))
+    }
 }
 
 /// The keys a binding id currently uses (empty = unbound).

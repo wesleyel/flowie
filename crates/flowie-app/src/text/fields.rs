@@ -9,6 +9,7 @@ impl Outline {
     pub fn field_text(&self, f: Field) -> &str {
         match f {
             Field::AuthorName => &self.config.author.name,
+            Field::ShortcutSearch => self.settings.as_ref().map_or("", |s| s.shortcut_query.as_str()),
             Field::PackageTitle => self.package_export.as_ref().map_or("", |p| p.title.as_str()),
             Field::PackageDescription => self.package_export.as_ref().map_or("", |p| p.description.as_str()),
             Field::WhatsNew(id) => self.notes_page().and_then(|page| page.tree.get(id)).map_or("", |node| node.text.as_str()),
@@ -18,6 +19,11 @@ impl Outline {
     pub fn set_field_text(&mut self, f: Field, text: String) {
         match f {
             Field::AuthorName => self.set_author_name(text),
+            Field::ShortcutSearch => {
+                if let Some(s) = self.settings.as_mut() {
+                    s.shortcut_query = text;
+                }
+            }
             Field::PackageTitle => {
                 if let Some(p) = self.package_export.as_mut() {
                     p.title = text;

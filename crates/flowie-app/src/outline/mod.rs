@@ -153,6 +153,8 @@ pub enum Target {
 pub enum Field {
     /// Settings → General → Author name.
     AuthorName,
+    /// Settings → Shortcuts → the search box.
+    ShortcutSearch,
     /// The export dialog's title and description.
     PackageTitle,
     PackageDescription,

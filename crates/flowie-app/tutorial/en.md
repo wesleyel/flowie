@@ -120,7 +120,7 @@
     - ## Make it yours, and AI {{collapsed}}
       - [ ] Press {{key:settings}} for Settings: theme, accent color, content width, language
       - [ ] In a wide window, press {{key:content-width}} to switch the text column between narrow, medium and full width
-      - [ ] Click any shortcut in Settings to change it; + adds another key or a mouse side button
+      - [ ] Click any shortcut in Settings to change it; + adds another key or a mouse side button, and the search box finds one by name or key
       - AI assistants can read your outline — and edit it if you allow it — through Flowie's MCP server: Settings → Agent
         For Claude Code, run this in a terminal:
         - {{mcp-command}} {{code}}

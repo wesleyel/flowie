@@ -154,6 +154,11 @@ pub fn text(key: &str) -> &'static str {
     }
 }
 
+/// A message in English whatever the UI language (search matches both).
+pub fn english_text(key: &str) -> &'static str {
+    catalogs()[0].messages.get(key).map_or("", |m| m.form(None))
+}
+
 /// A message with its placeholders filled; `count` also picks the plural form.
 pub fn format(key: &str, args: &[(&str, &dyn Display)]) -> String {
     let rendered: Vec<(&str, String)> = args.iter().map(|(k, v)| (*k, v.to_string())).collect();

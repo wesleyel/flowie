@@ -145,6 +145,8 @@
       }
     },
     "shortcuts": {
+      "search": "搜索快捷键",
+      "no_match": "没有与“{query}”匹配的快捷键",
       "title": "键盘快捷键",
       "reset_all": "全部重置",
       "press_keys": "请按键…",

@@ -10,6 +10,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ### Added
 
+- **Shortcuts**: Settings → Shortcuts has a search box that finds a shortcut by its name (in English too), or by its keys as shown (⌘B) or typed (cmd-b).
 - **Scrolling**: ⌘⌥↓ scrolls to the end of the page and ⌘⌥↑ back to the top (Ctrl+End and Ctrl+Home on Windows and Linux), also in the Outline menu.
 - **Content width**: limit how wide the outline's text grows in a wide or full-screen window, for easier reading: narrow, medium or full width, in Settings → Appearance or with ⌃⌘W (Alt+W on Windows and Linux), which switches between them. The page title and rows sit in a centered column; full width, as before, is the default.
 - **Slash menu**: `、` at the start of a word opens the slash menu too. Chinese input methods type it for the / key, so you no longer have to switch to English input first.

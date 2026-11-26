@@ -115,6 +115,8 @@ pub struct SettingsUi {
     recording: Option<Recording>,
     /// The current page's scroll position.
     scroll: gpui::ScrollHandle,
+    /// What the Shortcuts tab is filtered by.
+    pub(crate) shortcut_query: String,
 }
 
 impl Outline {
@@ -137,7 +139,7 @@ impl Outline {
             self.calendar = None;
             self.settings_return = self.edit.take().map(|e| (e.target, e.caret()));
         }
-        self.settings = Some(SettingsUi { tab, recording: None, scroll: gpui::ScrollHandle::new() });
+        self.settings = Some(SettingsUi { tab, recording: None, scroll: gpui::ScrollHandle::new(), shortcut_query: String::new() });
         cx.notify();
     }
 
@@ -255,7 +257,7 @@ impl Outline {
         let content = match tab {
             // Only its list scrolls; it draws its own bar.
             Tab::General => self.render_general(window, cx),
-            Tab::Shortcuts => self.render_shortcuts(cx),
+            Tab::Shortcuts => self.render_shortcuts(window, cx),
             Tab::Appearance => self.render_appearance(window, cx),
             Tab::Agent => self.render_agent(cx),
             Tab::About => self.render_about(cx),

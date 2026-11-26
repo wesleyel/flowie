@@ -178,6 +178,8 @@
       }
     },
     "shortcuts": {
+      "search": "Search shortcuts",
+      "no_match": "No shortcut matches “{query}”",
       "title": "Keyboard shortcuts",
       "reset_all": "Reset all",
       "press_keys": "Press keys…",

@@ -271,6 +271,7 @@
     },
     "sync": {
       "title": "Sync",
+      "beta": "Beta",
       "intro": "Keep this outline the same on your computers through a Flowie server you run yourself. Each bullet syncs on its own, so edits made on different devices at once, even offline, all come through.",
       "enabled": "Sync with a server",
       "status": {

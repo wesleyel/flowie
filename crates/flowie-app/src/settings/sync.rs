@@ -122,7 +122,25 @@ impl Outline {
                     }
                 }),
             )
-            .child(crate::ui::text::page_title(theme, t!("settings.sync.title"), None).pb_1())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .pb_1()
+                    .child(crate::ui::text::page_title(theme, t!("settings.sync.title"), None))
+                    .child(
+                        div()
+                            .px_1p5()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(theme.accent)
+                            .text_color(theme.accent)
+                            .text_size(px(10.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(t!("settings.sync.beta")),
+                    ),
+            )
             .child(div().text_size(px(12.)).text_color(theme.muted).pb_3().child(t!("settings.sync.intro")))
             .child(div().flex().flex_col().gap_2().pb_3().border_b_1().border_color(theme.divider).child(toggle).child(status))
             .child(field(t!("settings.sync.server.label").into(), t!("settings.sync.server.hint").into(), server))

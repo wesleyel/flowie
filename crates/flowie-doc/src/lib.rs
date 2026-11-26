@@ -416,10 +416,17 @@ mod tests {
         ws.commit_with_imports(None, None, None);
         ws.tree.trash(old);
         ws.tree.trash(recent);
-        let now = flowie_core::tree::now_millis();
-        let mut node = ws.tree.node(old).clone();
-        node.deleted_at = Some(now - flowie_core::tree::TRASH_DAYS * 86_400_000 - 1);
-        ws.tree.put(node);
+        // Back-date the deletion, and the nodes with it: a node created after its subtree
+        // was deleted would bring that subtree back.
+        let deleted_at = flowie_core::tree::now_millis() - flowie_core::tree::TRASH_DAYS * 86_400_000 - 1;
+        for id in [below, old] {
+            let mut node = ws.tree.node(id).clone();
+            node.created = deleted_at - 1;
+            if id == old {
+                node.deleted_at = Some(deleted_at);
+            }
+            ws.tree.put(node);
+        }
         ws.commit_with_imports(None, None, None);
         ws.flush().unwrap();
         drop(ws);

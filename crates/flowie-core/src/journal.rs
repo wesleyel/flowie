@@ -102,7 +102,7 @@ fn revive(tree: &mut Tree, id: NodeId, home: NodeId, index: impl Fn(&Tree) -> us
     if !tree.has_record(id) {
         return false;
     }
-    if !tree.contains(tree.node(id).parent) {
+    if !tree.contains(tree.parent(id)) {
         let at = index(tree);
         tree.move_to(id, home, at);
     }

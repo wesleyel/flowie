@@ -256,3 +256,15 @@ impl NodeRecord {
         Some(node)
     }
 }
+
+/// The body of a save request to the self-hosted backend (`POST .../modify`).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModifyRequest {
+    pub saves: Vec<Envelope>,
+}
+
+/// Its answer: one result per save, in order.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModifyResponse {
+    pub results: Vec<crate::engine::SaveResult>,
+}

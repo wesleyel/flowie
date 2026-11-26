@@ -1,0 +1,28 @@
+[package]
+name = "flowie-server"
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# The self-hosted sync backend: one binary over SQLite (docs/roadmap/per-node-sync.md §5.1).
+[dependencies]
+flowie-sync = { path = "../flowie-sync" }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+flowie-sync = { path = "../flowie-sync", features = ["http"] }
+flowie-core = { path = "../flowie-core" }
+flowie-doc = { path = "../flowie-doc" }
+tempfile = "3"
+ureq = "2"
+
+[lints]
+workspace = true

@@ -40,7 +40,8 @@ pub trait RecordStore {
 }
 
 /// How the backend answered one save.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "result", rename_all = "lowercase")]
 pub enum SaveResult {
     /// Saved; the record's new version.
     Saved { id: String, etag: String },
@@ -51,7 +52,7 @@ pub enum SaveResult {
 }
 
 /// Records fetched since a cursor.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct ChangeBatch {
     pub records: Vec<Envelope>,
     /// Where to continue from.
@@ -125,7 +126,9 @@ impl Engine {
         }
     }
 
-    /// Records fetched from the backend: merge them in. Returns the ids that arrived.
+    /// Records fetched from the backend: merge them in. Returns the ids that changed here: a
+    /// version this device already has (its own save, coming back in the change feed) is
+    /// skipped.
     pub fn on_fetched(&mut self, store: &mut dyn RecordStore, batch: ChangeBatch) -> Vec<NodeId> {
         let ids = batch.records.iter().filter_map(|e| self.take(store, e)).collect();
         store.set_cursor(batch.cursor);
@@ -136,6 +139,9 @@ impl Engine {
     fn take(&mut self, store: &mut dyn RecordStore, envelope: &Envelope) -> Option<NodeId> {
         let remote = envelope.node_record()?;
         let id = remote.id;
+        if envelope.etag.is_some() && store.base(id).is_some_and(|(etag, _)| envelope.etag.as_ref() == Some(&etag)) {
+            return None;
+        }
         let merged = match store.local(id) {
             Some(local) => merge(&local, &remote),
             None => remote.clone(),
@@ -145,5 +151,65 @@ impl Engine {
             store.set_base(id, etag, remote);
         }
         Some(id)
+    }
+}
+
+/// A backend that the engine pulls from and pushes to on its own schedule: the self-hosted
+/// server over HTTP, or [`crate::MemoryServer`]. (CloudKit drives the engine itself instead.)
+pub trait Backend {
+    /// Save records conditionally (each from the version it was last seen at).
+    fn modify(&mut self, saves: Vec<Envelope>) -> Result<Vec<SaveResult>, String>;
+    /// Records saved after `cursor`, oldest first.
+    fn changes(&mut self, cursor: Option<&str>, limit: usize) -> Result<ChangeBatch, String>;
+}
+
+/// What one round of [`sync_once`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SyncReport {
+    pub sent: usize,
+    pub received: usize,
+    /// Every record is saved and nothing new is waiting on the backend.
+    pub settled: bool,
+}
+
+/// One round with a pull-style backend: send everything waiting here, then fetch everything
+/// new. A transport error ends the round; what was in flight is sent again next time.
+pub fn sync_once(engine: &mut Engine, store: &mut dyn RecordStore, backend: &mut dyn Backend, batch: usize) -> Result<SyncReport, String> {
+    let mut report = SyncReport::default();
+    for _ in 0..1000 {
+        let saves = engine.next_saves(store, batch);
+        if saves.is_empty() {
+            break;
+        }
+        let ids: Vec<String> = saves.iter().map(|e| e.id.clone()).collect();
+        report.sent += saves.len();
+        match backend.modify(saves) {
+            Ok(results) => engine.on_saved(store, results),
+            Err(error) => {
+                let failed = ids.into_iter().map(|id| SaveResult::Failed { id, error: error.clone() }).collect();
+                engine.on_saved(store, failed);
+                return Err(error);
+            }
+        }
+    }
+    loop {
+        let changes = backend.changes(store.cursor().as_deref(), batch)?;
+        let more = changes.more;
+        report.received += engine.on_fetched(store, changes).len();
+        if !more {
+            break;
+        }
+    }
+    report.settled = store.unsent(1).is_empty();
+    Ok(report)
+}
+
+impl Backend for crate::MemoryServer {
+    fn modify(&mut self, saves: Vec<Envelope>) -> Result<Vec<SaveResult>, String> {
+        Ok(crate::MemoryServer::modify(self, saves))
+    }
+
+    fn changes(&mut self, cursor: Option<&str>, limit: usize) -> Result<ChangeBatch, String> {
+        Ok(crate::MemoryServer::changes(self, cursor, limit))
     }
 }

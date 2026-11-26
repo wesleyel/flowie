@@ -12,6 +12,13 @@ publish.workspace = true
 flowie-core = { path = "../flowie-core", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The desktop's HTTP driver for the self-hosted backend (blocking, no async runtime).
+# The platform's trusted certificates, so a server behind a private CA works once the
+# system trusts it.
+ureq = { version = "2", features = ["json", "native-certs"], optional = true }
+
+[features]
+http = ["dep:ureq"]
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }

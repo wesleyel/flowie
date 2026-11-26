@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/flowie-core", "crates/flowie-doc", "crates/flowie-sync", "crates/flowie-math", "crates/flowie-app"]
+members = ["crates/flowie-core", "crates/flowie-doc", "crates/flowie-sync", "crates/flowie-server", "crates/flowie-math", "crates/flowie-app"]
 exclude = ["third_party/gpui-pre-macos"]
 
 [workspace.package]

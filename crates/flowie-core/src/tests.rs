@@ -239,8 +239,7 @@ fn tied_ranks_place_new_nodes_after_the_tie() {
     assert_eq!(t.children(ROOT).last(), Some(&new));
     let front = t.create_at(ROOT, 0, "front");
     assert_eq!(t.children(ROOT)[0], front);
-    let (dirty, _) = t.take_dirty();
-    assert_eq!(dirty.len(), 2);
+    assert_eq!(t.take_dirty().upserts.len(), 2);
 }
 
 #[test]
@@ -254,7 +253,7 @@ fn malformed_ranks_are_repaired_on_load_keeping_order() {
     let mut t = Tree::from_nodes([c, b, a]);
     assert_eq!(texts(&t, ROOT), ["a", "b", "c"]);
     assert!(t.children(ROOT).iter().all(|id| rank::is_valid(&t.node(*id).rank)));
-    assert_eq!(t.take_dirty().0.len(), 3);
+    assert_eq!(t.take_dirty().upserts.len(), 3);
 }
 
 #[test]
@@ -409,11 +408,9 @@ fn store_roundtrip() {
     t.set_note(a, "note");
     {
         let w = store::Writer::spawn(store::open(&path).unwrap());
-        let (up, del) = t.take_dirty();
-        w.write(up, del);
+        w.write(t.take_dirty());
         t.delete(b);
-        let (up, del) = t.take_dirty();
-        w.write(up, del);
+        w.write(t.take_dirty());
         w.set_meta("zoom", "0");
         w.flush().unwrap();
     }
@@ -960,7 +957,7 @@ fn star_between_two_changes_only_that_node() {
     t.star_at(c, 1);
     assert_eq!(t.starred().collect::<Vec<_>>(), vec![a, c, b]);
     assert!(sa < t.node(c).star && t.node(c).star < sb);
-    let changed: Vec<NodeId> = t.take_dirty().0.iter().map(|n| n.id).collect();
+    let changed: Vec<NodeId> = t.take_dirty().upserts.iter().map(|n| n.id).collect();
     assert_eq!(changed, vec![c]);
     assert!(t.take_journal().is_empty(), "stars aren't part of undo");
     assert_eq!((t.node(a).star.clone(), t.node(b).star.clone()), (sa, sb));
@@ -1014,8 +1011,7 @@ fn stars_and_prefs_survive_save_and_reload() {
     t.unstar(a);
     {
         let w = store::Writer::spawn(store::open(&path).unwrap());
-        let (up, del) = t.take_dirty();
-        w.write(up, del);
+        w.write(t.take_dirty());
         w.set_pref("saved_searches", "is:todo\n#work");
         w.set_meta("zoom", "0");
         w.flush().unwrap();

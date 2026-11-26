@@ -197,7 +197,7 @@ mod tests {
         let (copies, id_map) =
             previous.insert_into_mapped(&mut receiver, ROOT, 1, ImportOptions { fresh_ids: true, keep_completion: true });
         let state = package_import_state(&previous, &id_map, 1);
-        store::write_import_batch(&mut connection, &[], &[], &state).unwrap();
+        store::write_import_batch(&mut connection, &crate::tree::Dirty::default(), &state).unwrap();
         let mut imports: HashMap<_, _> = state.records.into_iter().map(|record| (record.root, record)).collect();
         sender.set_text(child, "after");
         let updated = Package::export(&sender, &[root], ExportOptions::default(), ExportMeta::default(), None);
@@ -211,7 +211,7 @@ mod tests {
         assert_eq!(receiver.node(child).text, "before");
 
         let original = package_import_state(&previous, &HashMap::from([(root, root), (child, child)]), 2);
-        store::write_import_batch(&mut connection, &[], &[], &original).unwrap();
+        store::write_import_batch(&mut connection, &crate::tree::Dirty::default(), &original).unwrap();
         imports.extend(original.records.into_iter().map(|record| (record.root, record)));
         let comparison = compare_package(&updated, &receiver, &imports, Some(&db)).unwrap();
         assert_eq!(comparison.before.roots, [root]);

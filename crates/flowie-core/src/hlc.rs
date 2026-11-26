@@ -132,7 +132,18 @@ impl Reg {
     fn index(self) -> usize {
         self as usize
     }
+
+    /// This register's bit in an outbox mask.
+    pub fn bit(self) -> u16 {
+        1 << self.index()
+    }
 }
+
+/// The outbox bit for a record removed for good: the rest of the mask means nothing then.
+pub const REMOVED: u16 = 1 << 15;
+
+/// Every register's bit: a record new to the outbox.
+pub const ALL_REGS: u16 = (1 << Reg::ALL.len()) - 1;
 
 /// When a node was created, and when each of its synced fields was last written.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

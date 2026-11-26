@@ -47,6 +47,7 @@ mod tests {
     use super::*;
     use crate::images::ImageDir;
     use crate::store::Writer;
+    use crate::tree::Dirty;
     use crate::{BlockKind, Node, NodeId, ROOT};
 
     #[test]
@@ -67,10 +68,10 @@ mod tests {
             node.image = name.to_string();
             node
         };
-        writer.write(vec![image_node(&live.name)], Vec::new());
+        writer.write(Dirty { upserts: vec![image_node(&live.name)], ..Dirty::default() });
         let mut deleted = image_node(&trashed.name);
         deleted.deleted_at = Some(1);
-        writer.write(vec![deleted], Vec::new());
+        writer.write(Dirty { upserts: vec![deleted], ..Dirty::default() });
         writer.flush().unwrap();
         drop(writer);
 

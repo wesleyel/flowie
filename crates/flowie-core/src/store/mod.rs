@@ -44,8 +44,8 @@ use std::path::Path;
 
 use rusqlite::{params, Connection};
 
-use crate::hlc::Clocks;
-use crate::tree::{Node, NodeId};
+use crate::hlc::{Clocks, Hlc};
+use crate::tree::{Dirty, Node, NodeId};
 
 pub use crate::imports::{ImportRecord, ImportState};
 pub use blobs::{collect_unused_images, drop_blobs, image_names_in_use, load_blobs};
@@ -84,8 +84,9 @@ CREATE TABLE IF NOT EXISTS outbox (     -- records changed here and not sent yet
     id         BLOB    PRIMARY KEY,
     dirty_mask INTEGER NOT NULL         -- which synced fields changed (crate::hlc::Reg bits)
 ) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS purged (     -- ids deleted for good: their records never come back
-    id BLOB PRIMARY KEY
+CREATE TABLE IF NOT EXISTS purged (     -- records removed for good, and when (crate::hlc::Hlc)
+    id BLOB PRIMARY KEY,
+    at BLOB NOT NULL
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS sync_state ( -- per sync backend: where pulling left off, and the account
     remote  TEXT PRIMARY KEY,
@@ -157,7 +158,7 @@ fn sync_columns(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<()> {
          CREATE INDEX nodes_parent ON nodes(parent);
          CREATE INDEX nodes_local_seq ON nodes(local_seq);
          CREATE TABLE outbox (id BLOB PRIMARY KEY, dirty_mask INTEGER NOT NULL) WITHOUT ROWID;
-         CREATE TABLE purged (id BLOB PRIMARY KEY) WITHOUT ROWID;
+         CREATE TABLE purged (id BLOB PRIMARY KEY, at BLOB NOT NULL) WITHOUT ROWID;
          CREATE TABLE sync_state (remote TEXT PRIMARY KEY, cursor BLOB, account TEXT);",
     )
 }
@@ -249,22 +250,37 @@ pub fn reclaim_free_pages(conn: &Connection) -> rusqlite::Result<bool> {
     Ok(true)
 }
 
-pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], meta: &[(String, String)]) -> rusqlite::Result<()> {
+/// The records removed for good, with when (`Tree::set_purged`).
+pub fn load_purged(conn: &Connection) -> rusqlite::Result<Vec<(NodeId, Hlc)>> {
+    let mut stmt = conn.prepare("SELECT id, at FROM purged")?;
+    let rows = stmt.query_map([], |r| {
+        let at: Vec<u8> = r.get(1)?;
+        Ok((r.get(0)?, Hlc::from_bytes(&at).unwrap_or_default()))
+    })?;
+    rows.collect()
+}
+
+/// Save tree changes in one transaction: the records, removals, and what sync has to send.
+pub fn write_batch(conn: &mut Connection, dirty: &Dirty, meta: &[(String, String)]) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
-    write_nodes_tx(&tx, upserts, deletes, meta)?;
+    write_nodes_tx(&tx, dirty, meta)?;
     tx.commit()
 }
 
-fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, upserts: &[Node], deletes: &[NodeId], meta: &[(String, String)]) -> rusqlite::Result<()> {
+fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, dirty: &Dirty, meta: &[(String, String)]) -> rusqlite::Result<()> {
+    // Rows written together share one write order, after every earlier one.
+    let seq: i64 =
+        if dirty.upserts.is_empty() { 0 } else { tx.query_row("SELECT ifnull(MAX(local_seq), 0) + 1 FROM nodes", [], |r| r.get(0))? };
     let mut up = tx.prepare_cached(
         "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image, star, deleted_at,
-                            clocks, moved_from, extra)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                            clocks, moved_from, extra, local_seq)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
          ON CONFLICT(id) DO UPDATE SET parent=?2, rank=?3, text=?4, note=?5,
            completed=?6, collapsed=?7, modified=?9, kind=?10, mirror=?11, image=?12, star=?13, deleted_at=?14,
-           clocks=?15, moved_from=?16, extra=?17",
+           clocks=?15, moved_from=?16, extra=?17, local_seq=?18",
     )?;
-    for n in upserts {
+    let mut unpurge = tx.prepare_cached("DELETE FROM purged WHERE id = ?1")?;
+    for n in &dirty.upserts {
         up.execute(params![
             n.id,
             n.parent,
@@ -282,12 +298,23 @@ fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, upserts: &[Node], deletes: &[N
             n.deleted_at,
             n.sync.clocks.to_bytes(),
             n.sync.moved_from,
-            n.sync.extra
+            n.sync.extra,
+            seq
         ])?;
+        unpurge.execute(params![n.id])?;
     }
     let mut del = tx.prepare_cached("DELETE FROM nodes WHERE id = ?1")?;
-    for id in deletes {
+    let mut purge = tx.prepare_cached("INSERT OR REPLACE INTO purged (id, at) VALUES (?1, ?2)")?;
+    for (id, at) in &dirty.removed {
         del.execute(params![id])?;
+        purge.execute(params![id, at.to_bytes().to_vec()])?;
+    }
+    let mut outbox = tx.prepare_cached(
+        "INSERT INTO outbox (id, dirty_mask) VALUES (?1, ?2)
+         ON CONFLICT(id) DO UPDATE SET dirty_mask = CASE WHEN ?2 & ?3 != 0 THEN ?2 ELSE (dirty_mask & ~?3) | ?2 END",
+    )?;
+    for (id, mask) in &dirty.unsent {
+        outbox.execute(params![id, *mask as i64, crate::hlc::REMOVED as i64])?;
     }
     let mut m = tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2")?;
     for (key, value) in meta {
@@ -413,8 +440,45 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
         edited.sync.moved_from = ROOT;
         edited.sync.extra = r#"{"future":1}"#.into();
         let mut conn = conn;
-        write_batch(&mut conn, std::slice::from_ref(&edited), &[], &[]).unwrap();
+        write_batch(&mut conn, &Dirty { upserts: vec![edited.clone()], ..Dirty::default() }, &[]).unwrap();
         let (nodes, _) = load(&conn).unwrap();
         assert_eq!(nodes.iter().find(|n| n.id == child), Some(&edited));
+    }
+
+    #[test]
+    fn a_batch_saves_removals_and_the_outbox_with_the_records() {
+        use crate::hlc::{Reg, REMOVED};
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("flowie.sqlite")).unwrap();
+        let (a, b) = (Node::new(NodeId::random(), ROOT, "a0".into()), Node::new(NodeId::random(), ROOT, "a1".into()));
+        let gone = Hlc { wall: 50, counter: 1, actor: 7 };
+        let outbox = |conn: &Connection| -> Vec<(NodeId, i64)> {
+            let mut stmt = conn.prepare("SELECT id, dirty_mask FROM outbox ORDER BY id").unwrap();
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(Result::unwrap).collect()
+        };
+        let seq = |conn: &Connection, id: NodeId| -> i64 {
+            conn.query_row("SELECT local_seq FROM nodes WHERE id = ?1", params![id], |r| r.get(0)).unwrap()
+        };
+
+        let first =
+            Dirty { upserts: vec![a.clone(), b.clone()], removed: vec![], unsent: vec![(a.id, Reg::Text.bit()), (b.id, Reg::Text.bit())] };
+        write_batch(&mut conn, &first, &[]).unwrap();
+        assert_eq!(seq(&conn, a.id), seq(&conn, b.id), "one batch, one place in the write order");
+        // Later changes add bits; a removal replaces them and leaves a tombstone.
+        let second =
+            Dirty { upserts: vec![a.clone()], removed: vec![(b.id, gone)], unsent: vec![(a.id, Reg::Position.bit()), (b.id, REMOVED)] };
+        write_batch(&mut conn, &second, &[]).unwrap();
+        assert!(seq(&conn, a.id) > 1);
+        let mut expected = vec![(a.id, (Reg::Text.bit() | Reg::Position.bit()) as i64), (b.id, REMOVED as i64)];
+        expected.sort();
+        assert_eq!(outbox(&conn), expected);
+        assert_eq!(load_purged(&conn).unwrap(), [(b.id, gone)]);
+        assert_eq!(load(&conn).unwrap().0.len(), 1);
+
+        // A record written again leaves the tombstones, and its outbox bits start over.
+        let back = Dirty { upserts: vec![b.clone()], removed: vec![], unsent: vec![(b.id, crate::hlc::ALL_REGS)] };
+        write_batch(&mut conn, &back, &[]).unwrap();
+        assert!(load_purged(&conn).unwrap().is_empty());
+        assert!(outbox(&conn).contains(&(b.id, crate::hlc::ALL_REGS as i64)));
     }
 }

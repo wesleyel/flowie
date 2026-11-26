@@ -4,11 +4,11 @@ use rusqlite::{params, Connection};
 
 use super::write_nodes_tx;
 use crate::imports::{ImportRecord, ImportState};
-use crate::tree::{Node, NodeId};
+use crate::tree::{Dirty, NodeId};
 
-pub fn write_import_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], state: &ImportState) -> rusqlite::Result<()> {
+pub fn write_import_batch(conn: &mut Connection, dirty: &Dirty, state: &ImportState) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
-    write_nodes_tx(&tx, upserts, deletes, &[])?;
+    write_nodes_tx(&tx, dirty, &[])?;
     save_import_state_tx(&tx, state)?;
     tx.commit()
 }

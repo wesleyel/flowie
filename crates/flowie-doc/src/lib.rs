@@ -47,12 +47,19 @@ impl Workspace {
         F: Fn(Option<String>) + Send + 'static,
     {
         let conn = store::open(db)?;
-        let ((nodes, meta), imports, blobs, prefs) =
-            (store::load(&conn)?, store::load_imports(&conn)?, store::load_blobs(&conn)?, store::load_prefs(&conn)?);
+        let ((nodes, meta), imports, blobs, prefs, purged) = (
+            store::load(&conn)?,
+            store::load_imports(&conn)?,
+            store::load_blobs(&conn)?,
+            store::load_prefs(&conn)?,
+            store::load_purged(&conn)?,
+        );
         collect_images(db);
         let writer = Writer::spawn_with_error_hook(conn, on_save_status);
+        let mut tree = Tree::from_nodes(nodes);
+        tree.set_purged(purged);
         let mut ws = Workspace {
-            tree: Tree::from_nodes(nodes),
+            tree,
             history: History::new(),
             writer: Some(writer),
             imports: imports.into_iter().map(|r| (r.root, r)).collect(),
@@ -73,9 +80,9 @@ impl Workspace {
 
     /// Send the tree's unsaved changes to the writer.
     pub fn persist(&mut self) {
-        let (up, del) = self.tree.take_dirty();
+        let dirty = self.tree.take_dirty();
         if let Some(w) = &self.writer {
-            w.write(up, del);
+            w.write(dirty);
         }
     }
 
@@ -131,14 +138,14 @@ impl Workspace {
     /// command's tree changes (`Tree::trash`, `Tree::untrash`).
     pub fn commit_with_imports(&mut self, before: Option<Caret>, after: Option<Caret>, imports: Option<(ImportState, ImportState)>) {
         self.history.commit_with_imports(&mut self.tree, HistoryKind::Structure, before, after, imports.clone());
-        let (upserts, deletes) = self.tree.take_dirty();
+        let dirty = self.tree.take_dirty();
         if let Some((_, state)) = imports {
             self.set_import_state(state.clone());
             if let Some(writer) = &self.writer {
-                writer.import_batch(upserts, deletes, state);
+                writer.import_batch(dirty, state);
             }
         } else if let Some(writer) = &self.writer {
-            writer.write(upserts, deletes);
+            writer.write(dirty);
         }
     }
 
@@ -196,9 +203,9 @@ impl Workspace {
     fn save_history_step(&mut self, imports: Option<ImportState>) {
         if let Some(state) = imports {
             self.set_import_state(state.clone());
-            let (upserts, deletes) = self.tree.take_dirty();
+            let dirty = self.tree.take_dirty();
             if let Some(writer) = &self.writer {
-                writer.import_batch(upserts, deletes, state);
+                writer.import_batch(dirty, state);
             }
         } else {
             self.persist();

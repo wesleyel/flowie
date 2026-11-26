@@ -184,9 +184,9 @@ fn main() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("bench.sqlite");
     let mut conn = store::open(&path).unwrap();
-    let (up, del) = tree.take_dirty();
-    r.step("save to SQLite", || store::write_batch(&mut conn, &up, &del, &[]).unwrap());
-    drop((up, del));
+    let dirty = tree.take_dirty();
+    r.step("save to SQLite", || store::write_batch(&mut conn, &dirty, &[]).unwrap());
+    drop(dirty);
     let size = |p: &std::path::Path| mb(std::fs::metadata(p).map(|m| m.len() as usize).unwrap_or(0));
     r.note("  database file", size(&path));
 
@@ -197,18 +197,18 @@ fn main() {
         }
         history.commit(&mut tree, HistoryKind::Structure, None, None);
     });
-    let (up, del) = tree.take_dirty();
-    store::write_batch(&mut conn, &up, &del, &[]).unwrap();
-    drop((up, del));
+    let dirty = tree.take_dirty();
+    store::write_batch(&mut conn, &dirty, &[]).unwrap();
+    drop(dirty);
     r.step("delete forever", || {
         for id in tree.trashed() {
             let ids = tree.purge(id);
             history.forget(&ids);
         }
     });
-    let (up, del) = tree.take_dirty();
-    r.step("  save the deletes", || store::write_batch(&mut conn, &up, &del, &[]).unwrap());
-    drop((up, del));
+    let dirty = tree.take_dirty();
+    r.step("  save the deletes", || store::write_batch(&mut conn, &dirty, &[]).unwrap());
+    drop(dirty);
     r.note("  live heap left (tree + undo)", mb(live() - base));
     r.note("  database file", size(&path));
     r.step("  reclaim free pages", || store::reclaim_free_pages(&conn).unwrap());

@@ -10,14 +10,15 @@ use rusqlite::{params, Connection};
 
 use super::imports::save_import_state;
 use super::{write_batch, write_import_batch, write_pref, ImportState, LOCAL_META, PREFS};
-use crate::tree::{Node, NodeId};
+use crate::hlc::{Hlc, REMOVED};
+use crate::tree::{Dirty, Node, NodeId};
 
 enum Msg {
-    Write { upserts: Vec<Node>, deletes: Vec<NodeId> },
+    Write(Dirty),
     Meta(String, String),
     Pref(String, String),
     ImportState(ImportState),
-    ImportBatch { upserts: Vec<Node>, deletes: Vec<NodeId>, state: ImportState },
+    ImportBatch { dirty: Dirty, state: ImportState },
     Blob(crate::images::BlobInfo),
     Seen { root: NodeId, at: i64 },
     Reclaim,
@@ -27,15 +28,13 @@ enum Msg {
 
 enum PendingOp {
     Batch {
-        upserts: Vec<Node>,
-        deletes: Vec<NodeId>,
+        dirty: Dirty,
         meta: Vec<(String, String)>,
     },
     Pref(String, String),
     ImportState(ImportState),
     ImportBatch {
-        upserts: Vec<Node>,
-        deletes: Vec<NodeId>,
+        dirty: Dirty,
         state: ImportState,
     },
     Blob(crate::images::BlobInfo),
@@ -80,12 +79,13 @@ impl Writer {
         self.last_error.lock().ok().and_then(|e| e.clone())
     }
 
-    pub fn write(&self, upserts: Vec<Node>, deletes: Vec<NodeId>) {
-        if upserts.is_empty() && deletes.is_empty() {
+    /// Save what changed in the tree (`Tree::take_dirty`), with what sync has to send.
+    pub fn write(&self, dirty: Dirty) {
+        if dirty.is_empty() {
             return;
         }
         if let Some(tx) = &self.tx {
-            let _ = tx.send(Msg::Write { upserts, deletes });
+            let _ = tx.send(Msg::Write(dirty));
         }
     }
 
@@ -112,9 +112,9 @@ impl Writer {
         }
     }
 
-    pub fn import_batch(&self, upserts: Vec<Node>, deletes: Vec<NodeId>, state: ImportState) {
+    pub fn import_batch(&self, dirty: Dirty, state: ImportState) {
         if let Some(tx) = &self.tx {
-            let _ = tx.send(Msg::ImportBatch { upserts, deletes, state });
+            let _ = tx.send(Msg::ImportBatch { dirty, state });
         }
     }
 
@@ -173,8 +173,7 @@ where
     F: Fn(Option<String>) + Send + 'static,
 {
     let mut pending_ops: VecDeque<PendingOp> = VecDeque::new();
-    let mut pending_up: std::collections::HashMap<NodeId, Node> = Default::default();
-    let mut pending_del: std::collections::HashSet<NodeId> = Default::default();
+    let mut pending = Pending::default();
     let mut pending_meta: Vec<(String, String)> = Vec::new();
     let mut waiters = Vec::new();
     let mut deadline: Option<Instant> = None;
@@ -191,18 +190,11 @@ where
         }
     };
 
-    let freeze_batch = |ops: &mut VecDeque<PendingOp>,
-                        up: &mut std::collections::HashMap<NodeId, Node>,
-                        del: &mut std::collections::HashSet<NodeId>,
-                        meta: &mut Vec<(String, String)>| {
-        if up.is_empty() && del.is_empty() && meta.is_empty() {
+    let freeze_batch = |ops: &mut VecDeque<PendingOp>, pending: &mut Pending, meta: &mut Vec<(String, String)>| {
+        if pending.is_empty() && meta.is_empty() {
             return;
         }
-        ops.push_back(PendingOp::Batch {
-            upserts: up.drain().map(|(_, n)| n).collect(),
-            deletes: del.drain().collect(),
-            meta: std::mem::take(meta),
-        });
+        ops.push_back(PendingOp::Batch { dirty: pending.take(), meta: std::mem::take(meta) });
     };
 
     loop {
@@ -213,7 +205,7 @@ where
                 Err(RecvTimeoutError::Disconnected) => {
                     // Closing: a few more tries, then give up.
                     for _ in 0..5 {
-                        match flush_all(&mut conn, &mut pending_ops, &mut pending_up, &mut pending_del, &mut pending_meta) {
+                        match flush_all(&mut conn, &mut pending_ops, &mut pending, &mut pending_meta) {
                             Ok(()) => {
                                 report(&mut reported, None);
                                 break;
@@ -234,15 +226,8 @@ where
             },
         };
         match msg {
-            Some(Msg::Write { upserts, deletes }) => {
-                for n in upserts {
-                    pending_del.remove(&n.id);
-                    pending_up.insert(n.id, n);
-                }
-                for id in deletes {
-                    pending_up.remove(&id);
-                    pending_del.insert(id);
-                }
+            Some(Msg::Write(dirty)) => {
+                pending.add(dirty);
                 deadline.get_or_insert(Instant::now() + Duration::from_millis(200));
             }
             Some(Msg::Meta(k, v)) => {
@@ -261,13 +246,13 @@ where
                 let op = match op_msg {
                     Msg::Pref(key, value) => PendingOp::Pref(key, value),
                     Msg::ImportState(state) => PendingOp::ImportState(state),
-                    Msg::ImportBatch { upserts, deletes, state } => PendingOp::ImportBatch { upserts, deletes, state },
+                    Msg::ImportBatch { dirty, state } => PendingOp::ImportBatch { dirty, state },
                     Msg::Blob(b) => PendingOp::Blob(b),
                     Msg::Seen { root, at } => PendingOp::Seen { root, at },
                     Msg::Reclaim => PendingOp::Reclaim,
-                    Msg::Write { .. } | Msg::Meta(..) | Msg::Retry | Msg::Flush(_) => unreachable!(),
+                    Msg::Write(_) | Msg::Meta(..) | Msg::Retry | Msg::Flush(_) => unreachable!(),
                 };
-                freeze_batch(&mut pending_ops, &mut pending_up, &mut pending_del, &mut pending_meta);
+                freeze_batch(&mut pending_ops, &mut pending, &mut pending_meta);
                 pending_ops.push_back(op);
                 if !retrying {
                     deadline = Some(Instant::now());
@@ -279,8 +264,7 @@ where
         }
         if deadline.is_some_and(|d| Instant::now() >= d) {
             // A failed operation or batch stays queued in order and is tried again shortly.
-            let result = flush_all(&mut conn, &mut pending_ops, &mut pending_up, &mut pending_del, &mut pending_meta)
-                .map_err(|error| error.to_string());
+            let result = flush_all(&mut conn, &mut pending_ops, &mut pending, &mut pending_meta).map_err(|error| error.to_string());
             if let Err(error) = &result {
                 eprintln!("flowie: database write failed, will retry: {error}");
             }
@@ -299,11 +283,11 @@ const RETRY: Duration = Duration::from_secs(1);
 
 fn run_op(conn: &mut Connection, op: &PendingOp) -> rusqlite::Result<()> {
     match op {
-        PendingOp::Batch { upserts, deletes, meta } => write_batch(conn, upserts, deletes, meta),
+        PendingOp::Batch { dirty, meta } => write_batch(conn, dirty, meta),
 
         PendingOp::Pref(key, value) => write_pref(conn, key, value),
         PendingOp::ImportState(state) => save_import_state(conn, state),
-        PendingOp::ImportBatch { upserts, deletes, state } => write_import_batch(conn, upserts, deletes, state),
+        PendingOp::ImportBatch { dirty, state } => write_import_batch(conn, dirty, state),
         PendingOp::Blob(b) => {
             conn.execute(
                 "INSERT OR REPLACE INTO blobs (name, mime, width, height, size) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -324,29 +308,88 @@ fn run_op(conn: &mut Connection, op: &PendingOp) -> rusqlite::Result<()> {
 fn flush_all(
     conn: &mut Connection,
     ops: &mut VecDeque<PendingOp>,
-    up: &mut std::collections::HashMap<NodeId, Node>,
-    del: &mut std::collections::HashSet<NodeId>,
+    pending: &mut Pending,
     meta: &mut Vec<(String, String)>,
 ) -> rusqlite::Result<()> {
     while let Some(op) = ops.front() {
         run_op(conn, op)?;
         ops.pop_front();
     }
-    if up.is_empty() && del.is_empty() && meta.is_empty() {
+    if pending.is_empty() && meta.is_empty() {
         return Ok(());
     }
-    let upserts: Vec<Node> = up.values().cloned().collect();
-    let deletes: Vec<NodeId> = del.iter().copied().collect();
-    write_batch(conn, &upserts, &deletes, meta)?;
-    up.clear();
-    del.clear();
+    write_batch(conn, &pending.snapshot(), meta)?;
+    pending.take();
     meta.clear();
     Ok(())
+}
+
+/// Tree changes waiting to be written, merged: the latest state of each record, removals
+/// that weren't undone, and the outbox bits of every change.
+#[derive(Default)]
+struct Pending {
+    up: std::collections::HashMap<NodeId, Node>,
+    removed: std::collections::HashMap<NodeId, Hlc>,
+    unsent: std::collections::HashMap<NodeId, u16>,
+}
+
+impl Pending {
+    fn add(&mut self, dirty: Dirty) {
+        for n in dirty.upserts {
+            self.removed.remove(&n.id);
+            self.up.insert(n.id, n);
+        }
+        for (id, at) in dirty.removed {
+            self.up.remove(&id);
+            self.removed.insert(id, at);
+        }
+        for (id, mask) in dirty.unsent {
+            let bits = self.unsent.entry(id).or_default();
+            *bits = merge_mask(*bits, mask);
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.up.is_empty() && self.removed.is_empty() && self.unsent.is_empty()
+    }
+
+    fn snapshot(&self) -> Dirty {
+        Dirty {
+            upserts: self.up.values().cloned().collect(),
+            removed: self.removed.iter().map(|(id, at)| (*id, *at)).collect(),
+            unsent: self.unsent.iter().map(|(id, m)| (*id, *m)).collect(),
+        }
+    }
+
+    fn take(&mut self) -> Dirty {
+        let dirty = self.snapshot();
+        *self = Pending::default();
+        dirty
+    }
+}
+
+/// Outbox bits after `old`, then `new`: a removal replaces everything before it, and a
+/// later write clears it.
+pub(super) fn merge_mask(old: u16, new: u16) -> u16 {
+    if new & REMOVED != 0 {
+        REMOVED
+    } else {
+        (old & !REMOVED) | new
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outbox_bits_add_up_until_a_removal_replaces_them() {
+        use crate::hlc::Reg;
+        let (text, pos) = (Reg::Text.bit(), Reg::Position.bit());
+        assert_eq!(merge_mask(text, pos), text | pos);
+        assert_eq!(merge_mask(text | pos, REMOVED), REMOVED);
+        assert_eq!(merge_mask(REMOVED, text), text, "written again after the removal");
+    }
     use crate::store::{load, load_prefs, open};
     use crate::ROOT;
 
@@ -370,7 +413,7 @@ mod tests {
         a.text = "kept after retry".into();
         let mut b = Node::new(NodeId::random(), ROOT, "a1".into());
         b.deleted_at = Some(7);
-        writer.write(vec![a.clone(), b.clone()], Vec::new());
+        writer.write(Dirty { upserts: vec![a.clone(), b.clone()], ..Dirty::default() });
         writer.set_pref("saved_searches", "kept too");
         let error = writer.flush().unwrap_err();
 
@@ -410,11 +453,11 @@ mod tests {
                 n
             })
             .collect();
-        write_batch(&mut conn, &nodes, &[], &[]).unwrap();
+        write_batch(&mut conn, &Dirty { upserts: nodes.clone(), ..Dirty::default() }, &[]).unwrap();
         // Little free space: nothing to do.
         assert!(!crate::store::reclaim_free_pages(&conn).unwrap());
-        let ids: Vec<NodeId> = nodes.iter().map(|n| n.id).collect();
-        write_batch(&mut conn, &[], &ids, &[]).unwrap();
+        let removed = nodes.iter().map(|n| (n.id, crate::hlc::Hlc::default())).collect();
+        write_batch(&mut conn, &Dirty { removed, ..Dirty::default() }, &[]).unwrap();
         conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
         let full = size();
         assert!(crate::store::reclaim_free_pages(&conn).unwrap());

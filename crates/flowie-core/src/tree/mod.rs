@@ -31,7 +31,7 @@ mod ops;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use crate::hlc::{Clocks, HlcClock, Reg};
+use crate::hlc::{Clocks, Hlc, HlcClock, Reg, ALL_REGS, REMOVED};
 
 pub use change::{Change, Edit, Field, Value};
 pub use id::{virtual_id, NodeId, ROOT};
@@ -56,6 +56,30 @@ pub struct Tree {
     virtuals: HashMap<NodeId, NodeId>,
     /// Stamps every local write (`Node::sync`); see `Tree::set_actor`.
     clock: HlcClock,
+    /// Records removed for good, with when: they are never shown again unless written to
+    /// later, and a record whose parent is here shows at the top level (per-node-sync.md §3.4).
+    purged: HashMap<NodeId, Hlc>,
+    /// For the outbox: which synced fields of each record changed since the last
+    /// `take_dirty` (`hlc::Reg::bit`s, or `hlc::REMOVED`).
+    unsent: HashMap<NodeId, u16>,
+}
+
+/// What changed since the last [`Tree::take_dirty`], for saving.
+#[derive(Debug, Default)]
+pub struct Dirty {
+    /// Records to write as they are now.
+    pub upserts: Vec<Node>,
+    /// Records removed for good, with the clock of their removal.
+    pub removed: Vec<(NodeId, Hlc)>,
+    /// What sync has to send: the changed fields of each record (`hlc::Reg::bit`s), or
+    /// `hlc::REMOVED`.
+    pub unsent: Vec<(NodeId, u16)>,
+}
+
+impl Dirty {
+    pub fn is_empty(&self) -> bool {
+        self.upserts.is_empty() && self.removed.is_empty() && self.unsent.is_empty()
+    }
 }
 
 /// What is derived from the records: kept in sync by every mutation so lookups never scan
@@ -150,14 +174,18 @@ impl Tree {
             return;
         }
         let at = self.clock.tick(now_millis());
+        let unsent = self.unsent.entry(node.id).or_default();
         match before {
             None => {
                 node.sync.clocks = Clocks::new(at);
                 node.sync.moved_from = node.parent;
+                *unsent = ALL_REGS;
+                self.purged.remove(&node.id);
             }
             Some(b) => {
                 for reg in regs {
                     node.sync.clocks.set(reg, at);
+                    *unsent = (*unsent & !REMOVED) | reg.bit();
                 }
                 if b.parent != node.parent {
                     node.sync.moved_from = b.parent;
@@ -168,7 +196,36 @@ impl Tree {
 
     /// Where the view shows `node`: under its parent, unless that closes a cycle.
     fn view_parent(&self, node: &Node) -> NodeId {
-        self.index.moved.get(&node.id).copied().unwrap_or(node.parent)
+        if let Some(&parent) = self.index.moved.get(&node.id) {
+            return parent;
+        }
+        if !self.nodes.contains_key(&node.parent) && self.purged.contains_key(&node.parent) {
+            // The parent was removed for good: rather than hide this record with it, show it
+            // at the top level.
+            return ROOT;
+        }
+        node.parent
+    }
+
+    /// The records removed for good that this tree knows of (loaded from the database), with
+    /// when they were removed. Records under them show at the top level.
+    pub fn set_purged(&mut self, purged: impl IntoIterator<Item = (NodeId, Hlc)>) {
+        self.purged = purged.into_iter().collect();
+        if let Some(latest) = self.purged.values().max() {
+            self.clock.observe(*latest);
+        }
+        self.reindex();
+    }
+
+    /// Remove `id`'s record for good, remembering when (for sync, and for the records under
+    /// it). Indexes are the caller's to update.
+    fn tombstone(&mut self, id: NodeId) -> Option<Node> {
+        let node = self.nodes.remove(&id)?;
+        let at = self.clock.tick(now_millis());
+        self.purged.insert(id, at);
+        self.unsent.insert(id, REMOVED);
+        self.dirty.insert(id);
+        Some(node)
     }
 
     /// Whether `node` is the root of a deletion that stands (deleted, and not revived).
@@ -716,8 +773,9 @@ impl Tree {
                 node.modified = now_millis();
             }
         }
+        let full = self.needs_reindex(before.as_ref(), &node);
         self.stamp(before.as_ref(), &mut node);
-        if self.needs_reindex(before.as_ref(), &node) {
+        if full {
             self.sync_index(before.as_ref(), Some(&node));
             let id = node.id;
             self.journal_put(before.as_ref(), &node);
@@ -766,6 +824,7 @@ impl Tree {
                 || self.index.hidden.contains(&after.id)
                 || self.index.hidden.contains(&after.parent)
                 || !self.nodes.contains_key(&after.parent)
+                || self.purged.contains_key(&after.id)
                 || self.closes_cycle(after))
     }
 
@@ -792,7 +851,8 @@ impl Tree {
     pub fn remove(&mut self, id: NodeId) {
         let id = self.resolve(id);
         let Some(before) = self.remove_record(id) else { return };
-        if before.deleted_at.is_some() || !self.index.moved.is_empty() || !self.index.revived.is_empty() {
+        let had_children = self.index.children.get(&id).is_some_and(|c| !c.is_empty());
+        if had_children || before.deleted_at.is_some() || !self.index.moved.is_empty() || !self.index.revived.is_empty() {
             self.reindex();
         }
         self.journal.push(Change { id, edit: Edit::Remove(before) });
@@ -802,7 +862,7 @@ impl Tree {
     /// incrementally; callers reindex when it may settle cycles or revivals differently.
     fn remove_record(&mut self, id: NodeId) -> Option<Node> {
         let parent = self.nodes.get(&id).map(|n| self.view_parent(n))?;
-        let before = self.nodes.remove(&id)?;
+        let before = self.tombstone(id)?;
         if let Some(list) = self.index.children.get_mut(&parent) {
             list.retain(|c| *c != id);
         }
@@ -818,7 +878,6 @@ impl Tree {
         }
         self.relist(id);
         self.sync_index(Some(&before), None);
-        self.dirty.insert(id);
         self.revision += 1;
         Some(before)
     }
@@ -867,17 +926,19 @@ impl Tree {
     }
 
     /// Ids changed since last call, split into (present nodes, deleted ids).
-    pub fn take_dirty(&mut self) -> (Vec<Node>, Vec<NodeId>) {
-        let mut upserts = Vec::new();
-        let mut deletes = Vec::new();
+    /// What changed since the last call: records to write, records removed for good, and
+    /// what sync has to send.
+    pub fn take_dirty(&mut self) -> Dirty {
+        let mut dirty = Dirty::default();
         for id in self.dirty.drain() {
             match self.nodes.get(&id) {
-                Some(n) if id != ROOT => upserts.push(n.clone()),
+                Some(n) if id != ROOT => dirty.upserts.push(n.clone()),
                 Some(_) => {}
-                None => deletes.push(id),
+                None => dirty.removed.extend(self.purged.get(&id).map(|at| (id, *at))),
             }
         }
-        (upserts, deletes)
+        dirty.unsent = self.unsent.drain().collect();
+        dirty
     }
 
     /// Undo `changes` (in journal order; the newest is undone first) and return what redoes
@@ -896,10 +957,7 @@ impl Tree {
             let id = change.id;
             let old = self.nodes.get(&id).cloned();
             let undo = match &change.edit {
-                Edit::Create(_) => old.clone().map(|now| {
-                    self.nodes.remove(&id);
-                    Edit::Remove(now)
-                }),
+                Edit::Create(_) => self.tombstone(id).map(Edit::Remove),
                 Edit::Remove(node) if old.is_none() => {
                     // Bringing a record back is a new write of all its fields.
                     let mut node = node.clone();
@@ -907,6 +965,8 @@ impl Tree {
                     for reg in Reg::ALL {
                         node.sync.clocks.set(reg, at);
                     }
+                    self.purged.remove(&id);
+                    self.unsent.insert(id, ALL_REGS);
                     self.nodes.insert(id, node.clone());
                     Some(Edit::Create(node))
                 }
@@ -965,7 +1025,7 @@ mod tests {
 
     /// The incrementally kept index must equal a fresh derivation from the records.
     fn assert_derived(t: &Tree) {
-        let mut fresh = Tree { nodes: t.nodes.clone(), ..Tree::default() };
+        let mut fresh = Tree { nodes: t.nodes.clone(), purged: t.purged.clone(), ..Tree::default() };
         fresh.reindex();
         assert_eq!(t.index.hidden, fresh.index.hidden);
         assert_eq!(t.index.moved, fresh.index.moved);
@@ -1003,35 +1063,39 @@ mod tests {
     }
 
     #[test]
-    fn records_below_a_missing_parent_are_unreachable_and_come_back_with_it() {
+    fn records_below_a_removed_parent_show_at_the_top_until_it_comes_back() {
         let (mut t, [a, b, c, d]) = sample();
         t.take_dirty();
         let mark = t.journal_mark();
-        // Remove `b` but leave `c` behind: `c` is still a record, but nothing reaches it.
+        // Remove `b` for good but leave `c` behind: rather than hide `c` with it, the view
+        // shows it at the top level. Its record still names `b`.
         t.remove(b);
-        assert!(!t.contains(c) && t.has_record(c) && t.get(c).is_none());
-        assert_eq!(t.node(c).parent, b, "the record is untouched");
-        assert!(!t.take_dirty().0.iter().any(|n| n.id == c), "nothing is written back");
-        assert!(t.contains(a) && t.contains(d));
-        assert_eq!(t.len(), 2);
-        assert_eq!(t.records().count(), 3);
-        assert!(!t.nodes().any(|n| n.id == c));
+        assert!(t.contains(c));
+        assert_eq!((t.parent(c), t.node(c).parent), (ROOT, b));
+        let dirty = t.take_dirty();
+        assert!(!dirty.upserts.iter().any(|n| n.id == c), "nothing is written back");
+        assert!(matches!(dirty.removed.as_slice(), [(id, _)] if *id == b), "the removal is saved, with its clock");
+        assert_eq!(dirty.unsent, [(b, crate::hlc::REMOVED)]);
+        // Where `c` sorts among them depends on the rank it had under `b`.
+        let mut top = t.children(ROOT).to_vec();
+        top.sort();
+        let mut expected = vec![a, c, d];
+        expected.sort();
+        assert_eq!(top, expected);
         assert!(t.descendants(a).is_empty());
-        assert!(t.children(c).is_empty());
         assert_derived(&t);
 
-        // Putting the parent record back (here by rolling back) makes the subtree reachable.
+        // Putting the parent record back (here by rolling back) puts `c` back under it.
         t.rollback_to(mark);
-        assert!(t.contains(b) && t.contains(c));
         assert_eq!(t.descendants(a), [b, c]);
+        assert!(t.take_dirty().removed.is_empty());
         assert_derived(&t);
 
-        // A new record with the missing parent's id adopts the waiting records.
+        // So does a new record with the removed parent's id.
         t.remove(b);
         let mut again = Node::new(b, d, "a0".into());
         again.text = "b again".into();
         t.put(again);
-        assert!(t.contains(c));
         assert_eq!(t.descendants(d), [b, c]);
         assert_derived(&t);
     }
@@ -1044,7 +1108,7 @@ mod tests {
         let kept = t.create_mirror(d, a, 1).unwrap();
         let lost = t.create_mirror(d, b, 1).unwrap();
         assert_eq!(t.mirrors_of(d), [lost, kept]);
-        t.remove(b);
+        t.trash(b);
         assert_eq!(t.link_count(target), 0);
         assert_eq!(t.links_to(target).count(), 0);
         assert!(t.has_record(c) && t.has_record(lost));
@@ -1062,7 +1126,7 @@ mod tests {
         }
         assert_eq!(t.starred().collect::<Vec<_>>(), [c, d]);
         let mark = t.journal_mark();
-        t.remove(b);
+        t.trash(b);
         assert_eq!(t.starred().collect::<Vec<_>>(), [d]);
         assert!(!t.is_starred(c) && !t.node(c).star.is_empty(), "the star stays on the record");
         t.rollback_to(mark);
@@ -1076,7 +1140,7 @@ mod tests {
         // `x` under `y` and `y` under `x`, with `z` below `x`.
         let nodes = vec![Node::new(x, y, "a0".into()), Node::new(y, x, "a0".into()), Node::new(z, x, "a0".into())];
         let mut t = Tree::from_nodes(nodes.clone());
-        assert!(t.take_dirty().0.is_empty(), "nothing is written back");
+        assert!(t.take_dirty().upserts.is_empty(), "nothing is written back");
         let (latest, other) = (x.max(y), x.min(y));
         assert_eq!(t.parent(latest), ROOT, "the latest move is undone in the view");
         assert_eq!(t.node(latest).parent, other, "its record keeps its parent");
@@ -1115,7 +1179,7 @@ mod tests {
         let mut t = Tree::from_nodes([Node::new(child, parent, "a0".into()), Node::new(other, ROOT, "a0".into())]);
         assert!(!t.contains(child) && t.has_record(child));
         assert_eq!(t.node(child).parent, parent);
-        assert!(t.take_dirty().0.is_empty(), "nothing is written back");
+        assert!(t.take_dirty().upserts.is_empty(), "nothing is written back");
         t.put(Node::new(parent, ROOT, "a1".into()));
         assert_eq!(t.children(parent), [child]);
         assert_derived(&t);
@@ -1157,6 +1221,20 @@ mod tests {
         let old = id;
         assert!(!t.contains(a) && !t.contains(old));
         assert_eq!(t.trashed(), [a]);
+        assert_derived(&t);
+    }
+
+    #[test]
+    fn removing_half_of_a_cycle_leaves_the_other_half_in_view() {
+        let (x, y, z) = (NodeId::random(), NodeId::random(), NodeId::random());
+        let mut t = Tree::from_nodes([Node::new(x, y, "a0".into()), Node::new(y, x, "a0".into()), Node::new(z, ROOT, "a1".into())]);
+        let (top, below) = (x.max(y), x.min(y));
+        assert_eq!(t.parent(below), top);
+        // Removing the half the view shows at the top level: the other half's parent is gone
+        // for good, so it shows at the top level rather than wait for it.
+        t.remove(top);
+        assert!(t.contains(below));
+        assert_eq!(t.parent(below), ROOT);
         assert_derived(&t);
     }
 }

@@ -14,6 +14,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ### Fixed
 
+- **Scrolling**: in a long outline the scrollbar has about the right size from the start, so you can drag it to the end in one go. Rows not drawn yet used to count as having no height, so the thumb kept shrinking as you scrolled.
 - **Markdown import**: headings now give the imported outline its structure: everything under a heading, down to the next heading of the same or a higher level, goes under it. `####` to `######` headings import as level-3 headings instead of rows that start with hashes, and a paragraph separated by a blank line becomes a paragraph row of its own instead of being added to the note of the item above, so a long article no longer ends up in one huge note.
 - **Memory**: undo history takes far less memory. An undo step now keeps one copy of each bullet as it was before the step, instead of copies from before and after every change; importing Moby-Dick five times used to add about 13 MB for undo and now adds under 1 MB.
 - **Trash**: deleting bullets forever, or emptying the Trash, gives the space back: the database file shrinks once enough of it is free, instead of keeping its size.

@@ -4,6 +4,10 @@ use flowie_core::{merge_leaving, DisplayRow, NodeId, Row, ROOT};
 use gpui::px;
 
 use super::{Outline, Target, HEAD};
+
+/// Above this many new rows at once, the list is reset rather than spliced (see
+/// `Outline::row_height_hint`).
+const BULK_ROWS: usize = 200;
 use crate::ui::anim::{self, Channel};
 
 impl Outline {
@@ -84,13 +88,19 @@ impl Outline {
         // Besides the rows, the list has the page header first and the
         // click-to-add footer last.
         if self.list.item_count() != old.len() + HEAD + 1 {
-            self.list.reset(new.len() + HEAD + 1);
+            self.list.reset_with_uniform_height(new.len() + HEAD + 1, self.row_height_hint(new));
             return;
         }
         if old_end == prefix && new_count == 0 {
             return; // nothing changed
         }
-        self.list.splice(prefix + HEAD..old_end + HEAD, new_count);
+        if new_count > BULK_ROWS {
+            // Many new rows (expand all, a large paste): start over with a height
+            // estimate for every row, so the scrollbar is about right from the start.
+            self.list.reset_with_uniform_height(new.len() + HEAD + 1, self.row_height_hint(new));
+        } else {
+            self.list.splice(prefix + HEAD..old_end + HEAD, new_count);
+        }
         // With the header at the top, the rows below it can change freely.
         let Some(top) = top else { return };
         // Keep the row that was at the top where it was, by identity.
@@ -105,6 +115,26 @@ impl Outline {
             let item_ix = ancestor.or_else(neighbor).map_or(0, |ix| ix + HEAD);
             self.list.scroll_to(gpui::ListOffset { item_ix, offset_in_item: px(0.) });
         }
+    }
+
+    /// The height to assume for a row the list hasn't measured yet: the average
+    /// of an estimate for each of `rows` (lines of text at the usual width, the
+    /// note, an image). Without one an unmeasured row counts as 0 px, so in a long
+    /// outline the scrollbar thumb keeps shrinking as rows scroll into view and
+    /// dragging it to the bottom doesn't reach the end.
+    pub fn row_height_hint(&self, rows: &[DisplayRow]) -> gpui::Pixels {
+        let tree = &self.ws.tree;
+        let total: f32 = rows
+            .iter()
+            .filter_map(|d| tree.get(tree.source(d.row.id)))
+            .map(|n| {
+                let (_, line_h, top_pad) = super::row_metrics(n.kind);
+                let lines = 1.0 + (n.text.len() as f32 / 90.0).floor();
+                let note = if n.note.is_empty() { 0.0 } else { 20.0 };
+                line_h * lines + top_pad + 3.0 + note
+            })
+            .sum();
+        px(if rows.is_empty() { super::LINE_H + 6.0 } else { total / rows.len() as f32 })
     }
 
     /// Called each frame while animating: drop rows that finished leaving.

@@ -12,7 +12,7 @@ cargo test --workspace
 
 CI runs the same checks on macOS (see `.github/workflows/ci.yml`), plus
 [`cargo deny check`](https://github.com/EmbarkStudios/cargo-deny) for dependency licenses and
-advisories (`deny.toml`).
+advisories (`deny.toml`), which also limits which crates may depend on `gpui-kit` and `rusqlite`.
 
 - Keep changes focused; one topic per pull request.
 - Add user-visible changes under `[Unreleased]` in `CHANGELOG.md`

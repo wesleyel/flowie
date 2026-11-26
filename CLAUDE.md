@@ -9,7 +9,7 @@ solo project and the version is `1.0.0`, released as `1.0.0-rc.N` candidates.
 
 | Crate | What it holds |
 |---|---|
-| `crates/flowie-core` | Model and persistence, **no UI**: `tree/` (`NodeId` UUIDs, `Node`, `Tree`, edit ops, `rank` ordering), `store/` (SQLite schema in `store/mod.rs`, background `Writer` batching changes about every 200 ms, Trash, imports, image metadata), `history.rs` (undo), `flatten.rs` (tree → visible `Row`/`DisplayRow`), `markup.rs` (inline formatting), `search.rs`, `io/` (text/Markdown/OPML), `package/` (share packages, three-way merge), `images.rs` (sha256 content-addressed files) |
+| `crates/flowie-core` | Model and persistence, **no UI**: `tree/` (`NodeId` UUIDs, `Node`, `Tree`, edit ops, `rank` ordering), `store/` (SQLite schema in `store/mod.rs`, background `Writer` batching changes about every 200 ms, Trash, imports, image metadata), `history.rs` (undo), `flatten.rs` (tree → visible `Row`/`DisplayRow`), `markup.rs` (inline formatting), `search.rs`, `io/` (text/Markdown/OPML), `package/` (share packages, three-way merge), `images.rs` (sha256 content-addressed files). Default features `store` (store, package, `ImageDir`) and `writer-thread` (`Writer`); without them it builds for wasm |
 | `crates/flowie-doc` | The document layer, **no GPUI**: `Workspace` owns the open outline's `tree`, `history` and `writer` (plus imports and image metadata), opens the database and runs the commit/undo path every edit takes |
 | `crates/flowie-math` | KaTeX-compatible math via RaTeX, plus a GPUI element |
 | `crates/flowie-app` | The GPUI app (binary `flowie`) |
@@ -33,11 +33,13 @@ cargo run -p flowie-app                         # dev run; FLOWIE_DB=/tmp/x.sqli
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked
 cargo test --workspace --locked
+cargo check -p flowie-core --no-default-features --target wasm32-unknown-unknown   # the model without store/writer-thread
 scripts/bundle-macos.sh target/release/flowie Flowie flowie.spokey.cn   # local .app
 ```
 
-CI (`.github/workflows/ci.yml`) runs fmt, a CHANGELOG check, cargo-deny, then clippy, test and build on
-macOS, Windows and Linux. Pushing a `v*` tag runs `release.yml`. Other env vars: `FLOWIE_THEME`,
+CI (`.github/workflows/ci.yml`) runs fmt, a CHANGELOG check, cargo-deny (which also allows `gpui-kit` only in
+flowie-app/flowie-math and `rusqlite` only in flowie-core), the wasm check above, then clippy, test and build
+on macOS, Windows and Linux. Pushing a `v*` tag runs `release.yml`. Other env vars: `FLOWIE_THEME`,
 `FLOWIE_WINDOW_SIZE`, `FLOWIE_SHOT_*` (screenshots).
 
 ## Rules

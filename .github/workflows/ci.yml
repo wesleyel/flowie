@@ -54,6 +54,25 @@ jobs:
         with:
           command: check
 
+  targets:
+    name: flowie-core for wasm32 (check)
+    # The model has to stay portable (docs/roadmap: per-node sync §4, iOS §3.4): without its
+    # default store and writer-thread features, flowie-core builds for the browser.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain and the wasm32 target
+        # rust-toolchain.toml pins the toolchain, so the target goes on that one (not on `stable`).
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      - name: Check flowie-core for wasm32-unknown-unknown
+        run: cargo check --locked -p flowie-core --no-default-features --target wasm32-unknown-unknown
+
   check:
     name: clippy, test and build (macOS)
     runs-on: macos-latest

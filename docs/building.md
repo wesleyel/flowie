@@ -106,6 +106,9 @@ The same checks run in CI (`.github/workflows/ci.yml`) on every push and pull re
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+# flowie-core's model, without its default `store` and `writer-thread` features, builds for the browser
+rustup target add wasm32-unknown-unknown
+cargo check -p flowie-core --no-default-features --target wasm32-unknown-unknown
 ```
 
 Handy extras:

@@ -88,6 +88,7 @@ impl Outline {
             .text_size(px(12.))
             .child(crate::ui::icons::icon(icon, crate::ui::icons::SM, color))
             .child(div().flex_1().min_w_0().text_color(theme.muted).child(status));
+        let lost = self.render_lost(cx);
         let field = |label: String, hint: String, control: AnyElement| {
             div()
                 .flex()
@@ -145,7 +146,82 @@ impl Outline {
             .child(div().flex().flex_col().gap_2().pb_3().border_b_1().border_color(theme.divider).child(toggle).child(status))
             .child(field(t!("settings.sync.server.label").into(), t!("settings.sync.server.hint").into(), server))
             .child(field(t!("settings.sync.token.label").into(), t!("settings.sync.token.hint").into(), token))
+            .children(lost)
             .child(div().pt_3().text_size(px(12.)).text_color(theme.muted).child(t!("settings.sync.backup")))
             .into_any_element()
+    }
+
+    /// Conflict copies, newest first, each with Restore and Dismiss; nothing without any.
+    fn render_lost(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let theme = self.theme;
+        let copies = self.ws.sync.lost();
+        if copies.is_empty() {
+            return None;
+        }
+        let rows = copies.iter().enumerate().rev().map(|(ix, copy)| {
+            let bullet = self.ws.tree.get(copy.id).map(|n| flowie_core::markup::plain_text(&n.text));
+            let whose = match (copy.field.as_str(), bullet) {
+                (_, None) => t!("settings.sync.lost.deleted").to_string(),
+                ("note", Some(text)) => t!("settings.sync.lost.note_of", bullet = excerpt(&text)),
+                (_, Some(text)) => t!("settings.sync.lost.text_of", bullet = excerpt(&text)),
+            };
+            let when = chrono::DateTime::from_timestamp_millis(copy.at)
+                .map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M").to_string())
+                .unwrap_or_default();
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .py_2()
+                .border_b_1()
+                .border_color(theme.divider)
+                .child(div().text_size(px(12.)).text_color(theme.muted).child(format!("{whose} · {when}")))
+                .child(div().p_2().rounded_md().bg(theme.code_bg).child(excerpt_long(&copy.value)))
+                .child(
+                    div()
+                        .flex()
+                        .gap_3()
+                        .child(
+                            crate::ui::button::button(theme, ("lost-restore", ix), crate::ui::button::Variant::Link)
+                                .child(t!("settings.sync.lost.restore"))
+                                .on_click(cx.listener(move |this, _, _, cx| this.restore_lost(ix, cx))),
+                        )
+                        .child(
+                            crate::ui::button::button(theme, ("lost-dismiss", ix), crate::ui::button::Variant::Link)
+                                .child(t!("settings.sync.lost.dismiss"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.ws.dismiss_lost(ix);
+                                    cx.notify();
+                                })),
+                        ),
+                )
+        });
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .pt_3()
+                .child(div().font_weight(FontWeight::SEMIBOLD).child(t!("settings.sync.lost.label")))
+                .child(div().text_size(px(12.)).text_color(theme.muted).pb_1().child(t!("settings.sync.lost.hint")))
+                .children(rows)
+                .into_any_element(),
+        )
+    }
+}
+
+/// The start of `text` on one line, for naming a bullet.
+fn excerpt(text: &str) -> String {
+    let line = text.lines().next().unwrap_or("").trim();
+    match line.char_indices().nth(40) {
+        Some((cut, _)) => format!("{}…", &line[..cut]),
+        None => line.to_string(),
+    }
+}
+
+/// Text shown whole up to a few hundred characters.
+fn excerpt_long(text: &str) -> String {
+    match text.char_indices().nth(400) {
+        Some((cut, _)) => format!("{}…", &text[..cut]),
+        None => text.to_string(),
     }
 }

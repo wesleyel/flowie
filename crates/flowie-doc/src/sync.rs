@@ -18,6 +18,19 @@ const HELD_META: &str = "sync.held";
 const PREFS_META: &str = "sync.prefs";
 const PREFS_BASE_META: &str = "sync.prefs_base";
 
+/// Text that lost a concurrent edit to another device's (a conflict copy), kept until it is
+/// restored or dismissed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LostCopy {
+    /// The node it was in (perhaps deleted since).
+    pub id: NodeId,
+    /// `"text"` or `"note"`.
+    pub field: String,
+    pub value: String,
+    /// When it was noticed (ms).
+    pub at: i64,
+}
+
 /// Sync's state for one outline.
 #[derive(Debug, Default)]
 pub struct SyncState {
@@ -39,6 +52,8 @@ pub struct SyncState {
     prefs_base: Option<(String, PrefsRecord)>,
     /// Counts preference changes that came from another device, for the app to reload them.
     prefs_revision: u64,
+    /// Conflict copies, oldest first.
+    lost: Vec<LostCopy>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -53,6 +68,7 @@ impl SyncState {
             outbox: rows.outbox.into_iter().collect(),
             bases: rows.bases.into_iter().filter_map(|(id, etag, json)| Some((id, (etag, serde_json::from_str(&json).ok()?)))).collect(),
             cursors: rows.cursors.into_iter().collect(),
+            lost: rows.lost.into_iter().map(|(id, field, value, at)| LostCopy { id, field, value, at }).collect(),
             ..SyncState::default()
         }
     }
@@ -72,6 +88,11 @@ impl SyncState {
         self.prefs_unsent = get(PREFS_META) == Some("1");
         self.prefs_base =
             get(PREFS_BASE_META).and_then(|v| serde_json::from_str::<SavedPrefsBase>(v).ok()).map(|saved| (saved.etag, saved.record));
+    }
+
+    /// Conflict copies, oldest first.
+    pub fn lost(&self) -> &[LostCopy] {
+        &self.lost
     }
 
     /// Changes when preferences come in from another device.
@@ -140,6 +161,16 @@ impl Workspace {
             self.persist();
         }
         self.set_meta(HELD_META, "");
+    }
+
+    /// Forget the conflict copy at `index` (restored by the caller, or dismissed).
+    pub fn dismiss_lost(&mut self, index: usize) -> Option<LostCopy> {
+        if index >= self.sync.lost.len() {
+            return None;
+        }
+        let copy = self.sync.lost.remove(index);
+        self.save_sync(SyncWrite::Unlost { id: copy.id, field: copy.field.clone(), value: copy.value.clone(), at: copy.at });
+        Some(copy)
     }
 
     pub(crate) fn note_prefs_unsent(&mut self) {
@@ -252,7 +283,8 @@ impl RecordStore for Workspace {
 
     fn keep_lost(&mut self, id: NodeId, field: &str, value: String) {
         let at = flowie_core::tree::now_millis();
-        self.save_sync(SyncWrite::Lost { id, field: field.to_string(), value, at });
+        self.save_sync(SyncWrite::Lost { id, field: field.to_string(), value: value.clone(), at });
+        self.sync.lost.push(LostCopy { id, field: field.to_string(), value, at });
     }
 
     fn set_cursor(&mut self, cursor: String) {
@@ -413,6 +445,37 @@ mod tests {
         let a = open(&db_a);
         assert_eq!(a.pref("saved_searches"), Some("from b"));
         assert!(!a.sync.has_unsent());
+    }
+
+    #[test]
+    fn conflict_copies_are_kept_until_dismissed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (db_a, db_b) = (dir.path().join("a.sqlite"), dir.path().join("b.sqlite"));
+        let mut server = MemoryServer::new();
+        let (mut a, mut b) = (open(&db_a), open(&db_b));
+        let x = a.tree.create_at(ROOT, 0, "x");
+        a.commit_with_imports(None, None, None);
+        sync(&mut a, &mut Engine::new(), &mut server);
+        sync(&mut b, &mut Engine::new(), &mut server);
+        a.tree.set_text(x, "a's text");
+        a.commit_typing(x, None, None);
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        b.tree.set_text(x, "b's text");
+        b.commit_typing(x, None, None);
+        sync(&mut a, &mut Engine::new(), &mut server);
+        sync(&mut b, &mut Engine::new(), &mut server);
+        let lost: Vec<_> = b.sync.lost().iter().map(|c| (c.id, c.field.as_str(), c.value.as_str())).collect();
+        assert_eq!(lost, [(x, "text", "a's text")]);
+
+        b.flush().unwrap();
+        drop(b);
+        let mut b = open(&db_b);
+        assert_eq!(b.sync.lost().len(), 1, "kept across a restart");
+        assert_eq!(b.dismiss_lost(0).map(|c| c.value), Some("a's text".to_string()));
+        assert!(b.dismiss_lost(0).is_none());
+        b.flush().unwrap();
+        drop(b);
+        assert!(open(&db_b).sync.lost().is_empty());
     }
 
     #[test]

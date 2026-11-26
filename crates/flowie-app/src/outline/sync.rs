@@ -184,6 +184,28 @@ impl Outline {
         ids.iter().all(|&id| tree.record(id).is_some_and(|n| n.sync.clocks.max().wall <= added + SEEDING))
     }
 
+    /// Put the conflict copy at `index` back as a bullet after the one it was in (at the end of
+    /// Home if that one is gone): its text, or for a note, an empty bullet with it as the note.
+    /// An undo step.
+    pub(crate) fn restore_lost(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(copy) = self.ws.sync.lost().get(index).cloned() else { return };
+        let tree = &mut self.ws.tree;
+        let (parent, at) = if tree.contains(copy.id) {
+            (tree.parent(copy.id), tree.index_in_parent(copy.id) + 1)
+        } else {
+            (ROOT, tree.children(ROOT).len())
+        };
+        if copy.field == "note" {
+            let id = tree.create_at(parent, at, "");
+            tree.set_note(id, &copy.value);
+        } else {
+            tree.create_at(parent, at, &copy.value.replace('\n', " "));
+        }
+        self.ws.dismiss_lost(index);
+        self.commit_structure(None, cx);
+        self.toast(crate::app::i18n::t!("settings.sync.lost.restored"));
+    }
+
     /// Copy the database beside itself before the first sync with a server.
     fn snapshot_before_sync(&mut self) -> Result<(), String> {
         let Some(db) = self.db_path.clone() else { return Ok(()) };

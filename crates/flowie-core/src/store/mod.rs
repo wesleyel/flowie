@@ -286,6 +286,8 @@ pub struct SyncRows {
     pub outbox: Vec<NodeId>,
     pub bases: Vec<(NodeId, String, String)>,
     pub cursors: Vec<(String, String)>,
+    /// Conflict copies (`load_lost`).
+    pub lost: Vec<(NodeId, String, String, i64)>,
 }
 
 pub fn load_sync(conn: &Connection) -> rusqlite::Result<SyncRows> {
@@ -298,7 +300,7 @@ pub fn load_sync(conn: &Connection) -> rusqlite::Result<SyncRows> {
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)))?
         .filter_map(|row| row.map(|(remote, c)| String::from_utf8(c).ok().map(|c| (remote, c))).transpose())
         .collect::<rusqlite::Result<_>>()?;
-    Ok(SyncRows { outbox, bases, cursors })
+    Ok(SyncRows { outbox, bases, cursors, lost: load_lost(conn)? })
 }
 
 /// Conflict copies (`SyncWrite::Lost`), oldest first: node, field, the text that lost, and
@@ -321,6 +323,8 @@ pub enum SyncWrite {
     Cursor { remote: String, cursor: String },
     /// Text in a node's field (`"text"` or `"note"`) that another device's edit won over.
     Lost { id: NodeId, field: String, value: String, at: i64 },
+    /// A conflict copy dealt with: restored or dismissed.
+    Unlost { id: NodeId, field: String, value: String, at: i64 },
 }
 
 pub fn write_sync(conn: &Connection, write: &SyncWrite) -> rusqlite::Result<()> {
@@ -329,6 +333,10 @@ pub fn write_sync(conn: &Connection, write: &SyncWrite) -> rusqlite::Result<()> 
         SyncWrite::Lost { id, field, value, at } => {
             conn.execute("INSERT INTO lost (id, field, value, at) VALUES (?1, ?2, ?3, ?4)", params![id, field, value, at])
         }
+        SyncWrite::Unlost { id, field, value, at } => conn.execute(
+            "DELETE FROM lost WHERE rowid = (SELECT rowid FROM lost WHERE id = ?1 AND field = ?2 AND value = ?3 AND at = ?4 LIMIT 1)",
+            params![id, field, value, at],
+        ),
         SyncWrite::Base(id, etag, record) => conn.execute(
             "INSERT INTO bases (id, etag, record) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET etag = ?2, record = ?3",
             params![id, etag, record],
@@ -503,6 +511,8 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
         }
         let lost = load_lost(&conn).unwrap();
         assert_eq!(lost, [(id, "text".into(), "first".into(), 5), (id, "text".into(), "second".into(), 9)]);
+        write_sync(&conn, &SyncWrite::Unlost { id, field: "text".into(), value: "first".into(), at: 5 }).unwrap();
+        assert_eq!(load_lost(&conn).unwrap(), [(id, "text".into(), "second".into(), 9)]);
     }
 
     #[test]

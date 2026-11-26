@@ -257,6 +257,16 @@
         "hint": "在服务器上用 `flowie-server token add 名称` 为每台设备签发一个。",
         "placeholder": "粘贴令牌"
       },
+      "lost": {
+        "label": "冲突副本",
+        "hint": "本机和另一台设备同时改过的文字中，被覆盖的那一版。可以恢复为一个条目，或者忽略。",
+        "text_of": "「{bullet}」的文字",
+        "note_of": "「{bullet}」的备注",
+        "deleted": "所在的条目已被删除",
+        "restore": "恢复为条目",
+        "dismiss": "忽略",
+        "restored": "已恢复为条目"
+      },
       "backup": "第一次与某台服务器同步之前，Flowie 会在数据库旁边保留一份副本（flowie.sqlite.before-sync-<时间>）。"
     },
     "about": {

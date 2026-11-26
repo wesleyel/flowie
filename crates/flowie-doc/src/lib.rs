@@ -8,7 +8,7 @@ pub use driver::{SyncDriver, SyncPhase};
 use flowie_core::images::{BlobInfo, ImageDir};
 use flowie_core::store::{self, ImportRecord, ImportState, Writer};
 use flowie_core::{Caret, History, HistoryKind, NodeId, Tree};
-pub use sync::SyncState;
+pub use sync::{LostCopy, SyncState};
 
 mod driver;
 mod sync;

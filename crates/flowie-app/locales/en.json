@@ -290,6 +290,16 @@
         "hint": "Issue one for each device on the server with `flowie-server token add NAME`.",
         "placeholder": "Paste the token"
       },
+      "lost": {
+        "label": "Conflict copies",
+        "hint": "Text this device and another changed at the same time: the version that lost. Restore it as a bullet, or dismiss it.",
+        "text_of": "Text of “{bullet}”",
+        "note_of": "Note of “{bullet}”",
+        "deleted": "In a bullet deleted since",
+        "restore": "Restore as bullet",
+        "dismiss": "Dismiss",
+        "restored": "Restored as a bullet"
+      },
       "backup": "Before the first sync with a server, Flowie keeps a copy of this outline’s database beside it (flowie.sqlite.before-sync-<time>)."
     },
     "about": {

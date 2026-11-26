@@ -1,10 +1,63 @@
 //! Author identity and general preferences.
 
-use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, Window};
+use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, SharedString, Window};
 use serde::{Deserialize, Serialize};
 
 use crate::app::i18n::t;
+use crate::app::keymap;
+use crate::app::platform::{self, Os, OS};
 use crate::outline::{Field, Outline, Target};
+
+/// What closing the window (×) does on Windows and Linux.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CloseAction {
+    #[default]
+    Ask,
+    Tray,
+    Quit,
+}
+
+impl CloseAction {
+    pub const ALL: [CloseAction; 3] = [CloseAction::Ask, CloseAction::Tray, CloseAction::Quit];
+
+    fn id(self) -> &'static str {
+        match self {
+            CloseAction::Ask => "ask",
+            CloseAction::Tray => "tray",
+            CloseAction::Quit => "quit",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CloseAction::Ask => t!("settings.general.close_action.ask"),
+            CloseAction::Tray => t!("settings.general.close_action.tray"),
+            CloseAction::Quit => t!("settings.general.close_action.quit"),
+        }
+    }
+}
+
+/// Outcome of pressing the window's close button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseDecision {
+    Ask,
+    HideToTray,
+    Quit,
+}
+
+/// Decide what closing the window does on `os`, falling back to quitting when
+/// no system tray is available to bring Flowie back.
+pub fn decide_close(os: Os, action: CloseAction, tray_available: bool) -> CloseDecision {
+    if os == Os::Mac || !tray_available {
+        return CloseDecision::Quit;
+    }
+    match action {
+        CloseAction::Ask => CloseDecision::Ask,
+        CloseAction::Tray => CloseDecision::HideToTray,
+        CloseAction::Quit => CloseDecision::Quit,
+    }
+}
 
 /// Who this user is when sharing (share packages name their author). One
 /// per person: the same id on every device the person uses.
@@ -152,6 +205,39 @@ impl Outline {
                 )
                 .child(control)
         };
+        let close_action_field = (OS != Os::Mac).then(|| {
+            let current = self.config.close_action;
+            let segmented = crate::ui::segmented::track(theme).children(CloseAction::ALL.into_iter().map(|action| {
+                crate::ui::segmented::segment(theme, SharedString::from(format!("close-action-{}", action.id())), action == current)
+                    .child(action.label())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.config.close_action = action;
+                        this.save_config();
+                        cx.notify();
+                    }))
+            }));
+            let tray_available = self.tray_available();
+            let quit_shortcut = keymap::keys_for("quit", &self.config.keys)
+                .into_iter()
+                .next()
+                .map(|k| platform::key_text(&k))
+                .unwrap_or_else(|| platform::key_text("ctrl-q"));
+            let control = div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(segmented)
+                .when(!tray_available, |d| {
+                    let note = if OS == Os::Linux {
+                        t!("settings.general.close_action.tray_unavailable_linux")
+                    } else {
+                        t!("settings.general.close_action.tray_unavailable")
+                    };
+                    d.child(div().text_size(px(12.)).text_color(theme.muted).child(note))
+                })
+                .into_any_element();
+            field(t!("settings.general.close_action.label"), t!("settings.general.close_action.hint", shortcut = quit_shortcut), control)
+        });
         div()
             .id("general")
             .size_full()
@@ -174,11 +260,48 @@ impl Outline {
                 name_field.into_any_element(),
             ))
             .child(field(t!("settings.general.author_id.label"), t!("settings.general.author_id.hint").into(), id_row.into_any_element()))
+            .children(close_action_field)
             .child(field(
                 t!("settings.general.whats_new.label"),
                 t!("settings.general.whats_new.hint").into(),
                 whats_new.into_any_element(),
             ))
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::Config;
+
+    #[test]
+    fn close_action_defaults_to_ask_and_round_trips() {
+        let cfg: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(cfg.close_action, CloseAction::Ask);
+        for (raw, expected) in [("\"ask\"", CloseAction::Ask), ("\"tray\"", CloseAction::Tray), ("\"quit\"", CloseAction::Quit)] {
+            let parsed: CloseAction = serde_json::from_str(raw).unwrap();
+            assert_eq!(parsed, expected);
+            assert_eq!(serde_json::to_string(&parsed).unwrap(), raw);
+        }
+    }
+
+    #[test]
+    fn decide_close_respects_platform_setting_and_tray_availability() {
+        // macOS always keeps its native close path regardless of config.
+        for action in CloseAction::ALL {
+            assert_eq!(decide_close(Os::Mac, action, true), CloseDecision::Quit);
+            assert_eq!(decide_close(Os::Mac, action, false), CloseDecision::Quit);
+        }
+        // Windows and Linux follow the setting when a tray host is available.
+        for os in [Os::Windows, Os::Linux] {
+            assert_eq!(decide_close(os, CloseAction::Ask, true), CloseDecision::Ask);
+            assert_eq!(decide_close(os, CloseAction::Tray, true), CloseDecision::HideToTray);
+            assert_eq!(decide_close(os, CloseAction::Quit, true), CloseDecision::Quit);
+            // Without a tray host, closing always quits so Flowie never hides unreachable.
+            for action in CloseAction::ALL {
+                assert_eq!(decide_close(os, action, false), CloseDecision::Quit);
+            }
+        }
     }
 }

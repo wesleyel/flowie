@@ -1,10 +1,12 @@
 //! Commit edits through the workspace, then update the view: rows, animation, caret.
 
 use flowie_core::{Caret, NodeId, ROOT};
-use gpui::{Context, PromptButton, PromptLevel, Window};
+use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, KeyDownEvent, MouseButton, PromptButton, PromptLevel, Window};
 
-use super::{Edit, Outline, Redo, Target, Undo};
+use super::{CloseDialog, Edit, Outline, Redo, Target, Undo};
 use crate::app::i18n::t;
+use crate::app::platform::{Os, OS};
+use crate::settings::{decide_close, CloseAction, CloseDecision};
 
 impl Outline {
     pub(crate) fn caret(&self) -> Option<Caret> {
@@ -79,7 +81,55 @@ impl Outline {
         self.ws.flush()
     }
 
-    pub fn request_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    /// Save transient UI positions and persist pending edits before hiding the window to the tray.
+    pub fn prepare_hide_to_tray(&mut self) {
+        self.close_dialog = None;
+        self.menu = None;
+        self.app_menu = None;
+        self.popover.close();
+        self.remember_scroll();
+        if let Some(s) = self.page_scrolls.get(&self.zoom) {
+            self.set_meta("scroll", &s.encode(self.zoom));
+        }
+        if let Some(place) = &self.window_place {
+            self.set_meta("window", &place.encode());
+        }
+        self.ws.persist();
+    }
+
+    /// Handle a window close button (× / Alt+F4). Returns `true` when the window
+    /// should close right now (either hiding to tray or quitting).
+    pub fn handle_window_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.close_prompt_open || self.close_dialog.is_some() {
+            return false;
+        }
+        match decide_close(OS, self.config.close_action, self.tray_available()) {
+            CloseDecision::HideToTray => {
+                self.prepare_hide_to_tray();
+                true
+            }
+            CloseDecision::Ask => {
+                self.menu = None;
+                self.app_menu = None;
+                self.close_dialog = Some(CloseDialog { remember: false });
+                cx.notify();
+                false
+            }
+            CloseDecision::Quit => {
+                if self.request_quit(window, cx) {
+                    if OS != Os::Mac {
+                        cx.quit();
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    /// Flush changes before an explicit quit (or macOS window close); prompts if saving fails.
+    pub fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.close_prompt_open {
             return false;
         }
@@ -95,15 +145,122 @@ impl Outline {
         );
         cx.spawn_in(window, async move |outline, cx| {
             let quit = matches!(answer.await, Ok(1));
-            let _ = outline.update_in(cx, |outline, window, _| {
+            let _ = outline.update_in(cx, |outline, window, cx| {
                 outline.close_prompt_open = false;
                 if quit {
-                    window.remove_window();
+                    if OS == Os::Mac {
+                        window.remove_window();
+                    } else {
+                        cx.quit();
+                    }
                 }
             });
         })
         .detach();
         false
+    }
+
+    pub fn dismiss_close_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.close_dialog.take().is_some() {
+            window.focus(&self.focus, cx);
+            cx.notify();
+        }
+    }
+
+    pub fn close_dialog_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if ev.keystroke.key == "escape" && !ev.keystroke.modifiers.modified() {
+            self.dismiss_close_dialog(window, cx);
+        }
+        cx.stop_propagation();
+    }
+
+    fn finish_close_dialog(&mut self, action: CloseAction, window: &mut Window, cx: &mut Context<Self>) {
+        let remember = self.close_dialog.take().is_some_and(|d| d.remember);
+        if remember {
+            self.config.close_action = action;
+            self.config.save(&self.config_path);
+        }
+        match action {
+            CloseAction::Tray => {
+                self.prepare_hide_to_tray();
+                window.remove_window();
+            }
+            CloseAction::Quit => {
+                if self.request_quit(window, cx) {
+                    cx.quit();
+                } else {
+                    cx.notify();
+                }
+            }
+            CloseAction::Ask => {}
+        }
+    }
+
+    pub(crate) fn render_close_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let dialog = self.close_dialog?;
+        let theme = self.theme;
+        let remember = dialog.remember;
+        let check = div()
+            .id("close-dialog-remember")
+            .flex()
+            .items_center()
+            .gap_2()
+            .cursor_pointer()
+            .text_size(px(12.))
+            .text_color(theme.muted)
+            .child(crate::ui::controls::checkbox(theme, remember))
+            .child(t!("close_dialog.remember"))
+            .on_click(cx.listener(|this, _, _, cx| {
+                if let Some(d) = this.close_dialog.as_mut() {
+                    d.remember = !d.remember;
+                    cx.notify();
+                }
+            }));
+        let sheet = crate::ui::surface::sheet(theme, "close-dialog")
+            .w(px(400.))
+            .p_5()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child(t!("close_dialog.title")))
+            .child(div().text_size(px(13.)).text_color(theme.muted).line_height(px(19.)).child(t!("close_dialog.detail")))
+            .child(div().pt_1().child(check))
+            .child(
+                div()
+                    .pt_2()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        crate::ui::button::button(theme, "close-dialog-cancel", crate::ui::button::Variant::Secondary)
+                            .child(t!("close_dialog.cancel"))
+                            .on_click(cx.listener(|this, _, window, cx| this.dismiss_close_dialog(window, cx))),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                crate::ui::button::button(theme, "close-dialog-quit", crate::ui::button::Variant::Secondary)
+                                    .child(t!("close_dialog.quit"))
+                                    .on_click(cx.listener(|this, _, window, cx| this.finish_close_dialog(CloseAction::Quit, window, cx))),
+                            )
+                            .child(
+                                crate::ui::button::button(theme, "close-dialog-tray", crate::ui::button::Variant::Primary)
+                                    .child(t!("close_dialog.tray"))
+                                    .on_click(cx.listener(|this, _, window, cx| this.finish_close_dialog(CloseAction::Tray, window, cx))),
+                            ),
+                    ),
+            );
+        Some(
+            crate::ui::surface::scrim(theme)
+                .items_center()
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.dismiss_close_dialog(window, cx)))
+                .child(sheet)
+                .into_any_element(),
+        )
     }
 
     pub fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {

@@ -244,8 +244,8 @@ fn window_button(button: WindowButton, theme: Theme, window: &Window) -> AnyElem
             match button {
                 WindowButton::Minimize => window.minimize_window(),
                 WindowButton::Maximize => window.zoom_window(),
-                // Like the window manager's close: ask first if changes can't be saved.
-                WindowButton::Close => window.dispatch_action(Box::new(crate::outline::Quit), cx),
+                // Like the window manager's close button: respect close-to-tray and unsaved checks.
+                WindowButton::Close => window.dispatch_action(Box::new(crate::outline::CloseWindow), cx),
             }
         })
         .into_any_element()

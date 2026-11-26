@@ -483,6 +483,7 @@ impl Render for Outline {
         let package_import = self.render_package_import(window, cx);
         let image_preview = self.render_image_preview(cx);
         let settings = self.render_settings(window, cx);
+        let close_dialog = self.render_close_dialog(cx);
         let inline = self.render_inline(cx);
         let calendar = self.render_calendar(cx);
         let popover = self.render_popover(window, cx);
@@ -641,7 +642,9 @@ impl Render for Outline {
             .on_action(cx.listener(Self::open_privacy_policy))
             .on_action(cx.listener(Self::open_terms))
             .on_key_down(cx.listener(move |this, ev: &gpui::KeyDownEvent, window, cx| {
-                if this.image_preview.is_some() {
+                if this.close_dialog.is_some() {
+                    this.close_dialog_key(ev, window, cx);
+                } else if this.image_preview.is_some() {
                     this.image_preview_key(ev, cx);
                     if overlay && ev.keystroke.key == "escape" {
                         this.close_auxiliary_page(true, cx);
@@ -772,6 +775,7 @@ impl Render for Outline {
             .children(palette)
             .children(image_preview)
             .children(settings)
+            .children(close_dialog)
             .children(toast);
         // Linux under GNOME: the border, shadow and resize edges Flowie draws itself.
         crate::app::window_frame::frame(outline, theme, window)

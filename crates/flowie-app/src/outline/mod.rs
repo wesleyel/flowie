@@ -87,6 +87,7 @@ actions!(
         CycleContentWidth,
         ScrollToTop,
         ScrollToBottom,
+        CloseWindow,
         Quit,
         Jump,
         MoveTo,
@@ -188,6 +189,13 @@ impl Edit {
     }
 }
 
+/// Modal asking whether closing the window hides to the system tray or quits
+/// (Windows and Linux, when `config.close_action` is `Ask`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct CloseDialog {
+    pub remember: bool,
+}
+
 /// Block selection of whole rows (Esc from the editor, Shift-↑/↓).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockSel {
@@ -206,6 +214,14 @@ pub struct Outline {
     page_scrolls: std::collections::HashMap<NodeId, PageScroll>,
     /// The window's size and place, saved on quit (see `window_place`).
     window_place: Option<crate::app::window_place::Place>,
+    /// Initial window place loaded from `meta`, used until a window has reported bounds.
+    saved_window_place: Option<crate::app::window_place::Place>,
+    /// Subscriptions tied to the currently open window (replaced when reopened from tray).
+    window_subs: Vec<gpui::Subscription>,
+    /// System tray handle on Windows and Linux (`None` on macOS or if tray setup failed).
+    pub(crate) tray: Option<std::rc::Rc<crate::app::tray::Tray>>,
+    /// Close-window confirmation modal (Ask mode on Windows and Linux).
+    pub(crate) close_dialog: Option<CloseDialog>,
     pub hide_completed: bool,
     pub query: String,
     pub rows: Vec<Row>,
@@ -305,7 +321,6 @@ impl Outline {
         db_path: Option<std::path::PathBuf>,
         meta: Vec<(String, String)>,
         config: crate::settings::Config,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let db_path_for_config = db_path.clone();
@@ -325,6 +340,7 @@ impl Outline {
         if !ws.tree.contains(zoom) {
             zoom = ROOT;
         }
+        let saved_window_place = meta.iter().find(|(k, _)| k == "window").and_then(|(_, v)| crate::app::window_place::Place::parse(v));
         let mut this = Outline {
             focus: cx.focus_handle(),
             ws,
@@ -333,6 +349,10 @@ impl Outline {
             forward_pages: Vec::new(),
             page_scrolls,
             window_place: None,
+            saved_window_place,
+            window_subs: Vec::new(),
+            tray: None,
+            close_dialog: None,
             hide_completed,
             query: String::new(),
             rows: Vec::new(),
@@ -348,7 +368,7 @@ impl Outline {
             title_settle: None,
             search_open: false,
             search_tween: None,
-            theme: Theme::build(window.appearance(), &config),
+            theme: Theme::build(gpui::WindowAppearance::Light, &config),
             drop: None,
             highlight_terms: Vec::new(),
             palette: None,
@@ -405,25 +425,52 @@ impl Outline {
         if let Some(first) = top.or_else(|| this.rows.first().map(|r| r.id)) {
             this.edit = Some(Edit::new(Target::Text(first), this.ws.tree.node(first).text.len()));
         }
-        let saved_place = meta.iter().find(|(k, _)| k == "window").and_then(|(_, v)| crate::app::window_place::Place::parse(v));
-        this.window_place = crate::app::window_place::Place::observe(saved_place.as_ref(), window, cx);
-        cx.observe_window_bounds(window, |this, window, cx| {
-            this.window_place =
-                crate::app::window_place::Place::observe(this.window_place.as_ref(), window, cx).or(this.window_place.take());
-        })
-        .detach();
-        cx.observe_window_activation(window, |this, window, cx| {
-            if window.is_window_active() {
-                this.whats_new_window_shown(cx);
-            }
-        })
-        .detach();
-        cx.observe_window_appearance(window, |this, window, cx| {
-            this.apply_theme(window);
-            cx.notify();
-        })
-        .detach();
         this
+    }
+
+    /// Bind (or rebind, after hiding to the tray) this outline to `window`.
+    pub fn attach_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_theme(window);
+        self.close_dialog = None;
+        self.menu = None;
+        self.app_menu = None;
+        self.refresh_reset();
+        self.restore_scroll();
+        window.focus(&self.focus, cx);
+        let baseline = self.window_place.as_ref().or(self.saved_window_place.as_ref());
+        self.window_place = crate::app::window_place::Place::observe(baseline, window, cx).or(self.window_place.take());
+        self.window_subs = vec![
+            cx.observe_window_bounds(window, |this, window, cx| {
+                this.window_place =
+                    crate::app::window_place::Place::observe(this.window_place.as_ref(), window, cx).or(this.window_place.take());
+            }),
+            cx.observe_window_activation(window, |this, window, cx| {
+                if window.is_window_active() {
+                    this.whats_new_window_shown(cx);
+                }
+            }),
+            cx.observe_window_appearance(window, |this, window, cx| {
+                this.apply_theme(window);
+                cx.notify();
+            }),
+        ];
+    }
+
+    /// Last known window placement, for reopening a window from the tray.
+    pub fn window_place(&self) -> Option<&crate::app::window_place::Place> {
+        self.window_place.as_ref().or(self.saved_window_place.as_ref())
+    }
+
+    /// Whether a system tray host is currently available to show the icon.
+    pub fn tray_available(&self) -> bool {
+        self.tray.as_ref().is_some_and(|t| t.is_available())
+    }
+
+    /// Update the system tray tooltip and context menu after a language change.
+    pub fn refresh_tray_labels(&self) {
+        if let Some(tray) = &self.tray {
+            tray.set_labels(crate::app::tray::TrayLabels::current());
+        }
     }
 
     fn seed_welcome(&mut self) {
@@ -449,7 +496,8 @@ impl Outline {
     /// Settings or a dialog is open: the outline's own shortcuts are off
     /// (except under a palette opened from the dialog, which needs them).
     pub fn modal_open(&self) -> bool {
-        self.settings.is_some()
+        self.close_dialog.is_some()
+            || self.settings.is_some()
             || self.image_preview.is_some()
             || ((self.package_export.is_some() || self.package_import.is_some()) && self.palette.is_none())
     }

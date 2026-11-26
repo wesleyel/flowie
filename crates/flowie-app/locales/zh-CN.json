@@ -22,6 +22,18 @@
     "keep_open": "继续使用",
     "quit_without_saving": "不保存并退出"
   },
+  "tray": {
+    "show": "打开 Flowie",
+    "quit": "退出 Flowie"
+  },
+  "close_dialog": {
+    "title": "关闭窗口？",
+    "detail": "隐藏到系统托盘后，Flowie 会在后台继续运行（包括 MCP 访问）；也可以直接退出应用。",
+    "remember": "记住我的选择（可随时在「设置 → 通用」中更改）",
+    "cancel": "取消",
+    "tray": "隐藏到托盘",
+    "quit": "直接退出"
+  },
   "toast": {
     "page_created": "已在主页下新建页面「{name}」",
     "mirror_into_self": "不能把条目镜像到它自身内部",
@@ -142,6 +154,15 @@
         "label": "新功能",
         "hint": "Flowie 更新后显示一次更新说明。随时可从「帮助 → 新功能」打开。",
         "toggle": "更新后显示"
+      },
+      "close_action": {
+        "label": "关闭窗口时",
+        "hint": "选择点击关闭按钮时的行为。按 {shortcut} 或「文件 → 退出」始终会彻底退出。",
+        "ask": "每次询问",
+        "tray": "隐藏到托盘",
+        "quit": "直接退出",
+        "tray_unavailable": "当前系统托盘不可用，关闭窗口将直接退出 Flowie。",
+        "tray_unavailable_linux": "未检测到系统托盘，关闭窗口将直接退出 Flowie。在 GNOME 上可安装 AppIndicator 扩展以启用托盘。"
       }
     },
     "shortcuts": {

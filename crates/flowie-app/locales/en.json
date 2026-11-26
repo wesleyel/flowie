@@ -22,6 +22,18 @@
     "keep_open": "Keep Open",
     "quit_without_saving": "Quit Without Saving"
   },
+  "tray": {
+    "show": "Open Flowie",
+    "quit": "Quit Flowie"
+  },
+  "close_dialog": {
+    "title": "Close window?",
+    "detail": "Hide to the system tray to keep Flowie running in the background (including MCP access), or quit completely.",
+    "remember": "Remember my choice (change anytime in Settings → General)",
+    "cancel": "Cancel",
+    "tray": "Hide to Tray",
+    "quit": "Quit"
+  },
   "toast": {
     "page_created": "Created page “{name}” on Home",
     "mirror_into_self": "Can't mirror a bullet inside itself",
@@ -175,6 +187,15 @@
         "label": "What's New",
         "hint": "Show the release notes once after Flowie updates. Help → What's New always works.",
         "toggle": "Show after updates"
+      },
+      "close_action": {
+        "label": "When closing the window",
+        "hint": "Choose what the close button does. {shortcut} and File → Quit always quit Flowie.",
+        "ask": "Ask",
+        "tray": "Hide to tray",
+        "quit": "Quit",
+        "tray_unavailable": "System tray is unavailable, so closing the window will quit Flowie.",
+        "tray_unavailable_linux": "No system tray host detected, so closing the window will quit Flowie. On GNOME, install an AppIndicator extension to enable the tray."
       }
     },
     "shortcuts": {

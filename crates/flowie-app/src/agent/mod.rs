@@ -14,10 +14,11 @@ mod tools;
 pub use ipc::{claim, Claim, Listener};
 
 use std::io::{BufRead, BufReader, Write};
+use std::rc::Rc;
 use std::time::Duration;
 
 use futures::StreamExt;
-use gpui::{App, Context, WindowHandle};
+use gpui::{App, Context, Entity};
 use interprocess::local_socket::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -63,8 +64,8 @@ pub fn hand_off(running: LocalSocketStream, background: bool, open: Option<&std:
     }
 }
 
-/// Answer requests on `listener` for the outline in `window`.
-pub fn start(listener: Listener, window: WindowHandle<Outline>, cx: &mut App) {
+/// Answer requests on `listener` for `outline`; `show` opens or focuses the window.
+pub fn start(listener: Listener, outline: Entity<Outline>, show: Rc<dyn Fn(&mut App)>, cx: &mut App) {
     #[cfg(unix)]
     let path = listener.path.clone();
     let (tx, mut rx) = futures::channel::mpsc::unbounded::<Job>();
@@ -81,23 +82,20 @@ pub fn start(listener: Listener, window: WindowHandle<Outline>, cx: &mut App) {
         .ok();
     cx.spawn(async move |cx| {
         while let Some((req, reply)) = rx.next().await {
-            let result = window
-                .update(cx, |o, window, cx| {
-                    if req.method == APP_ACTIVATE || req.method == APP_OPEN {
-                        cx.activate(true);
-                        window.activate_window();
-                        // Only opens the import dialog: nothing changes until the user says so.
-                        if let Some(path) =
-                            req.params.get("path").and_then(Value::as_str).map(std::path::Path::new).filter(|p| crate::share::is_package(p))
-                        {
-                            o.open_package_file(path, cx);
-                        }
-                        Ok("ok".to_string())
-                    } else {
-                        o.handle_agent(&req.method, &req.params, cx)
+            let result = cx.update(|cx| {
+                if req.method == APP_ACTIVATE || req.method == APP_OPEN {
+                    show(cx);
+                    // Only opens the import dialog: nothing changes until the user says so.
+                    if let Some(path) =
+                        req.params.get("path").and_then(Value::as_str).map(std::path::Path::new).filter(|p| crate::share::is_package(p))
+                    {
+                        outline.update(cx, |o, cx| o.open_package_file(path, cx));
                     }
-                })
-                .unwrap_or_else(|_| Err("Flowie is shutting down".into()));
+                    Ok("ok".to_string())
+                } else {
+                    outline.update(cx, |o, cx| o.handle_agent(&req.method, &req.params, cx))
+                }
+            });
             let _ = reply.send(result);
         }
     })

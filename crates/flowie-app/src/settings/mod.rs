@@ -16,7 +16,7 @@ use crate::app::i18n::t;
 use crate::outline::{OpenSettings, Outline};
 
 pub(crate) use appearance::{ContentWidth, ThemeMode};
-pub(crate) use general::Author;
+pub(crate) use general::{decide_close, Author, CloseAction, CloseDecision};
 use shortcuts::Recording;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +54,9 @@ pub struct Config {
     /// Open What's New once after each update.
     #[serde(default = "yes")]
     pub whats_new_after_updates: bool,
+    /// What closing the window does on Windows and Linux (ask, hide to tray, or quit).
+    #[serde(default)]
+    pub close_action: CloseAction,
 }
 
 fn yes() -> bool {
@@ -74,6 +77,7 @@ impl Default for Config {
             smooth_scroll: true,
             seen_version: None,
             whats_new_after_updates: true,
+            close_action: CloseAction::default(),
         }
     }
 }

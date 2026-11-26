@@ -172,6 +172,7 @@ impl Outline {
                     this.save_config();
                     i18n::set(code);
                     keymap::set_menus(cx);
+                    this.refresh_tray_labels();
                     cx.notify();
                 }),
             )

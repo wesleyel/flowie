@@ -68,7 +68,8 @@ impl Tree {
         if id == ROOT || !self.contains(id) {
             return;
         }
-        let keys: Vec<&str> = self.stars.iter().filter(|(_, s)| *s != id).map(|(k, _)| k.as_str()).collect();
+        let keys: Vec<&str> =
+            self.index.stars.iter().filter(|(_, s)| *s != id && !self.index.hidden.contains(s)).map(|(k, _)| k.as_str()).collect();
         let index = index.min(keys.len());
         let valid = |k: &&str| crate::rank::is_valid(k);
         let before = keys[..index].iter().rev().copied().find(valid);

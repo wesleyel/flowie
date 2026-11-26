@@ -589,6 +589,38 @@ fn main() {}
 }
 
 #[test]
+fn markdown_export_fences_code_rows_and_reads_them_back() {
+    let code = |text: &str| Item { text: text.into(), kind: BlockKind::Code, ..Default::default() };
+    let bullet = |text: &str, children: Vec<Item>| Item { text: text.into(), children, ..Default::default() };
+    let items = vec![
+        bullet(
+            "step",
+            vec![
+                code("# run"),
+                code("  indented *not bold*"),
+                code(""),
+                code("```"),
+                code("echo ````"),
+                bullet("after", vec![]),
+                code("second block"),
+            ],
+        ),
+        code("top level"),
+        bullet("end", vec![]),
+    ];
+    let md = io::to_markdown(&items);
+    assert!(md.contains("  `````\n  # run\n"), "{md}");
+    assert_eq!(io::parse_text(&md), items);
+
+    // A code row with a note or children can't sit in a fence; it stays a list item.
+    let with_note = Item { note: "why".into(), ..code("x = 1") };
+    assert_eq!(io::to_markdown(&[with_note]), "- x = 1\n  why\n");
+
+    // Plain text keeps code verbatim instead of reading markup in it.
+    assert_eq!(io::to_plain_text(&[code("a *b* c")]), "a *b* c\n");
+}
+
+#[test]
 fn import_opml_exported_by_rc3() {
     let items = io::parse_any(include_str!("../tests/fixtures/rc3-home.opml"));
     let mut tree = Tree::new();

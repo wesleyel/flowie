@@ -12,9 +12,12 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 - **System tray (Windows & Linux)**: closing the window can now hide Flowie to the system tray so it stays running in the background (including MCP access) and reopens from the tray icon or menu. By default, closing asks whether to hide to the tray or quit (with a “Remember my choice” checkbox), and Settings → General lets you switch between Ask, Hide to tray, and Quit. On desktops without a system tray host (such as GNOME without an AppIndicator extension), closing falls back to quitting automatically.
 
+### Changed
+
+- **Markdown export**: code rows are exported (and copied) as fenced code blocks, so they come back as code when the Markdown is imported again, and plain-text export keeps code exactly as written.
+
 ### Fixed
 
-- **Math**: CJK characters and emoji inside math formulas now use the platform's default UI font instead of a macOS-only font name, so they fall back cleanly on Windows and Linux as well.
 - **Markdown import**: fenced code blocks (```` ``` ```` and `~~~`) now import line by line as code rows without turning `#` comments or `-` lines into headings or list items, and articles with headings and paragraphs (and no list markers) now import prose as joined paragraph rows instead of bullets.
 - **Scrolling**: editing text to the same length, changing an image, zooming between pages, or folding deeply nested rows no longer leaves the scrollbar height map out of sync, and large zoom or search switches no longer scan every row twice.
 

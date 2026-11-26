@@ -7,10 +7,42 @@ use crate::BlockKind;
 /// indented lines without a bullet marker.
 pub fn to_markdown(items: &[Item]) -> String {
     let mut out = String::new();
-    for it in items {
-        write_md(it, 0, &mut out);
-    }
+    write_md_list(items, 0, &mut out);
     out
+}
+
+/// A code row that can sit inside a fenced block: nothing a fence can't hold.
+fn fenceable(it: &Item) -> bool {
+    it.kind == BlockKind::Code && it.note.is_empty() && it.children.is_empty() && !it.completed
+}
+
+/// Siblings at `depth`, with each run of plain code rows written as one fenced
+/// block, which `parse_text` reads back as code rows.
+fn write_md_list(items: &[Item], depth: usize, out: &mut String) {
+    let mut ix = 0;
+    while ix < items.len() {
+        let run = items[ix..].iter().take_while(|it| fenceable(it)).count();
+        if run == 0 {
+            write_md(&items[ix], depth, out);
+            ix += 1;
+            continue;
+        }
+        let lines = &items[ix..ix + run];
+        // Longer than any run of backticks inside, so no line can close it early.
+        let longest = lines.iter().flat_map(|it| it.text.split(|c| c != '`')).map(str::len).max().unwrap_or(0);
+        let fence = "`".repeat((longest + 1).max(3));
+        let pad = "  ".repeat(depth);
+        out.push_str(&format!("{pad}{fence}\n"));
+        for it in lines {
+            if !it.text.is_empty() {
+                out.push_str(&pad);
+                out.push_str(&it.text);
+            }
+            out.push('\n');
+        }
+        out.push_str(&format!("{pad}{fence}\n"));
+        ix += run;
+    }
 }
 
 fn write_md(it: &Item, depth: usize, out: &mut String) {
@@ -35,9 +67,7 @@ fn write_md(it: &Item, depth: usize, out: &mut String) {
         out.push_str(line);
         out.push('\n');
     }
-    for kid in &it.children {
-        write_md(kid, depth + 1, out);
-    }
+    write_md_list(&it.children, depth + 1, out);
 }
 
 /// Where Markdown export puts an image: `images/<name>` beside the file.
@@ -53,7 +83,12 @@ pub fn image_path(name: &str) -> String {
 pub fn to_plain_text(items: &[Item]) -> String {
     fn walk(it: &Item, depth: usize, out: &mut String) {
         out.push_str(&"\t".repeat(depth));
-        out.push_str(&crate::markup::plain_text(&it.text));
+        // Code is verbatim: markup characters in it are part of the code.
+        if it.kind == BlockKind::Code {
+            out.push_str(&it.text);
+        } else {
+            out.push_str(&crate::markup::plain_text(&it.text));
+        }
         out.push('\n');
         for k in &it.children {
             walk(k, depth + 1, out);

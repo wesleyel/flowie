@@ -155,6 +155,10 @@ impl Workspace {
         if !ids.is_empty() {
             self.history.forget(&ids);
             self.persist();
+            // Deleted rows leave free pages that SQLite keeps; give them back.
+            if let Some(writer) = &self.writer {
+                writer.reclaim_free_pages();
+            }
         }
     }
 

@@ -14,6 +14,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ### Fixed
 
+- **Trash**: deleting bullets forever, or emptying the Trash, gives the space back: the database file shrinks once enough of it is free, instead of keeping its size.
 - **Editing**: pressing Enter on the last row in the window scrolls the new row into view instead of leaving it just below the edge.
 - **Paragraphs**: Enter on a paragraph starts another paragraph instead of a bullet, like to-dos and numbered items; Enter on an empty paragraph turns it into a bullet.
 - **Code blocks**: pasting several lines of text into a code row no longer reads them as an outline. Each line becomes a code row of its own, exactly as written, so `#` comments, `-` and indentation stay code.

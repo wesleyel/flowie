@@ -20,17 +20,31 @@ enum Msg {
     ImportBatch { upserts: Vec<Node>, deletes: Vec<NodeId>, state: ImportState },
     Blob(crate::images::BlobInfo),
     Seen { root: NodeId, at: i64 },
+    Reclaim,
     Retry,
     Flush(Sender<Result<(), String>>),
 }
 
 enum PendingOp {
-    Batch { upserts: Vec<Node>, deletes: Vec<NodeId>, meta: Vec<(String, String)> },
+    Batch {
+        upserts: Vec<Node>,
+        deletes: Vec<NodeId>,
+        meta: Vec<(String, String)>,
+    },
     Pref(String, String),
     ImportState(ImportState),
-    ImportBatch { upserts: Vec<Node>, deletes: Vec<NodeId>, state: ImportState },
+    ImportBatch {
+        upserts: Vec<Node>,
+        deletes: Vec<NodeId>,
+        state: ImportState,
+    },
     Blob(crate::images::BlobInfo),
-    Seen { root: NodeId, at: i64 },
+    Seen {
+        root: NodeId,
+        at: i64,
+    },
+    /// `store::reclaim_free_pages`, after what was queued before it.
+    Reclaim,
 }
 
 /// Handle to the background writer. Dropping it flushes and joins the thread.
@@ -115,6 +129,14 @@ impl Writer {
     pub fn seen(&self, root: NodeId, at: i64) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(Msg::Seen { root, at });
+        }
+    }
+
+    /// After everything sent so far is saved, shrink the file if deletes freed
+    /// enough of it (`store::reclaim_free_pages`).
+    pub fn reclaim_free_pages(&self) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::Reclaim);
         }
     }
 
@@ -242,6 +264,7 @@ where
                     Msg::ImportBatch { upserts, deletes, state } => PendingOp::ImportBatch { upserts, deletes, state },
                     Msg::Blob(b) => PendingOp::Blob(b),
                     Msg::Seen { root, at } => PendingOp::Seen { root, at },
+                    Msg::Reclaim => PendingOp::Reclaim,
                     Msg::Write { .. } | Msg::Meta(..) | Msg::Retry | Msg::Flush(_) => unreachable!(),
                 };
                 freeze_batch(&mut pending_ops, &mut pending_up, &mut pending_del, &mut pending_meta);
@@ -292,6 +315,7 @@ fn run_op(conn: &mut Connection, op: &PendingOp) -> rusqlite::Result<()> {
             conn.execute("UPDATE imports SET seen_at = ?2 WHERE root = ?1", params![root, at])?;
             Ok(())
         }
+        PendingOp::Reclaim => super::reclaim_free_pages(conn).map(|_| ()),
     }
 }
 
@@ -371,5 +395,29 @@ mod tests {
         assert_eq!(load_prefs(&conn).unwrap(), [("saved_searches".to_string(), "kept too".to_string())]);
         drop(conn);
         std::fs::remove_dir_all(work).unwrap();
+    }
+
+    #[test]
+    fn deleting_rows_for_good_shrinks_the_file_once_enough_is_free() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("flowie.sqlite");
+        let size = || std::fs::metadata(&db).unwrap().len() + std::fs::metadata(db.with_extension("sqlite-wal")).map_or(0, |m| m.len());
+        let mut conn = open(&db).unwrap();
+        let nodes: Vec<Node> = (0..3000)
+            .map(|i| {
+                let mut n = Node::new(NodeId::random(), ROOT, crate::rank::between(None, None));
+                n.text = format!("{i} {}", "words ".repeat(100));
+                n
+            })
+            .collect();
+        write_batch(&mut conn, &nodes, &[], &[]).unwrap();
+        // Little free space: nothing to do.
+        assert!(!crate::store::reclaim_free_pages(&conn).unwrap());
+        let ids: Vec<NodeId> = nodes.iter().map(|n| n.id).collect();
+        write_batch(&mut conn, &[], &ids, &[]).unwrap();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
+        let full = size();
+        assert!(crate::store::reclaim_free_pages(&conn).unwrap());
+        assert!(size() * 4 < full, "{} → {}", full, size());
     }
 }

@@ -187,6 +187,20 @@ pub fn write_pref(conn: &Connection, key: &str, value: &str) -> rusqlite::Result
     Ok(())
 }
 
+/// Give the file back the space that deleted rows leave behind, when there is
+/// enough of it to be worth rewriting the file: at least 1 MB and a quarter of
+/// the pages. SQLite otherwise keeps freed pages for reuse and the file never
+/// shrinks. Returns whether it ran. Not inside a transaction.
+pub fn reclaim_free_pages(conn: &Connection) -> rusqlite::Result<bool> {
+    let pragma = |name: &str| conn.query_row(&format!("PRAGMA {name}"), [], |r| r.get::<_, i64>(0));
+    let (free, total, page) = (pragma("freelist_count")?, pragma("page_count")?, pragma("page_size")?);
+    if free * page < 1 << 20 || free * 4 < total {
+        return Ok(false);
+    }
+    conn.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE);")?;
+    Ok(true)
+}
+
 pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], meta: &[(String, String)]) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     write_nodes_tx(&tx, upserts, deletes, meta)?;

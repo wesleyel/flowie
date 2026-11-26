@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Flowie share packages (.flowie, a zip archive). -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-flowie-package">
+    <comment>Flowie share package</comment>
+    <comment xml:lang="zh_CN">Flowie 分享包</comment>
+    <sub-class-of type="application/zip"/>
+    <glob pattern="*.flowie"/>
+    <icon name="flowie.spokey.cn"/>
+  </mime-type>
+</mime-info>

@@ -100,7 +100,7 @@ impl Setup {
         let exe = if cfg!(feature = "screenshots") {
             "/Applications/Flowie.app/Contents/MacOS/Flowie".to_string()
         } else {
-            std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "flowie".into())
+            crate::app::platform::executable().map(|p| p.display().to_string()).unwrap_or_else(|_| "flowie".into())
         };
         let db = db.filter(|p| *p != crate::data_path()).map(|p| p.display().to_string());
         Setup { exe, db }
@@ -129,7 +129,7 @@ fn connect(db: &Path) -> Result<LocalSocketStream, String> {
     if let Ok(s) = LocalSocketStream::connect(name.clone()) {
         return Ok(s);
     }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = crate::app::platform::executable().map_err(|e| e.to_string())?;
     let mut cmd = std::process::Command::new(&exe);
     cmd.arg("--background").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     #[cfg(unix)]

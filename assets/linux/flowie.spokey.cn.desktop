@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=Flowie
+GenericName=Outliner
+GenericName[zh_CN]=大纲笔记
+Comment=A fast, keyboard-first outliner for thinking in lists
+Comment[zh_CN]=键盘优先，用列表思考
+Exec=flowie %F
+Icon=flowie.spokey.cn
+Terminal=false
+Categories=Office;
+Keywords=outline;outliner;notes;bullets;journal;
+Keywords[zh_CN]=大纲;笔记;列表;日记;
+MimeType=application/x-flowie-package;
+StartupNotify=true
+StartupWMClass=flowie.spokey.cn

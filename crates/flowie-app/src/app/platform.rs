@@ -154,6 +154,22 @@ pub fn data_dir() -> PathBuf {
     dir.unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// This program as another program should start it: the AppImage file when running from one
+/// (the folder it runs from is unmounted when it exits), else the running executable.
+pub fn executable() -> std::io::Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    if OS == Os::Linux {
+        if let (Some(image), Some(mount)) = (std::env::var_os("APPIMAGE"), std::env::var_os("APPDIR")) {
+            let image = PathBuf::from(image);
+            // Only our own AppImage: the variables also reach programs an AppImage starts.
+            if image.is_absolute() && exe.starts_with(mount) {
+                return Ok(image);
+            }
+        }
+    }
+    Ok(exe)
+}
+
 /// `s` quoted as one argument for the shell a user pastes commands into:
 /// POSIX shells on macOS and Linux; PowerShell or cmd on Windows, where
 /// double quotes work in both.

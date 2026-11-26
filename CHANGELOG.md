@@ -11,6 +11,7 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 ### Added
 
 - **Linux**: the window has a title bar on every desktop. Flowie asks the window manager to draw one, and on GNOME under Wayland, which doesn't, the menu bar becomes the title bar: drag it to move the window, double-click it to maximize, right-click it for the window menu. It carries the window buttons in the desktop's layout, and the window gets a border, a shadow and resize edges. `FLOWIE_X11=1` runs Flowie through X11 (XWayland) instead.
+- **Linux**: releases include a preview build for x86_64: an AppImage, and a tar.gz to extract into `~/.local`. Both bring a desktop entry, icons and the `.flowie` file type, and the AppImage's own path is what Settings → Agent gives MCP clients.
 
 ### Changed
 

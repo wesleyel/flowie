@@ -955,12 +955,14 @@ fn star_between_two_changes_only_that_node() {
     t.star_at(a, usize::MAX);
     t.star_at(b, usize::MAX);
     t.take_journal();
+    t.take_dirty();
     let (sa, sb) = (t.node(a).star.clone(), t.node(b).star.clone());
     t.star_at(c, 1);
     assert_eq!(t.starred().collect::<Vec<_>>(), vec![a, c, b]);
     assert!(sa < t.node(c).star && t.node(c).star < sb);
-    let changed: Vec<NodeId> = t.take_journal().iter().map(|c| c.id).collect();
+    let changed: Vec<NodeId> = t.take_dirty().0.iter().map(|n| n.id).collect();
     assert_eq!(changed, vec![c]);
+    assert!(t.take_journal().is_empty(), "stars aren't part of undo");
     assert_eq!((t.node(a).star.clone(), t.node(b).star.clone()), (sa, sb));
     // Moving a starred node within the list.
     t.star_at(b, 0);
@@ -1090,4 +1092,86 @@ fn trashed_nodes_are_left_out_of_share_packages_but_count_as_imported() {
     assert!(sender.untrash(b));
     let package = package::Package::export(&sender, &[b], Default::default(), Default::default(), None);
     assert_eq!(package.present_in(&t), [b, d]);
+}
+
+/// Makes an edit outside undo, the way a change from another device arrives.
+fn elsewhere(t: &mut Tree, edit: impl FnOnce(&mut Tree)) {
+    let mark = t.journal_mark();
+    edit(t);
+    t.forget_since(mark);
+}
+
+#[test]
+fn an_edit_is_journaled_one_field_at_a_time() {
+    use crate::tree::{Edit, Field};
+    let (mut t, [a, b, c, _d]) = sample();
+    t.set_text(a, "A");
+    // The edit time is a field too; it changes unless the edit lands in the same millisecond.
+    let fields: Vec<Field> = t.take_journal().iter().filter_map(|c| c.field()).collect();
+    assert!(fields == [Field::Text, Field::Modified] || fields == [Field::Text], "{fields:?}");
+    t.move_to(c, a, 0);
+    let fields: Vec<Field> = t.take_journal().iter().filter_map(|c| c.field()).collect();
+    assert_eq!(fields, [Field::Position]);
+    let e = t.create_at(b, 0, "e");
+    let journal = t.take_journal();
+    assert!(matches!(journal.as_slice(), [c] if c.id == e && matches!(c.edit, Edit::Create(_))));
+}
+
+#[test]
+fn undo_leaves_a_field_that_changed_since() {
+    let (mut t, [a, ..]) = sample();
+    let mut h = History::new();
+    t.set_text(a, "mine");
+    h.commit(&mut t, HistoryKind::Structure, None, None);
+    elsewhere(&mut t, |t| t.set_text(a, "theirs"));
+    h.undo(&mut t);
+    assert_eq!(t.node(a).text, "theirs", "undo doesn't overwrite the newer text");
+    h.redo(&mut t);
+    assert_eq!(t.node(a).text, "theirs", "nor does redo");
+}
+
+#[test]
+fn undo_puts_back_only_the_fields_it_changed() {
+    let (mut t, [a, ..]) = sample();
+    let mut h = History::new();
+    t.set_text(a, "mine");
+    h.commit(&mut t, HistoryKind::Structure, None, None);
+    elsewhere(&mut t, |t| {
+        t.set_note(a, "their note");
+        t.set_completed(a, true);
+    });
+    h.undo(&mut t);
+    let node = t.node(a);
+    assert_eq!(node.text, "a");
+    assert_eq!((node.note.as_str(), node.completed), ("their note", true), "the other fields keep their values");
+    h.redo(&mut t);
+    assert_eq!(t.node(a).text, "mine");
+}
+
+#[test]
+fn undoing_a_move_leaves_a_node_moved_again_since() {
+    let (mut t, [a, _b, c, d]) = sample();
+    let mut h = History::new();
+    t.move_to(c, a, 0);
+    h.commit(&mut t, HistoryKind::Structure, None, None);
+    elsewhere(&mut t, |t| {
+        t.move_to(c, d, 0);
+    });
+    h.undo(&mut t);
+    assert_eq!(t.parent(c), d);
+    assert_eq!(outline(&t, ROOT), "a\nb\n  d\n    c");
+}
+
+#[test]
+fn undoing_a_creation_with_its_edits_and_redoing_it() {
+    let (mut t, [a, ..]) = sample();
+    let mut h = History::new();
+    let e = t.create_at(a, 0, "e");
+    t.set_text(e, "edited");
+    h.commit(&mut t, HistoryKind::Structure, None, None);
+    h.undo(&mut t);
+    assert!(!t.has_record(e));
+    h.redo(&mut t);
+    assert_eq!(t.node(e).text, "edited");
+    assert_eq!(t.parent(e), a);
 }

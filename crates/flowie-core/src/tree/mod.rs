@@ -24,26 +24,19 @@
 //! - **Waiting**: a record whose parent isn't there waits for it, hidden, on load as well as
 //!   later, and shows under it once it arrives.
 
+mod change;
 mod id;
 mod node;
 mod ops;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+pub use change::{Change, Edit, Field, Value};
 pub use id::{virtual_id, NodeId, ROOT};
 pub use node::{now_millis, set_clock, system_millis, BlockKind, Clock, Node};
 
 /// How long a deleted subtree stays in the Trash before it is deleted for good.
 pub const TRASH_DAYS: i64 = 30;
-
-/// One recorded change: the node before and after (None = absent). Undo keeps
-/// only `before` (see [`Tree::revert`]).
-#[derive(Debug, Clone)]
-pub struct Change {
-    pub id: NodeId,
-    pub before: Option<Node>,
-    pub after: Option<Node>,
-}
 
 #[derive(Debug, Default)]
 pub struct Tree {
@@ -687,7 +680,7 @@ impl Tree {
         if self.needs_reindex(before.as_ref(), &node) {
             self.sync_index(before.as_ref(), Some(&node));
             let id = node.id;
-            self.journal.push(Change { id, before, after: Some(node.clone()) });
+            self.journal_put(before.as_ref(), &node);
             self.dirty.insert(id);
             self.nodes.insert(id, node);
             self.reindex();
@@ -705,7 +698,7 @@ impl Tree {
         self.sync_index(before.as_ref(), Some(&node));
         let (id, new, parent) = (node.id, before.is_none(), node.parent);
         let old_parent = before.as_ref().map(|b| b.parent).filter(|p| *p != parent);
-        self.journal.push(Change { id, before, after: Some(node.clone()) });
+        self.journal_put(before.as_ref(), &node);
         self.dirty.insert(id);
         self.nodes.insert(id, node);
         self.relist(parent);
@@ -736,6 +729,14 @@ impl Tree {
                 || self.closes_cycle(after))
     }
 
+    /// Journal the patches that took a record from `before` (None: it is new) to `after`.
+    fn journal_put(&mut self, before: Option<&Node>, after: &Node) {
+        match before {
+            None => self.journal.push(Change { id: after.id, edit: Edit::Create(after.clone()) }),
+            Some(before) => self.journal.extend(Change::diff(before, after)),
+        }
+    }
+
     fn insert_sorted(&mut self, node: &Node) {
         let parent = self.view_parent(node);
         let nodes = &self.nodes;
@@ -754,7 +755,7 @@ impl Tree {
         if before.deleted_at.is_some() || !self.index.moved.is_empty() || !self.index.revived.is_empty() {
             self.reindex();
         }
-        self.journal.push(Change { id, before: Some(before), after: None });
+        self.journal.push(Change { id, edit: Edit::Remove(before) });
     }
 
     /// Remove a record and save that, without journaling it. Updates the indexes
@@ -782,49 +783,22 @@ impl Tree {
         Some(before)
     }
 
-    /// Apply a node state without journaling (used by undo/redo, which journal themselves).
-    /// Stars are not part of undo: a node that stays keeps the star it has now.
-    fn apply_state(&mut self, id: NodeId, state: Option<Node>) {
-        let old = self.nodes.remove(&id);
-        let state = match (state, &old) {
-            (Some(mut node), Some(old)) => {
-                node.star.clone_from(&old.star);
-                Some(node)
-            }
-            (state, _) => state,
-        };
-        self.sync_index(old.as_ref(), state.as_ref());
-        if let Some(old) = old {
-            if let Some(list) = self.index.children.get_mut(&old.parent) {
-                list.retain(|c| *c != id);
-            }
-        }
-        match state {
-            Some(node) => {
-                self.insert_sorted(&node);
-                self.index.children.entry(id).or_default();
-                self.nodes.insert(id, node);
-            }
-            None => {
-                self.index.children.remove(&id);
-            }
-        }
-        self.dirty.insert(id);
-        self.revision += 1;
-    }
-
     pub fn take_journal(&mut self) -> Vec<Change> {
         std::mem::take(&mut self.journal)
     }
 
     /// Nodes removed or moved to the Trash since the last `take_journal` (as they were).
     pub fn journal_removed(&self) -> Vec<Node> {
-        let gone = |c: &&Change| match (&c.before, &c.after) {
-            (Some(_), None) => true,
-            (Some(b), Some(a)) => b.deleted_at.is_none() && a.deleted_at.is_some(),
-            _ => false,
-        };
-        self.journal.iter().filter(gone).filter_map(|c| c.before.clone()).collect()
+        self.journal
+            .iter()
+            .filter_map(|c| match &c.edit {
+                Edit::Remove(node) => Some(node.clone()),
+                Edit::Set { before: Value::Deleted(None), after: Value::Deleted(Some(_)) } => {
+                    self.nodes.get(&c.id).map(|n| Node { deleted_at: None, ..n.clone() })
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn journal_is_empty(&self) -> bool {
@@ -866,31 +840,48 @@ impl Tree {
         (upserts, deletes)
     }
 
-    /// Revert a list of changes (newest first), returning the inverse list.
+    /// Undo `changes` (in journal order; the newest is undone first) and return what redoes
+    /// them, in the same form.
     ///
-    /// Only each change's `before` is read: the tree must be in the state the
-    /// changes left it in, so a node's current state is its `after`. The inverse
-    /// takes that state from the tree as it goes and leaves its own `after` empty,
-    /// so a step kept for undo and redo holds one copy of each node, not two (an
-    /// import, whose `before`s are all absent, holds next to nothing).
+    /// A field goes back only while it still holds the value the change set: one changed
+    /// since (by another device, say) keeps that newer value, and the other fields of the
+    /// node are left alone. Undoing a creation removes the record; undoing a removal brings
+    /// it back as it was, unless a record with its id exists again. Changes skipped this way
+    /// are left out of the result, so redoing doesn't touch them either. Stars aren't part of
+    /// undo: a record removed here takes its current star along, and one brought back has
+    /// the star it had.
     pub fn revert(&mut self, changes: &[Change]) -> Vec<Change> {
-        // Nodes must be restored parents-first; applying all states then rebuilding
-        // the derived index is simplest: apply in reverse order.
-        // Stars are not undone, so the inverse brings back the star each node has now
-        // (a starred node that this removes comes back starred).
-        let mut stars: HashMap<NodeId, String> = HashMap::new();
-        // Reversed, so that reverting the inverse replays the original order.
-        let mut inverse = Vec::with_capacity(changes.len());
+        let mut inverse = Vec::new();
         for change in changes.iter().rev() {
-            let now = self.nodes.get(&change.id).cloned().map(|mut node| {
-                let star = stars.entry(change.id).or_insert_with(|| node.star.clone());
-                node.star.clone_from(star);
-                node
-            });
-            self.apply_state(change.id, change.before.clone());
-            inverse.push(Change { id: change.id, before: now, after: None });
+            let id = change.id;
+            let old = self.nodes.get(&id).cloned();
+            let undo = match &change.edit {
+                Edit::Create(_) => old.clone().map(|now| {
+                    self.nodes.remove(&id);
+                    Edit::Remove(now)
+                }),
+                Edit::Remove(node) => old.is_none().then(|| {
+                    self.nodes.insert(id, node.clone());
+                    Edit::Create(node.clone())
+                }),
+                Edit::Set { before, after } => match self.nodes.get_mut(&id) {
+                    Some(node) if Value::of(node, after.field()) == *after => {
+                        before.apply(node);
+                        Some(Edit::Set { before: after.clone(), after: before.clone() })
+                    }
+                    _ => None,
+                },
+            };
+            let Some(undo) = undo else { continue };
+            let new = self.nodes.get(&id).cloned();
+            self.sync_index(old.as_ref(), new.as_ref());
+            self.dirty.insert(id);
+            inverse.push(Change { id, edit: undo });
         }
-        self.reindex();
+        if !inverse.is_empty() {
+            self.reindex();
+            self.revision += 1;
+        }
         inverse
     }
 

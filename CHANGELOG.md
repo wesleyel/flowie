@@ -8,6 +8,10 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ## [Unreleased]
 
+### Added
+
+- **Slash menu**: `、` at the start of a word opens the slash menu too. Chinese input methods type it for the / key, so you no longer have to switch to English input first.
+
 ### Fixed
 
 - **Editing**: pressing Enter on the last row in the window scrolls the new row into view instead of leaving it just below the edge.

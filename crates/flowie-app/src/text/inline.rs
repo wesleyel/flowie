@@ -67,9 +67,22 @@ pub(crate) const SLASH: &[Cmd] = &[
     Cmd { id: "note", aliases: "description", icon: "notebook-pen", action: || Action::Note },
 ];
 
+/// What opens the slash menu at the start of a word: `/`, and `、`, which
+/// Chinese input methods type for the / key.
+const SLASH_TRIGGERS: [char; 2] = ['/', '、'];
+
+/// The slash trigger typed just before `caret`, if it starts a word: the
+/// character and where it starts.
+fn slash_trigger(text: &str, caret: usize) -> Option<(char, usize)> {
+    let before = text.get(..caret)?;
+    let c = before.chars().next_back().filter(|c| SLASH_TRIGGERS.contains(c))?;
+    let start = caret - c.len_utf8();
+    (start == 0 || before[..start].ends_with(char::is_whitespace)).then_some((c, start))
+}
+
 fn trigger_len(kind: InlineKind) -> usize {
     match kind {
-        InlineKind::Slash | InlineKind::Tag(_) => 1,
+        InlineKind::Slash(c) | InlineKind::Tag(c) => c.len_utf8(),
         InlineKind::Link => 2,
     }
 }
@@ -106,7 +119,7 @@ impl Outline {
         let Some(i) = self.inline.as_ref() else { return Vec::new() };
         let q = self.inline_query().unwrap_or_default().to_lowercase();
         match i.kind {
-            InlineKind::Slash => SLASH
+            InlineKind::Slash(_) => SLASH
                 .iter()
                 .filter(|c| q.is_empty() || c.label().to_lowercase().contains(&q) || c.id.contains(&q) || c.aliases.contains(&q))
                 .map(|c| Entry { label: c.label().into(), detail: String::new(), icon: c.icon, action: (c.action)() })
@@ -153,7 +166,7 @@ impl Outline {
                 && caret >= from
                 && caret <= text.len()
                 && text.get(i.start..from).is_some_and(|t| match i.kind {
-                    InlineKind::Slash => t == "/",
+                    InlineKind::Slash(c) => t.starts_with(c),
                     InlineKind::Tag(c) => t.starts_with(c),
                     InlineKind::Link => t == "[[",
                 })
@@ -181,8 +194,8 @@ impl Outline {
         let at_word_start = |pos: usize| pos == 0 || text[..pos].ends_with(char::is_whitespace);
         let kind = if before.ends_with("[[") {
             Some((InlineKind::Link, caret - 2))
-        } else if before.ends_with('/') && at_word_start(caret - 1) {
-            Some((InlineKind::Slash, caret - 1))
+        } else if let Some((c, start)) = slash_trigger(&text, caret) {
+            Some((InlineKind::Slash(c), start))
         } else if before.ends_with('#') && at_word_start(caret - 1) {
             Some((InlineKind::Tag('#'), caret - 1))
         } else if before.ends_with('@') && at_word_start(caret - 1) {
@@ -335,5 +348,21 @@ impl Outline {
                 div().id("inline-list").max_h(px(300.)).overflow_y_scroll().track_scroll(&self.popup_scroll).children(items),
             )),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slash_trigger;
+
+    #[test]
+    fn slash_and_ideographic_comma_open_the_menu_at_a_word_start() {
+        assert_eq!(slash_trigger("/", 1), Some(('/', 0)));
+        assert_eq!(slash_trigger("、", 3), Some(('、', 0)));
+        assert_eq!(slash_trigger("买 、", 7), Some(('、', 4)));
+        // Inside a sentence, 、 is just punctuation.
+        assert_eq!(slash_trigger("苹果、", 9), None);
+        assert_eq!(slash_trigger("a/", 2), None);
+        assert_eq!(slash_trigger("x", 1), None);
     }
 }

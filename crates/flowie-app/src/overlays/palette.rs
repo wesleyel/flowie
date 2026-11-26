@@ -25,7 +25,9 @@ pub enum Mode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InlineKind {
-    Slash,
+    /// The slash menu, opened by `/` or by `、` (what Chinese input methods
+    /// type for the / key).
+    Slash(char),
     /// `#` or `@` completion.
     Tag(char),
     /// `[[` link completion.

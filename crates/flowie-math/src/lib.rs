@@ -81,8 +81,14 @@ pub fn layout(source: &str, display: bool) -> Result<Arc<MathLayout>, String> {
     if let Some(hit) = lock_unpoisoned(layout_cache()).get(&key) {
         return hit.clone();
     }
+    // Laid out without the lock held; another thread may have cached it meanwhile, and
+    // the first copy stays the one everybody gets.
     let result = layout_uncached(source, display);
-    insert_bounded(&mut lock_unpoisoned(layout_cache()), key, result.clone());
+    let mut cache = lock_unpoisoned(layout_cache());
+    if let Some(hit) = cache.get(&key) {
+        return hit.clone();
+    }
+    insert_bounded(&mut cache, key, result.clone());
     result
 }
 
@@ -305,6 +311,17 @@ mod tests {
 
         let display = layout("x^2 + y^2", true).expect("display layout");
         assert!(!Arc::ptr_eq(&first, &display));
+    }
+
+    #[test]
+    fn layout_from_many_threads_hands_out_one_copy() {
+        let source = r"\int_0^1 x^{17} \, dx";
+        let layouts: Vec<Arc<MathLayout>> = std::thread::scope(|s| {
+            let handles: Vec<_> = (0..8).map(|_| s.spawn(|| layout(source, true).unwrap())).collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        let cached = layout(source, true).unwrap();
+        assert!(layouts.iter().all(|l| Arc::ptr_eq(l, &cached)));
     }
 
     #[test]

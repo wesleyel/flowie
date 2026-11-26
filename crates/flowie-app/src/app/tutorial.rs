@@ -30,6 +30,9 @@ const IMAGES: &[(&str, &[u8])] = &[("icon", include_bytes!("../../../../assets/i
 /// The saved search the "Finding things" lesson points at.
 const SAVED_SEARCH: &str = "is:todo is:open";
 
+/// The meta key holding the id of the tutorial's top bullet on this device.
+pub const TUTORIAL_META: &str = "tutorial";
+
 fn source() -> &'static str {
     let code = crate::app::i18n::active();
     TUTORIALS.iter().find(|(c, _)| *c == code).unwrap_or(&TUTORIALS[0]).1
@@ -137,7 +140,12 @@ impl Outline {
             self.saved_searches.push(SAVED_SEARCH.to_string());
             self.set_meta("saved_searches", &self.saved_searches.join("\n"));
         }
-        top.first().copied().unwrap_or(ROOT)
+        let root = top.first().copied().unwrap_or(ROOT);
+        // The tutorial keeps random ids (its text depends on the language and the
+        // platform's shortcuts); this device remembers its latest copy by id, so a
+        // first sync can tell an untouched tutorial from the user's own outline.
+        self.set_meta(TUTORIAL_META, &root.to_string());
+        root
     }
 
     /// Help → Flowie Tutorial: a fresh copy at the end of Home, zoomed into.

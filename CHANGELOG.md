@@ -8,6 +8,10 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 ## [Unreleased]
 
+### Changed
+
+- **Journal**: the Journal bullet and each day's page now have fixed IDs derived from the date, so they are found by ID instead of by their text, and two devices that open the same day will share one page once sync arrives. A journal made by an earlier release candidate isn't recognized: Today and the calendar start a new Journal bullet beside it.
+
 ## [1.0.0-rc.6] - 2026-11-25
 
 ### Added

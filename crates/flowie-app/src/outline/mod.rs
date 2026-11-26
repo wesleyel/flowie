@@ -232,7 +232,6 @@ pub struct Outline {
     pub(crate) volatile_page: Option<crate::pages::whats_new::VolatilePage>,
     pub db_path: Option<std::path::PathBuf>,
     pub calendar: Option<crate::overlays::calendar::Calendar>,
-    pub journal_id: Option<NodeId>,
     /// This device, for share packages and (later) the change history: a UUID kept in the database's meta.
     pub device_id: String,
     /// A block selection is being extended by dragging the mouse.
@@ -350,7 +349,6 @@ impl Outline {
             volatile_page: None,
             db_path,
             calendar: None,
-            journal_id: meta.iter().find(|(k, _)| k == "journal").and_then(|(_, v)| v.parse().ok()),
             device_id: meta.iter().find(|(k, _)| k == "device").map(|(_, v)| v.clone()).unwrap_or_default(),
             toast: None,
             row_pos: Default::default(),

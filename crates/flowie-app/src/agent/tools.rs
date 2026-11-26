@@ -1,7 +1,7 @@
 //! Implement the outline operations exposed to agents.
 
 use flowie_core::short_id::Lookup;
-use flowie_core::{io, markup, search::today, BlockKind, NodeId, ROOT};
+use flowie_core::{io, journal, search::today, BlockKind, NodeId, ROOT};
 use gpui::Context;
 use serde_json::{json, Value};
 
@@ -100,16 +100,16 @@ impl Outline {
         let bad = || format!("`{key}` must be a bullet id (from read/search), \"home\", \"current\", \"today\" or a YYYY-MM-DD day");
         let day = |this: &mut Self, date: &str| {
             if create_day {
-                Ok(this.ensure_day(date, false))
+                Ok(journal::ensure_day(&mut this.ws.tree, date, false))
             } else {
-                this.find_day(date).ok_or_else(|| format!("there is no journal page for {date}"))
+                journal::find_day(&this.ws.tree, date).ok_or_else(|| format!("there is no journal page for {date}"))
             }
         };
         let id = match v.as_str().map(|s| s.trim().trim_start_matches("id:")) {
             Some("home") | Some("root") => ROOT,
             Some("current") => self.zoom,
             Some("today") => day(self, &today())?,
-            Some(s) if s.len() == 10 && markup::date_len(s) == Some(10) => day(self, s)?,
+            Some(s) if journal::is_date(s) => day(self, s)?,
             Some(s) => match s.parse::<NodeId>() {
                 Ok(id) => id,
                 Err(()) => {
@@ -491,17 +491,11 @@ impl Outline {
     }
 
     fn apply_create(&mut self, p: &Value) -> Result<Applied, String> {
-        let markdown = self.expand_links(s(p, "markdown").ok_or("missing `markdown`")?)?;
-        let mut items = io::parse_any(&markdown);
-        // The sandboxed `flowie mcp` can't read the agent's files: images come through `attach_image`.
-        self.resolve_item_images(&mut items, None);
-        if items.is_empty() {
-            return Err("`markdown` contained no bullets".into());
-        }
+        let items = self.agent_items(p)?;
         let (parent, index) = self.agent_place(p, true)?;
         // Drop a lone empty placeholder bullet (e.g. a fresh journal day).
         let kids = self.ws.tree.children(parent).to_vec();
-        let placeholder = (kids.len() == 1 && self.is_blank_placeholder(kids[0])).then(|| kids[0]);
+        let placeholder = (kids.len() == 1 && journal::is_blank_placeholder(&self.ws.tree, kids[0])).then(|| kids[0]);
         let top = self.ws.tree.insert_items(parent, index, &items);
         if let Some(ph) = placeholder {
             if self.editing_node() != Some(ph) {
@@ -511,6 +505,23 @@ impl Outline {
         if parent != ROOT && self.ws.tree.node(parent).collapsed {
             self.ws.tree.set_collapsed(parent, false);
         }
+        Ok(self.created(parent, top))
+    }
+
+    /// The bullets in a create or journal call's `markdown`.
+    fn agent_items(&mut self, p: &Value) -> Result<Vec<io::Item>, String> {
+        let markdown = self.expand_links(s(p, "markdown").ok_or("missing `markdown`")?)?;
+        let mut items = io::parse_any(&markdown);
+        // The sandboxed `flowie mcp` can't read the agent's files: images come through `attach_image`.
+        self.resolve_item_images(&mut items, None);
+        if items.is_empty() {
+            return Err("`markdown` contained no bullets".into());
+        }
+        Ok(items)
+    }
+
+    /// The result of creating the bullets `top` (and their subtrees) under `parent`.
+    fn created(&mut self, parent: NodeId, top: Vec<NodeId>) -> Applied {
         let mut all = Vec::new();
         for &t in &top {
             all.push(t);
@@ -525,18 +536,7 @@ impl Outline {
         for &t in &top {
             self.write_tree(t, 0, 20, &mut msg);
         }
-        Ok(Applied { msg: msg.trim_end().to_string(), touched: all, created: top, ..Applied::default() })
-    }
-
-    /// A plain bullet with nothing in it: no text, note, image, children, and not a mirror.
-    fn is_blank_placeholder(&self, id: NodeId) -> bool {
-        let node = self.ws.tree.node(id);
-        node.kind == BlockKind::Bullet
-            && node.mirror == ROOT
-            && node.text.is_empty()
-            && node.note.is_empty()
-            && node.image.is_empty()
-            && !self.ws.tree.has_children(id)
+        Applied { msg: msg.trim_end().to_string(), touched: all, created: top, ..Applied::default() }
     }
 
     pub(super) fn agent_update(&mut self, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
@@ -677,14 +677,13 @@ impl Outline {
 
     fn apply_journal(&mut self, p: &Value) -> Result<Applied, String> {
         let date = s(p, "date").map(String::from).unwrap_or_else(today);
-        if markup::date_len(&date) != Some(10) {
+        if !journal::is_date(&date) {
             return Err("`date` must be YYYY-MM-DD".into());
         }
-        let day = self.ensure_day(&date, false);
-        let mut params = p.clone();
-        params["parent"] = json!(day);
-        params.as_object_mut().map(|o| o.remove("after"));
-        self.apply_create(&params)
+        let items = self.agent_items(p)?;
+        let editing = self.editing_node();
+        let top = journal::journal_append(&mut self.ws.tree, &date, &items, editing);
+        Ok(self.created(journal::day_id(&date), top))
     }
 
     /// Several writes as one all-or-nothing call and one undo step. A

@@ -35,11 +35,9 @@ impl Outline {
                 }
                 self.starred.clear();
                 self.saved_searches.clear();
-                self.journal_id = None;
                 self.hide_completed = false;
                 self.set_meta("starred", "");
                 self.set_meta("saved_searches", "");
-                self.set_meta("journal", "");
                 self.set_meta("hide_completed", "0");
                 self.commit_structure(None, cx);
                 self.ws.history.seal();

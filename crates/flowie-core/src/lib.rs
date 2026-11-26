@@ -14,6 +14,7 @@ pub mod history;
 pub mod images;
 pub mod imports;
 pub mod io;
+pub mod journal;
 pub mod markup;
 #[cfg(feature = "store")]
 pub mod package;

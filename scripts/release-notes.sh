@@ -28,16 +28,16 @@ if [[ ${1:-} == --check ]]; then exit 0; fi
 
 printf '%s\n\n---\n\n## 中文更新日志\n\n%s\n' "$english" "$chinese"
 if [[ ${2:-} == --github ]]; then
-  cat <<EOF
-
-## Downloads / 下载
-
-| Platform | Package |
-|---|---|
-| macOS 13+ (Apple silicon and Intel) | \`Flowie-$version-macos.zip\` or the signed [Mac App Store](https://apps.apple.com/app/id6835913837) build |
-| Windows 10/11 x64 (preview) | \`Flowie-$version-windows-x64.zip\` |
-| Linux x86_64 (preview; glibc 2.35+) | \`Flowie-$version-linux-x86_64.AppImage\` or \`Flowie-$version-linux-x86_64.tar.gz\` |
-
-[Installation, checksums and upgrading from a release candidate / 安装、校验和候选版升级说明](https://wesleyel.github.io/flowie/download.html)
-EOF
+  base="https://github.com/${GITHUB_REPOSITORY:-wesleyel/flowie}/releases/download/v$version"
+  # One row per package: the file links to its download, and its checksum next to it.
+  row() {
+    local platform=$1 file="Flowie-$version-$2" extra=${3:-}
+    printf '| %s | [%s](%s/%s)%s | [sha256](%s/%s.sha256) |\n' "$platform" "$file" "$base" "$file" "$extra" "$base" "$file"
+  }
+  printf '\n## Downloads / 下载\n\n| Platform / 平台 | Download / 下载 | Checksum / 校验 |\n|---|---|---|\n'
+  row "macOS 13+ (Apple silicon and Intel)" macos.zip " · [Mac App Store](https://apps.apple.com/app/id6835913837)"
+  row "Windows 10/11 x64 (preview / 预览)" windows-x64.zip
+  row "Linux x86_64, AppImage (preview / 预览; glibc 2.35+)" linux-x86_64.AppImage
+  row "Linux x86_64, tar.gz (preview / 预览; glibc 2.35+)" linux-x86_64.tar.gz
+  printf '\n[Installation and upgrading from a release candidate / 安装与候选版升级说明](https://wesleyel.github.io/flowie/download.html) · [All versions / 全部版本](https://wesleyel.github.io/flowie/download.html#versions)\n'
 fi

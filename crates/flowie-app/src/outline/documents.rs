@@ -33,7 +33,7 @@ impl Outline {
             prompt: Some(t!("import.prompt").into()),
         });
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = rx.await else { return };
+            let Some(paths) = crate::app::file_dialog::choice(rx, &this, cx).await else { return };
             match import_selection(&paths) {
                 ImportSelection::Documents => {}
                 ImportSelection::Package(path) => {
@@ -120,7 +120,7 @@ impl Outline {
             images = names.into_iter().filter_map(|n| Some((self.ws.image_dir.as_ref()?.path(&n)?, n))).collect();
         }
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(path))) = rx.await else { return };
+            let Some(path) = crate::app::file_dialog::choice(rx, &this, cx).await else { return };
             let copy_images = || -> std::io::Result<()> {
                 if images.is_empty() {
                     return Ok(());

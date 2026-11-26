@@ -130,7 +130,7 @@ impl Outline {
         let dir = dirs::desktop_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
         let rx = cx.prompt_for_new_path(&dir, Some(&file_name(&title)));
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(path))) = rx.await else { return };
+            let Some(path) = crate::app::file_dialog::choice(rx, &this, cx).await else { return };
             let msg = match std::fs::write(&path, bytes) {
                 Ok(()) => t!("toast.exported", path = path.display()),
                 Err(e) => t!("toast.export_failed", error = e),

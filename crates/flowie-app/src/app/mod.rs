@@ -1,3 +1,4 @@
+pub(crate) mod file_dialog;
 pub(crate) mod i18n;
 pub(crate) mod keymap;
 pub(crate) mod menu_bar;

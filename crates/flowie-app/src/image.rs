@@ -148,7 +148,7 @@ impl Outline {
             prompt: Some(t!("image.prompt").into()),
         });
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = rx.await else { return };
+            let Some(paths) = crate::app::file_dialog::choice(rx, &this, cx).await else { return };
             this.update(cx, |this, cx| this.insert_image_files(&paths, slot, cx)).ok();
         })
         .detach();

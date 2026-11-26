@@ -17,6 +17,10 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 - **Journal**: the Journal bullet and each day's page now have fixed IDs derived from the date, so they are found by ID instead of by their text, and two devices that open the same day will share one page once sync arrives. A journal made by an earlier release candidate isn't recognized: Today and the calendar start a new Journal bullet beside it.
 - **Linux**: the socket that `flowie mcp` and a second launch use to reach the running app is now in your runtime folder (`$XDG_RUNTIME_DIR`, usually `/run/user/<uid>`) rather than in `/tmp`.
 
+### Fixed
+
+- **Files**: when the file dialog can't open, importing, exporting and inserting images say so instead of doing nothing. On Linux this happens without xdg-desktop-portal, and the message says what to install.
+
 ## [1.0.0-rc.6] - 2026-11-25
 
 ### Added

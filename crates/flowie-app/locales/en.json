@@ -41,6 +41,8 @@
     },
     "exported": "Exported to {path}",
     "export_failed": "Export failed: {error}",
+    "file_dialog_failed": "Couldn't open the file dialog: {error}",
+    "file_dialog_failed_linux": "Couldn't open the file dialog. Install xdg-desktop-portal and a backend such as xdg-desktop-portal-gtk.",
     "restored": "Restored “{name}”",
     "search_saved": "Saved search “{query}” — {shortcut} to run it",
     "search_removed": "Removed saved search “{query}”",

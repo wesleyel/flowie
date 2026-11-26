@@ -35,6 +35,8 @@
     "imported": "已导入 {count} 个条目",
     "exported": "已导出到 {path}",
     "export_failed": "导出失败：{error}",
+    "file_dialog_failed": "无法打开文件对话框：{error}",
+    "file_dialog_failed_linux": "无法打开文件对话框。请安装 xdg-desktop-portal 和一个后端，例如 xdg-desktop-portal-gtk。",
     "restored": "已恢复“{name}”",
     "search_saved": "已保存搜索“{query}”，按 {shortcut} 运行",
     "search_removed": "已移除保存的搜索“{query}”",

@@ -97,6 +97,12 @@ CREATE TABLE IF NOT EXISTS bases (      -- the sync backend's version of each re
     etag   TEXT NOT NULL,
     record TEXT NOT NULL                -- flowie_sync::NodeRecord as JSON
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS lost (       -- text another device's edit won over (conflict copies)
+    id    BLOB    NOT NULL,             -- the node
+    field TEXT    NOT NULL,             -- 'text' or 'note'
+    value TEXT    NOT NULL,             -- what lost
+    at    INTEGER NOT NULL              -- when it was noticed (ms)
+);
 CREATE TABLE IF NOT EXISTS blobs (   -- image files in the image folder
     name    TEXT    PRIMARY KEY,     -- <sha256>.<ext>
     mime    TEXT    NOT NULL,
@@ -163,7 +169,8 @@ fn sync_columns(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<()> {
          CREATE TABLE outbox (id BLOB PRIMARY KEY, dirty_mask INTEGER NOT NULL) WITHOUT ROWID;
          CREATE TABLE purged (id BLOB PRIMARY KEY, at BLOB NOT NULL) WITHOUT ROWID;
          CREATE TABLE sync_state (remote TEXT PRIMARY KEY, cursor BLOB, account TEXT);
-         CREATE TABLE bases (id BLOB PRIMARY KEY, etag TEXT NOT NULL, record TEXT NOT NULL) WITHOUT ROWID;",
+         CREATE TABLE bases (id BLOB PRIMARY KEY, etag TEXT NOT NULL, record TEXT NOT NULL) WITHOUT ROWID;
+         CREATE TABLE lost (id BLOB NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL, at INTEGER NOT NULL);",
     )
 }
 
@@ -285,6 +292,14 @@ pub fn load_sync(conn: &Connection) -> rusqlite::Result<SyncRows> {
     Ok(SyncRows { outbox, bases, cursors })
 }
 
+/// Conflict copies (`SyncWrite::Lost`), oldest first: node, field, the text that lost, and
+/// when (ms).
+pub fn load_lost(conn: &Connection) -> rusqlite::Result<Vec<(NodeId, String, String, i64)>> {
+    let mut stmt = conn.prepare("SELECT id, field, value, at FROM lost ORDER BY at, rowid")?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+    rows.collect()
+}
+
 /// One change to what sync keeps (see [`SyncRows`]), saved by the writer in order with the
 /// records.
 #[derive(Debug, Clone, PartialEq)]
@@ -295,11 +310,16 @@ pub enum SyncWrite {
     Base(NodeId, String, String),
     /// Where pulling from a backend left off.
     Cursor { remote: String, cursor: String },
+    /// Text in a node's field (`"text"` or `"note"`) that another device's edit won over.
+    Lost { id: NodeId, field: String, value: String, at: i64 },
 }
 
 pub fn write_sync(conn: &Connection, write: &SyncWrite) -> rusqlite::Result<()> {
     match write {
         SyncWrite::Sent(id) => conn.execute("DELETE FROM outbox WHERE id = ?1", params![id]),
+        SyncWrite::Lost { id, field, value, at } => {
+            conn.execute("INSERT INTO lost (id, field, value, at) VALUES (?1, ?2, ?3, ?4)", params![id, field, value, at])
+        }
         SyncWrite::Base(id, etag, record) => conn.execute(
             "INSERT INTO bases (id, etag, record) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET etag = ?2, record = ?3",
             params![id, etag, record],
@@ -462,6 +482,18 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
             out.push(format!("{kind} {name}: {}", cols.join(", ")));
         }
         out
+    }
+
+    #[test]
+    fn conflict_copies_are_kept_in_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("flowie.sqlite")).unwrap();
+        let id = NodeId::random();
+        for (value, at) in [("first", 5), ("second", 9)] {
+            write_sync(&conn, &SyncWrite::Lost { id, field: "text".into(), value: value.into(), at }).unwrap();
+        }
+        let lost = load_lost(&conn).unwrap();
+        assert_eq!(lost, [(id, "text".into(), "first".into(), 5), (id, "text".into(), "second".into(), 9)]);
     }
 
     #[test]

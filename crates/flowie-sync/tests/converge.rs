@@ -248,3 +248,32 @@ fn a_conflicting_save_merges_and_goes_out_again() {
         assert_eq!((node.text.as_str(), node.note.as_str()), ("a's text", "b's note"), "both edits survive");
     }
 }
+
+#[test]
+fn text_both_sides_changed_is_kept_where_it_lost() {
+    let (mut a, mut b) = (Device::new(1), Device::new(2));
+    let mut server = MemoryServer::new();
+    let id = a.store.tree.create_at(ROOT, 0, "first");
+    a.store.collect();
+    a.push(&mut server, 10, None);
+    b.pull(&server, 10);
+    // Both change the text; b's edit is the later one, so it wins everywhere.
+    a.store.tree.set_text(id, "a's text");
+    a.store.collect();
+    b.store.tree.set_text(id, "b's text");
+    b.store.tree.set_note(id, "only b touched the note");
+    b.store.collect();
+    a.push(&mut server, 10, None);
+    b.push(&mut server, 10, None);
+    let mut devices = [a, b];
+    settle(&mut devices, &mut server);
+    let [a, b] = &devices;
+    for dev in [a, b] {
+        assert_eq!(dev.store.tree.node(id).text, "b's text");
+    }
+    // b merged the two edits (its save conflicted), so b keeps a's text, which lost. a saw
+    // b's version only after its own was saved, which looks the same as an edit made after
+    // seeing a's. The note, changed on one side only, isn't a conflict.
+    assert_eq!(b.store.lost, [(id, "text".to_string(), "a's text".to_string())]);
+    assert!(a.store.lost.is_empty());
+}

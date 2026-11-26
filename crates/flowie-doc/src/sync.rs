@@ -166,6 +166,11 @@ impl RecordStore for Workspace {
         self.sync.cursors.get(&self.sync.remote).cloned()
     }
 
+    fn keep_lost(&mut self, id: NodeId, field: &str, value: String) {
+        let at = flowie_core::tree::now_millis();
+        self.save_sync(SyncWrite::Lost { id, field: field.to_string(), value, at });
+    }
+
     fn set_cursor(&mut self, cursor: String) {
         self.save_sync(SyncWrite::Cursor { remote: self.sync.remote.clone(), cursor: cursor.clone() });
         self.sync.cursors.insert(self.sync.remote.clone(), cursor);

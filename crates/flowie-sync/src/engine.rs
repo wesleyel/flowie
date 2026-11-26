@@ -37,6 +37,24 @@ pub trait RecordStore {
     /// Where the last pull left off.
     fn cursor(&self) -> Option<String>;
     fn set_cursor(&mut self, cursor: String);
+    /// Text in a field (`"text"` or `"note"`) that both this device and the backend changed
+    /// since the version of it this device last saw: the version that lost the merge, to keep
+    /// as a conflict copy. Noticed where the two meet, so one device keeps it.
+    fn keep_lost(&mut self, _id: NodeId, _field: &str, _value: String) {}
+}
+
+/// Text fields both sides changed since `base`, with the version that loses the merge.
+fn lost_text(base: &NodeRecord, local: &NodeRecord, remote: &NodeRecord) -> Vec<(&'static str, String)> {
+    let fields = [("text", &base.text, &local.text, &remote.text), ("note", &base.note, &local.note, &remote.note)];
+    fields
+        .into_iter()
+        .filter_map(|(name, base, local, remote)| {
+            let (local, remote) = (local.as_ref()?, remote.as_ref()?);
+            let since = base.as_ref().map(|b| b.at);
+            let both = since.is_none_or(|at| local.at > at && remote.at > at) && local.v != remote.v;
+            both.then(|| (name, if local.at < remote.at { local.v.clone() } else { remote.v.clone() }))
+        })
+        .collect()
 }
 
 /// How the backend answered one save.
@@ -143,7 +161,14 @@ impl Engine {
             return None;
         }
         let merged = match store.local(id) {
-            Some(local) => merge(&local, &remote),
+            Some(local) => {
+                if let Some((_, base)) = store.base(id) {
+                    for (field, value) in lost_text(&base, &local, &remote) {
+                        store.keep_lost(id, field, value);
+                    }
+                }
+                merge(&local, &remote)
+            }
             None => remote.clone(),
         };
         store.apply(vec![merged]);

@@ -15,11 +15,13 @@ pub struct MemoryStore {
     outbox: BTreeSet<NodeId>,
     bases: HashMap<NodeId, (String, NodeRecord)>,
     cursor: Option<String>,
+    /// Text that lost a concurrent edit: (node, field, value).
+    pub lost: Vec<(NodeId, String, String)>,
 }
 
 impl MemoryStore {
     pub fn new(tree: Tree) -> Self {
-        let mut store = MemoryStore { tree, outbox: BTreeSet::new(), bases: HashMap::new(), cursor: None };
+        let mut store = MemoryStore { tree, outbox: BTreeSet::new(), bases: HashMap::new(), cursor: None, lost: Vec::new() };
         store.collect();
         store
     }
@@ -87,5 +89,9 @@ impl RecordStore for MemoryStore {
 
     fn set_cursor(&mut self, cursor: String) {
         self.cursor = Some(cursor);
+    }
+
+    fn keep_lost(&mut self, id: NodeId, field: &str, value: String) {
+        self.lost.push((id, field.to_string(), value));
     }
 }

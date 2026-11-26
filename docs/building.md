@@ -123,6 +123,21 @@ The running app owns a local socket per database (a Unix socket in `/tmp` on mac
 `FLOWIE_DB=/path/file.sqlite` uses another database. `--stress 50000` opens an in-memory
 outline of 50,000 bullets (not saved) and logs timings.
 
+### Database format upgrades
+
+The database's format is its `PRAGMA user_version`. When a newer Flowie opens a database from
+1.0 or later, it first copies it to `flowie.sqlite.backup-v<old format>-<timestamp>` beside it,
+then upgrades it in one transaction; it keeps the three newest backups. To go back, quit Flowie
+and rename a backup to `flowie.sqlite` (with an older Flowie, the one that wrote that format). If
+the backup or the upgrade fails, the database is left as it was and Flowie opens an empty window
+that says so. A database from a newer Flowie is never changed: Flowie asks you to update.
+A database from a 1.0 release candidate isn't upgraded but kept as
+`flowie.sqlite.old-<timestamp>`, and Flowie starts a new one.
+
+To change the format, change `SCHEMA` and append a migration to `MIGRATIONS` in
+`crates/flowie-core/src/store/mod.rs`; the steps and the tests a migration needs are in that
+module's docs.
+
 To move an outline from a source build or the release zip into the App Store build, quit Flowie and copy
 `flowie.sqlite` (and `settings.json`) into the container folder above. macOS only lets
 Terminal.app write into another app's container, so run the copy there.

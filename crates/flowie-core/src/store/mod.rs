@@ -1,15 +1,47 @@
 //! SQLite persistence. The whole outline is loaded once at launch; after that
 //! the UI never touches the database: changes go to a background writer
 //! thread that batches them into one transaction per ~200 ms.
+//!
+//! # Formats and migrations
+//!
+//! The database's format is its `PRAGMA user_version`. `BASELINE` is the 1.0
+//! format, and each entry of `MIGRATIONS` upgrades by one, so this build
+//! writes `FORMAT = BASELINE + MIGRATIONS.len()`. [`open`] creates a new
+//! database straight at `FORMAT` from `SCHEMA`, opens one at `FORMAT` as it
+//! is, and upgrades one between `BASELINE` and `FORMAT`: it saves a copy as
+//! `<db>.backup-v<format>-<millis>` (keeping the newest three), then runs the
+//! missing migrations and sets `user_version` in one transaction. If the
+//! backup or any step fails, nothing is changed and [`open`] returns the
+//! error. A database older than `BASELINE` (a 1.0 release candidate's) is
+//! renamed to `<db>.old-<millis>` and a new one created; one newer than
+//! `FORMAT` is refused with [`OpenError::TooNew`] and left alone.
+//!
+//! To change the format (from 1.0 on, when `BASELINE` no longer changes):
+//!
+//! 1. Change `SCHEMA` so it creates the new format: a new database never runs
+//!    migrations.
+//! 2. Append one [`Migration`] to `MIGRATIONS` that turns a database of the
+//!    previous format into exactly what the new `SCHEMA` creates (`ALTER
+//!    TABLE`, `CREATE TABLE`/`INDEX`, and filling in data for existing rows).
+//!    It runs inside the upgrade's transaction: don't commit, don't set
+//!    `user_version`, and never edit or reorder earlier entries, which users'
+//!    databases have already been through.
+//! 3. Test it: build a database at the previous format (copy the old `CREATE`
+//!    statements into the test, set `user_version`, add rows), [`open`] it,
+//!    and check that the rows came through and that each table has the same
+//!    columns (`pragma_table_info`) as a database created from `SCHEMA`. The
+//!    framework itself is tested in `store/migrate.rs`.
+//! 4. Add a CHANGELOG entry: an upgrade is user-visible, since it leaves a
+//!    backup beside the database and older Flowies can't open the result.
 
 mod blobs;
 mod imports;
+mod migrate;
 mod trash;
 #[cfg(feature = "writer-thread")]
 mod writer;
 
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::path::Path;
 
 use rusqlite::{params, Connection};
 
@@ -18,6 +50,7 @@ use crate::tree::{Node, NodeId};
 pub use crate::imports::{ImportRecord, ImportState};
 pub use blobs::{collect_unused_images, drop_blobs, image_names_in_use, load_blobs};
 pub use imports::{load_bases, load_imports, write_import_batch};
+pub use migrate::{Migration, OpenError};
 pub use trash::{in_trash, list_trash, TrashEntry};
 #[cfg(feature = "writer-thread")]
 pub use writer::Writer;
@@ -90,9 +123,16 @@ pub const LOCAL_META: &[&str] = &["device", "hide_completed", "scroll", "tutoria
 /// as one `Prefs` record, last writer wins.
 pub const PREFS: &[&str] = &["saved_searches"];
 
-/// The database format, kept in `PRAGMA user_version`. An older database is
-/// moved aside, not converted.
-const FORMAT: i64 = 4;
+/// The 1.0 format, the oldest one Flowie upgrades: an older database is moved
+/// aside, not converted. See the module docs.
+const BASELINE: i64 = 4;
+
+/// Upgrade steps: entry `i` takes a database from format `BASELINE + i` to
+/// `BASELINE + i + 1`. Only ever appended to; see the module docs.
+const MIGRATIONS: &[Migration] = &[];
+
+/// The format this build writes, kept in `PRAGMA user_version`.
+pub const FORMAT: i64 = BASELINE + MIGRATIONS.len() as i64;
 
 impl rusqlite::ToSql for NodeId {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
@@ -107,58 +147,10 @@ impl rusqlite::types::FromSql for NodeId {
     }
 }
 
-pub fn open(path: &Path) -> rusqlite::Result<Connection> {
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let mut conn = Connection::open(path)?;
-    conn.busy_timeout(Duration::from_secs(5))?;
-    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    let has_nodes: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'nodes'", [], |r| r.get(0))?;
-    if version > FORMAT {
-        return Err(rusqlite::Error::InvalidQuery);
-    }
-    if has_nodes > 0 && version == FORMAT {
-        conn.pragma_update(None, "synchronous", "NORMAL")?;
-        return Ok(conn);
-    }
-    if has_nodes > 0 && version < FORMAT {
-        // Fold the WAL into the file so the three files move as one.
-        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
-        drop(conn);
-        let aside = set_aside(path).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-        eprintln!("flowie: {} has an older format; moved it to {}", path.display(), aside.display());
-        conn = Connection::open(path)?;
-        conn.busy_timeout(Duration::from_secs(5))?;
-    }
-    conn.execute_batch(SCHEMA)?;
-    conn.pragma_update(None, "user_version", FORMAT)?;
-    Ok(conn)
-}
-
-/// Rename an old-format database (and its WAL and shared-memory files) to
-/// `<name>.old-<millis>`, where a newer Flowie leaves it alone.
-fn set_aside(path: &Path) -> std::io::Result<PathBuf> {
-    let mut aside = path.as_os_str().to_owned();
-    aside.push(format!(".old-{}", crate::tree::now_millis()));
-    let aside = PathBuf::from(aside);
-    let mut moved = Vec::new();
-    for suffix in ["", "-wal", "-shm"] {
-        let mut from = path.as_os_str().to_owned();
-        from.push(suffix);
-        let mut to = aside.as_os_str().to_owned();
-        to.push(suffix);
-        if Path::new(&from).exists() {
-            if let Err(error) = std::fs::rename(&from, &to) {
-                for (original, moved_to) in moved.iter().rev() {
-                    let _ = std::fs::rename(moved_to, original);
-                }
-                return Err(error);
-            }
-            moved.push((PathBuf::from(from), PathBuf::from(to)));
-        }
-    }
-    Ok(aside)
+/// Open the database at `path`, creating or upgrading it to `FORMAT` (see the
+/// module docs).
+pub fn open(path: &Path) -> Result<Connection, OpenError> {
+    migrate::open(path, &migrate::Format { schema: SCHEMA, baseline: BASELINE, migrations: MIGRATIONS })
 }
 
 pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, String)>)> {

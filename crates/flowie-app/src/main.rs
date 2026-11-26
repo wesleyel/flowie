@@ -21,6 +21,7 @@ use flowie_core::{images::ImageDir, Tree, ROOT};
 use flowie_doc::Workspace;
 use gpui::{px, size, App, AppContext, AssetSource, Bounds, QuitMode, SharedString, TitlebarOptions, WindowBounds, WindowOptions};
 
+use app::i18n::t;
 use app::{i18n, keymap, platform, window_place};
 #[cfg(feature = "screenshots")]
 use dev::shots;
@@ -99,6 +100,9 @@ fn main() {
     };
 
     let (save_err_tx, mut save_err_rx) = futures::channel::mpsc::unbounded::<Option<String>>();
+    // Without the database, the window shows an empty outline that isn't saved, and the
+    // database file is neither upgraded nor replaced (see `store::open`).
+    let mut load_error = None;
     let (ws, db_path, meta) = match stress {
         Some(n) => (Workspace::new(stress_tree(n)), None, Vec::new()),
         None => {
@@ -111,6 +115,7 @@ fn main() {
                 Ok((ws, meta)) => (ws, Some(path), meta),
                 Err(e) => {
                     eprintln!("flowie: could not load {}: {e}", path.display());
+                    load_error = Some(e);
                     (Workspace::new(Tree::new()), None, Vec::new())
                 }
             }
@@ -120,6 +125,8 @@ fn main() {
     let n = ws.tree.len();
     let config = settings::Config::load(&settings::Config::path(db_path.as_ref()));
     i18n::set(&config.language);
+    let load_error =
+        load_error.map(|e| if e.is_too_new() { t!("outline.db_too_new").to_string() } else { t!("outline.load_error", error = e) });
     // Without a loaded database there is nothing to serve.
     let listener = listener.filter(|_| db_path.is_some());
     let keys = config.keys.clone();
@@ -198,6 +205,7 @@ fn main() {
             .expect("open window");
         window
             .update(cx, |o, window, cx| {
+                o.load_error = load_error;
                 window.focus(&o.focus, cx);
                 o.whats_new_on_launch(background, cx);
                 let outline = cx.weak_entity();

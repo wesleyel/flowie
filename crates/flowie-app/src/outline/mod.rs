@@ -276,6 +276,9 @@ pub struct Outline {
     pub whats_new_pending: Option<Option<String>>,
     /// Set when the background database writer failed and is retrying.
     pub save_error: Option<String>,
+    /// Set when the database couldn't be opened and the window shows an empty
+    /// outline that isn't saved: the message to show.
+    pub load_error: Option<String>,
     close_prompt_open: bool,
 }
 
@@ -359,6 +362,7 @@ impl Outline {
             image_preview: None,
             whats_new_pending: None,
             save_error: None,
+            load_error: None,
             close_prompt_open: false,
             kill_buffer: String::new(),
             mouse_block: false,

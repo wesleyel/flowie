@@ -40,15 +40,15 @@ impl Workspace {
 
     /// Open the database at `db`, with its image files in `images`, and start its writer.
     /// `on_save_status` hears about write errors (`Some(message)`) and recovery (`None`).
-    /// Returns the workspace and the database's meta entries (this device's state).
-    pub fn open<F>(db: &Path, images: ImageDir, on_save_status: F) -> Result<(Workspace, Vec<(String, String)>), String>
+    /// Returns the workspace and the database's meta entries (this device's state). On an
+    /// error the database file is left as it was (see `store::open`).
+    pub fn open<F>(db: &Path, images: ImageDir, on_save_status: F) -> Result<(Workspace, Vec<(String, String)>), store::OpenError>
     where
         F: Fn(Option<String>) + Send + 'static,
     {
-        let loaded = store::open(db).and_then(|conn| {
-            Ok((store::load(&conn)?, store::load_imports(&conn)?, store::load_blobs(&conn)?, store::load_prefs(&conn)?, conn))
-        });
-        let ((nodes, meta), imports, blobs, prefs, conn) = loaded.map_err(|e| e.to_string())?;
+        let conn = store::open(db)?;
+        let ((nodes, meta), imports, blobs, prefs) =
+            (store::load(&conn)?, store::load_imports(&conn)?, store::load_blobs(&conn)?, store::load_prefs(&conn)?);
         collect_images(db);
         let writer = Writer::spawn_with_error_hook(conn, on_save_status);
         let ws = Workspace {

@@ -15,6 +15,8 @@
     "link_count": "引用来源 · {count}",
     "save_error": "无法保存修改，正在自动重试（{error}）",
     "save_retry": "重试",
+    "db_too_new": "你的大纲由更新版本的 Flowie 保存，请更新 Flowie 后再打开。当前窗口是空的，其中的内容不会保存。",
+    "load_error": "无法打开你的大纲（{error}）。当前窗口是空的，其中的内容不会保存。",
     "quit_unsaved": "部分修改未能保存",
     "quit_unsaved_detail": "保持 Flowie 打开可继续重试。现在退出可能会丢失未保存的修改。\n\n{error}",
     "keep_open": "继续使用",

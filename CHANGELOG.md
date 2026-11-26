@@ -19,9 +19,11 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 - **Linux**: the socket that `flowie mcp` and a second launch use to reach the running app is now in your runtime folder (`$XDG_RUNTIME_DIR`, usually `/run/user/<uid>`) rather than in `/tmp`.
 - **Storage**: a bullet's position among its siblings is now a short text key that a new bullet or a move can always fit between, so inserting or moving a bullet changes only that bullet and never renumbers its siblings. This changes the database format: a database from an earlier release candidate is kept beside the new one as `<database>.old-<timestamp>` and Flowie starts with an empty outline.
 - **Storage**: a star is now saved on its bullet, with its place in the starred list, instead of in one shared list, so two devices can star bullets at the same time once sync arrives. Saved searches are kept apart from this device's own state (window, scroll, open page), as preferences that will sync. Starring is still not an undo step, and undo no longer touches stars.
+- **Storage**: from 1.0 on, a database from an older Flowie is upgraded in place rather than set aside. Flowie first saves a copy beside it as `<database>.backup-v<format>-<timestamp>`, keeping the three newest, and if the copy or the upgrade fails the database is left untouched. Databases from release candidates are still set aside.
 
 ### Fixed
 
+- **Storage**: a database saved by a newer Flowie, or one that can't be opened, no longer opens silently as an empty outline: a banner says what happened and that nothing in the window is saved, and the database file is left untouched.
 - **Files**: when the file dialog can't open, importing, exporting and inserting images say so instead of doing nothing. On Linux this happens without xdg-desktop-portal, and the message says what to install.
 
 ## [1.0.0-rc.6] - 2026-11-25

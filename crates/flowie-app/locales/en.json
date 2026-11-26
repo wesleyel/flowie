@@ -15,6 +15,8 @@
     "link_count": "Linked from · {count}",
     "save_error": "Could not save changes — retrying automatically ({error})",
     "save_retry": "Retry",
+    "db_too_new": "Your outline was saved by a newer version of Flowie. Update Flowie to open it. This window is empty, and nothing in it is saved.",
+    "load_error": "Could not open your outline ({error}). This window is empty, and nothing in it is saved.",
     "quit_unsaved": "Some changes could not be saved",
     "quit_unsaved_detail": "Keep Flowie open to continue retrying. If you quit now, unsaved changes may be lost.\n\n{error}",
     "keep_open": "Keep Open",

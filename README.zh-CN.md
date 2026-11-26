@@ -26,7 +26,7 @@
 （[benchmark](crates/flowie-core/benches/large_outline.rs)：先运行 `scripts/fetch-bench-data.sh`，再运行
 `cargo bench -p flowie-core --bench large_outline`）：
 
-| | |
+| 测试项目 | 结果 |
 |---|---:|
 | 导入全部 13,505 个条目 | 42 ms |
 | 全部展开后排出整个大纲 | 1.3 ms |

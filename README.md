@@ -26,7 +26,7 @@ Measured on an Apple M4 with Bike's *Moby-Dick* outline imported five times, 13,
 ([benchmark](crates/flowie-core/benches/large_outline.rs): `scripts/fetch-bench-data.sh`, then
 `cargo bench -p flowie-core --bench large_outline`):
 
-| | |
+| Benchmark | Result |
 |---|---:|
 | Import all 13,505 bullets | 42 ms |
 | Lay out the whole outline, everything expanded | 1.3 ms |

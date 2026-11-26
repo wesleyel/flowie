@@ -46,7 +46,7 @@ on macOS, Windows and Linux. Pushing a `v*` tag runs `release.yml`. Other env va
 ## Rules
 
 - **Commit on `main`**, without feature branches. Push only when asked. One change is one commit.
-- **Before every commit**: add an `## [Unreleased]` entry in `CHANGELOG.md` (Added/Changed/Fixed, in the style of the existing entries) for user-visible changes, and run fmt and clippy as above.
+- **Before every commit**: for user-visible changes, add an `## [Unreleased]` entry in **both** changelogs, in the style of the existing entries: `CHANGELOG.md` (Added/Changed/Fixed) and the matching Chinese entry in `CHANGELOG.zh-CN.md` (新增/变更/修复), which What's New shows in the Chinese UI. Then run fmt and clippy as above.
 - **No migrations while iterating**: change the SQLite `SCHEMA` and the `settings.json` format directly, with no upgrade code and no readers for the old format. Tell the user when an existing DB has to be deleted.
 - **UI text** goes through `t!(…)`, with keys in `crates/flowie-app/locales/en.json` and `zh-CN.json`. `cargo test -p flowie-app i18n` checks both files. New features also get a lesson in the tutorial (`crates/flowie-app/tutorial/<locale>.md`).
 - **Docs scope**: the README, website, `llms.txt` and the App Store text cover core features only. Never add UX polish there. A big change in one area goes only in that area's doc (e.g. `docs/mcp.md`). Do fix wording that a change has made wrong.

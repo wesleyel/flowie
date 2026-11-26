@@ -17,6 +17,8 @@ advisories (`deny.toml`), which also limits which crates may depend on `gpui-kit
 - Keep changes focused; one topic per pull request.
 - Add user-visible changes under `[Unreleased]` in `CHANGELOG.md`
   ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/)); it becomes the release notes.
+  Add the same entry in Chinese to `CHANGELOG.zh-CN.md` (新增/变更/修复), which What's New
+  shows when the app is in Chinese; if you can't write Chinese, say so in the pull request.
 - UI text goes through `t!(…)` with keys in `crates/flowie-app/locales/en.json`
   (and `zh-CN.json` when you can); `cargo test -p flowie-app i18n` checks both.
 - New features belong in the first-launch tutorial too

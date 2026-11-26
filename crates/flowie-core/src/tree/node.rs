@@ -106,6 +106,10 @@ pub struct Node {
     /// The image file (`<sha256>.<ext>` in the image folder), for `BlockKind::Image`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub image: String,
+    /// Starred: a fractional-index key (`crate::rank`) giving its place in the
+    /// starred list, compared as bytes; empty when not starred.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub star: String,
 }
 
 impl Node {
@@ -124,6 +128,7 @@ impl Node {
             kind: BlockKind::Bullet,
             mirror: ROOT,
             image: String::new(),
+            star: String::new(),
         }
     }
 }

@@ -327,7 +327,7 @@ impl Render for Outline {
         let has_references = references.is_some().then(|| self.ws.tree.link_count(self.ws.tree.source(self.zoom)));
         let search_open = self.search_openness();
         let zoom_p = self.zoom_tween.map(|t| ease_out(t.t())).unwrap_or(1.0);
-        let starred = self.zoom != ROOT && self.starred.contains(&self.zoom);
+        let starred = self.zoom != ROOT && self.ws.tree.is_starred(self.zoom);
         let tool = |id: &'static str, icon: &'static str, color: gpui::Hsla| crate::ui::button::tool_button(theme, id, icon, color);
         let saved = !self.query.trim().is_empty() && self.saved_searches.iter().any(|q| q == self.query.trim());
         let tools = div()

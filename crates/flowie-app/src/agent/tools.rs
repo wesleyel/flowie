@@ -258,7 +258,7 @@ impl Outline {
 
     pub(super) fn agent_starred(&self) -> String {
         let mut out = String::from("Starred pages:\n");
-        let live: Vec<NodeId> = self.starred.iter().copied().filter(|id| self.ws.tree.contains(*id)).collect();
+        let live: Vec<NodeId> = self.ws.tree.starred().collect();
         if live.is_empty() {
             out.push_str("(none)\n");
         }

@@ -20,24 +20,35 @@ pub struct Workspace {
     pub blobs: HashMap<String, BlobInfo>,
     /// Image files, beside the database (none without one).
     pub image_dir: Option<ImageDir>,
+    /// Preferences that sync (`store::PREFS`), by key.
+    pub prefs: HashMap<String, String>,
 }
 
 impl Workspace {
     /// An outline kept only in memory, with nothing to save it to.
     pub fn new(tree: Tree) -> Workspace {
-        Workspace { tree, history: History::new(), writer: None, imports: HashMap::new(), blobs: HashMap::new(), image_dir: None }
+        Workspace {
+            tree,
+            history: History::new(),
+            writer: None,
+            imports: HashMap::new(),
+            blobs: HashMap::new(),
+            image_dir: None,
+            prefs: HashMap::new(),
+        }
     }
 
     /// Open the database at `db`, with its image files in `images`, and start its writer.
     /// `on_save_status` hears about write errors (`Some(message)`) and recovery (`None`).
-    /// Returns the workspace and the database's meta entries.
+    /// Returns the workspace and the database's meta entries (this device's state).
     pub fn open<F>(db: &Path, images: ImageDir, on_save_status: F) -> Result<(Workspace, Vec<(String, String)>), String>
     where
         F: Fn(Option<String>) + Send + 'static,
     {
-        let loaded =
-            store::open(db).and_then(|conn| Ok((store::load(&conn)?, store::load_imports(&conn)?, store::load_blobs(&conn)?, conn)));
-        let ((nodes, meta), imports, blobs, conn) = loaded.map_err(|e| e.to_string())?;
+        let loaded = store::open(db).and_then(|conn| {
+            Ok((store::load(&conn)?, store::load_imports(&conn)?, store::load_blobs(&conn)?, store::load_prefs(&conn)?, conn))
+        });
+        let ((nodes, meta), imports, blobs, prefs, conn) = loaded.map_err(|e| e.to_string())?;
         collect_images(db);
         let writer = Writer::spawn_with_error_hook(conn, on_save_status);
         let ws = Workspace {
@@ -47,6 +58,7 @@ impl Workspace {
             imports: imports.into_iter().map(|r| (r.root, r)).collect(),
             blobs: blobs.into_iter().map(|b| (b.name.clone(), b)).collect(),
             image_dir: Some(images),
+            prefs: prefs.into_iter().collect(),
         };
         Ok((ws, meta))
     }
@@ -59,10 +71,38 @@ impl Workspace {
         }
     }
 
+    /// Save state of this device only (`store::LOCAL_META`).
     pub fn set_meta(&self, key: &str, value: &str) {
         if let Some(w) = &self.writer {
             w.set_meta(key, value);
         }
+    }
+
+    pub fn pref(&self, key: &str) -> Option<&str> {
+        self.prefs.get(key).map(String::as_str)
+    }
+
+    /// Change a preference that syncs (`store::PREFS`) and save it.
+    pub fn set_pref(&mut self, key: &str, value: &str) {
+        self.prefs.insert(key.to_string(), value.to_string());
+        if let Some(w) = &self.writer {
+            w.set_pref(key, value);
+        }
+    }
+
+    /// Star `id` at the end of the starred list, or unstar it. Stars are saved
+    /// but are not undo steps (and undo leaves them as they are).
+    pub fn set_starred(&mut self, id: NodeId, starred: bool) {
+        let mark = self.tree.journal_mark();
+        if starred {
+            if !self.tree.is_starred(id) {
+                self.tree.star_at(id, usize::MAX);
+            }
+        } else {
+            self.tree.unstar(id);
+        }
+        self.tree.forget_since(mark);
+        self.persist();
     }
 
     /// Persist, then try to save everything sent so far.
@@ -187,5 +227,37 @@ mod tests {
 
         let (ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
         assert_eq!(ws.tree.node(id).text, "hello world");
+    }
+
+    #[test]
+    fn stars_save_without_undo_steps_and_prefs_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("outline.sqlite");
+        let (mut ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        let a = ws.tree.create_at(ROOT, 0, "a");
+        let b = ws.tree.create_at(ROOT, 1, "b");
+        ws.commit_with_imports_and_trash(None, None, None, Vec::new());
+        ws.set_starred(b, true);
+        ws.set_starred(a, true);
+        ws.set_starred(b, true); // already starred: stays in place
+        ws.set_pref("saved_searches", "is:todo");
+        // The only undo step is creating the bullets.
+        assert!(ws.undo().is_some());
+        assert!(ws.undo().is_none());
+        assert!(ws.redo().is_some());
+        assert_eq!(ws.tree.starred().collect::<Vec<_>>(), vec![b, a]);
+        ws.flush().unwrap();
+        drop(ws);
+
+        let (mut ws, meta) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        assert_eq!(ws.tree.starred().collect::<Vec<_>>(), vec![b, a]);
+        assert_eq!(ws.pref("saved_searches"), Some("is:todo"));
+        assert!(meta.is_empty());
+        ws.set_starred(b, false);
+        ws.flush().unwrap();
+        drop(ws);
+
+        let (ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        assert_eq!(ws.tree.starred().collect::<Vec<_>>(), vec![a]);
     }
 }

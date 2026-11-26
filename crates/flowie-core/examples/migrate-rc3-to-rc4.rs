@@ -81,6 +81,7 @@ impl LegacyNode {
             kind: self.kind,
             mirror: remap(ids, self.mirror),
             image: String::new(),
+            star: String::new(),
         }
     }
 }

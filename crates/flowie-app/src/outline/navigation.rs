@@ -210,15 +210,13 @@ impl Outline {
     }
 
     pub fn star(&mut self, id: NodeId, cx: &mut Context<Self>) {
-        if let Some(pos) = self.starred.iter().position(|s| *s == id) {
-            self.starred.remove(pos);
-            self.toast(t!("toast.unstarred", name = node_label(self, id)));
-        } else {
-            self.starred.push(id);
+        let starred = !self.ws.tree.is_starred(id);
+        self.ws.set_starred(id, starred);
+        if starred {
             self.toast(t!("toast.starred", name = node_label(self, id), shortcut = crate::app::keymap::hint("jump", &self.config.keys)));
+        } else {
+            self.toast(t!("toast.unstarred", name = node_label(self, id)));
         }
-        let v = self.starred.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
-        self.set_meta("starred", &v);
         cx.notify();
     }
 
@@ -285,7 +283,7 @@ impl Outline {
             self.saved_searches.push(q.clone());
             self.toast(t!("toast.search_saved", query = q, shortcut = crate::app::keymap::hint("jump", &self.config.keys)));
         }
-        self.set_meta("saved_searches", &self.saved_searches.join("\n"));
+        self.save_searches();
         cx.notify();
     }
 

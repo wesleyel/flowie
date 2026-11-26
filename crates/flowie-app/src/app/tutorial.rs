@@ -94,8 +94,9 @@ impl Outline {
                     "text" => node.kind = BlockKind::Paragraph,
                     "code" => node.kind = BlockKind::Code,
                     "star" => {
-                        if !self.starred.contains(&id) {
-                            self.starred.push(id);
+                        if node.star.is_empty() {
+                            let last = self.ws.tree.starred().last().map(|s| self.ws.tree.node(s).star.clone());
+                            node.star = flowie_core::rank::between(last.as_deref(), None);
                         }
                     }
                     d => {
@@ -134,11 +135,9 @@ impl Outline {
             self.ws.tree.delete(id);
             self.ws.tree.create_mirror(src, parent, at);
         }
-        let starred = self.starred.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
-        self.set_meta("starred", &starred);
         if !self.saved_searches.iter().any(|s| s == SAVED_SEARCH) {
             self.saved_searches.push(SAVED_SEARCH.to_string());
-            self.set_meta("saved_searches", &self.saved_searches.join("\n"));
+            self.save_searches();
         }
         let root = top.first().copied().unwrap_or(ROOT);
         // The tutorial keeps random ids (its text depends on the language and the

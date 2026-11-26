@@ -152,7 +152,7 @@ impl Outline {
                 continue;
             }
             let mut score = 0i64;
-            if self.starred.contains(&n.id) {
+            if !n.star.is_empty() {
                 score -= 1_000_000;
             }
             if let Some(first) = words.first() {
@@ -192,15 +192,13 @@ impl Outline {
                         icon: "house",
                         action: Action::Node(ROOT),
                     });
-                    for &id in &self.starred {
-                        if self.ws.tree.contains(id) {
-                            entries.push(Entry {
-                                label: node_label(self, id),
-                                detail: path_label(self, id),
-                                icon: "star",
-                                action: Action::Node(id),
-                            });
-                        }
+                    for id in self.ws.tree.starred() {
+                        entries.push(Entry {
+                            label: node_label(self, id),
+                            detail: path_label(self, id),
+                            icon: "star",
+                            action: Action::Node(id),
+                        });
                     }
                     for s in &self.saved_searches {
                         entries.push(Entry {
@@ -220,7 +218,7 @@ impl Outline {
                         });
                     }
                     for id in self.search_nodes(&q, 40, &[]) {
-                        let icon = if self.starred.contains(&id) { "star" } else { "dot" };
+                        let icon = if self.ws.tree.is_starred(id) { "star" } else { "dot" };
                         entries.push(Entry { label: node_label(self, id), detail: path_label(self, id), icon, action: Action::Node(id) });
                     }
                     entries.extend(self.new_page_entry(&q));
@@ -274,11 +272,7 @@ impl Outline {
                     Mode::Mirror { after } => self.ws.tree.ancestors(*after),
                     _ => Vec::new(),
                 };
-                let ids = if q.trim().is_empty() {
-                    self.starred.iter().copied().filter(|id| self.ws.tree.contains(*id)).collect()
-                } else {
-                    self.search_nodes(&q, 40, &[])
-                };
+                let ids = if q.trim().is_empty() { self.ws.tree.starred().collect() } else { self.search_nodes(&q, 40, &[]) };
                 for id in ids.into_iter().filter(|id| !exclude.contains(id)) {
                     entries.push(Entry {
                         label: node_label(self, id),
@@ -363,7 +357,7 @@ impl Outline {
     fn run_palette(&mut self, mode: Mode, action: Action, window: &mut Window, cx: &mut Context<Self>) {
         match (mode, action) {
             (Mode::Jump, Action::Node(id)) => {
-                if id == ROOT || self.ws.tree.has_children(self.ws.tree.source(id)) || self.starred.contains(&id) {
+                if id == ROOT || self.ws.tree.has_children(self.ws.tree.source(id)) || self.ws.tree.is_starred(id) {
                     self.zoom_to(id, cx);
                 } else {
                     // Leaf: show it in its parent with the caret on it.

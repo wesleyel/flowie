@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use rusqlite::{params, Connection};
 
 use super::imports::save_import_state;
-use super::{write_batch, write_import_batch, ImportState};
+use super::{write_batch, write_import_batch, write_pref, ImportState, LOCAL_META, PREFS};
 use crate::tree::{Node, NodeId};
 
 enum Msg {
@@ -18,6 +18,7 @@ enum Msg {
     Untrash(i64),
     UntrashRoot(NodeId),
     Meta(String, String),
+    Pref(String, String),
     ImportState(ImportState),
     ImportBatch { upserts: Vec<Node>, deletes: Vec<NodeId>, state: ImportState },
     Blob(crate::images::BlobInfo),
@@ -31,6 +32,7 @@ enum PendingOp {
     Trash { root: NodeId, label: String, nodes: Vec<Node>, deleted_at: i64 },
     Untrash(i64),
     UntrashRoot(NodeId),
+    Pref(String, String),
     ImportState(ImportState),
     ImportBatch { upserts: Vec<Node>, deletes: Vec<NodeId>, state: ImportState },
     Blob(crate::images::BlobInfo),
@@ -100,9 +102,19 @@ impl Writer {
         }
     }
 
+    /// Save a `LOCAL_META` key (this device only).
     pub fn set_meta(&self, key: &str, value: &str) {
+        debug_assert!(LOCAL_META.contains(&key), "meta key {key:?} is not in store::LOCAL_META");
         if let Some(tx) = &self.tx {
             let _ = tx.send(Msg::Meta(key.to_string(), value.to_string()));
+        }
+    }
+
+    /// Save a `PREFS` key (a preference that syncs).
+    pub fn set_pref(&self, key: &str, value: &str) {
+        debug_assert!(PREFS.contains(&key), "pref key {key:?} is not in store::PREFS");
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Msg::Pref(key.to_string(), value.to_string()));
         }
     }
 
@@ -255,6 +267,7 @@ where
                     Msg::Trash { root, label, nodes } => PendingOp::Trash { root, label, nodes, deleted_at: crate::tree::now_millis() },
                     Msg::Untrash(seq) => PendingOp::Untrash(seq),
                     Msg::UntrashRoot(root) => PendingOp::UntrashRoot(root),
+                    Msg::Pref(key, value) => PendingOp::Pref(key, value),
                     Msg::ImportState(state) => PendingOp::ImportState(state),
                     Msg::ImportBatch { upserts, deletes, state } => PendingOp::ImportBatch { upserts, deletes, state },
                     Msg::Blob(b) => PendingOp::Blob(b),
@@ -310,6 +323,7 @@ fn run_op(conn: &mut Connection, op: &PendingOp) -> rusqlite::Result<()> {
             conn.execute("DELETE FROM trash WHERE root = ?1", params![root])?;
             Ok(())
         }
+        PendingOp::Pref(key, value) => write_pref(conn, key, value),
         PendingOp::ImportState(state) => save_import_state(conn, state),
         PendingOp::ImportBatch { upserts, deletes, state } => write_import_batch(conn, upserts, deletes, state),
         PendingOp::Blob(b) => {

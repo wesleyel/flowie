@@ -226,7 +226,7 @@ pub struct Outline {
     pub inline: Option<crate::overlays::palette::Inline>,
     pub inline_entries_len: usize,
     pub block_saved: Option<BlockSel>,
-    pub starred: Vec<NodeId>,
+    /// The `saved_searches` pref, one query per line.
     pub saved_searches: Vec<String>,
     pub(crate) trash: Option<crate::pages::trash::TrashPage>,
     pub(crate) volatile_page: Option<crate::pages::whats_new::VolatilePage>,
@@ -297,16 +297,14 @@ impl Outline {
         let db_path_for_config = db_path.clone();
         let mut zoom = ROOT;
         let mut hide_completed = false;
-        let mut starred = Vec::new();
-        let mut saved_searches = Vec::new();
+        let saved_searches =
+            ws.pref("saved_searches").unwrap_or_default().split('\n').filter(|x| !x.is_empty()).map(String::from).collect();
         let mut page_scrolls = std::collections::HashMap::new();
         for (k, v) in &meta {
             match k.as_str() {
                 "zoom" => zoom = v.parse().unwrap_or(ROOT),
                 "hide_completed" => hide_completed = v == "1",
                 "scroll" => page_scrolls.extend(PageScroll::decode(v)),
-                "starred" => starred = v.split(',').filter_map(|x| x.parse().ok()).collect(),
-                "saved_searches" => saved_searches = v.split('\n').filter(|x| !x.is_empty()).map(String::from).collect(),
                 _ => {}
             }
         }
@@ -343,7 +341,6 @@ impl Outline {
             inline: None,
             inline_entries_len: 0,
             block_saved: None,
-            starred,
             saved_searches,
             trash: None,
             volatile_page: None,
@@ -424,11 +421,56 @@ impl Outline {
         self.ws.set_meta(key, value);
     }
 
+    /// Save `saved_searches` (a pref, so it syncs).
+    pub fn save_searches(&mut self) {
+        let value = self.saved_searches.join("\n");
+        self.ws.set_pref("saved_searches", &value);
+    }
+
     /// Settings or a dialog is open: the outline's own shortcuts are off
     /// (except under a palette opened from the dialog, which needs them).
     pub fn modal_open(&self) -> bool {
         self.settings.is_some()
             || self.image_preview.is_some()
             || ((self.package_export.is_some() || self.package_import.is_some()) && self.palette.is_none())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use flowie_core::store::{LOCAL_META, PREFS};
+
+    /// Every key the app saves goes to the right table: `meta` for this device's
+    /// state, `prefs` for what syncs. A new key must be added to one list on purpose.
+    #[test]
+    fn meta_and_pref_keys_are_classified() {
+        fn keys(source: &str, call: &str) -> Vec<String> {
+            source.match_indices(call).filter_map(|(at, _)| source[at + call.len()..].split('"').next().map(String::from)).collect()
+        }
+        fn walk(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for entry in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push((path.display().to_string(), std::fs::read_to_string(&path).unwrap()));
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        let (mut metas, mut prefs) = (0, 0);
+        for (path, source) in &files {
+            for key in keys(source, "set_meta(\"") {
+                assert!(LOCAL_META.contains(&key.as_str()), "{path}: meta key {key:?} is not in store::LOCAL_META");
+                metas += 1;
+            }
+            for key in keys(source, "set_pref(\"") {
+                assert!(PREFS.contains(&key.as_str()), "{path}: pref key {key:?} is not in store::PREFS");
+                prefs += 1;
+            }
+        }
+        assert!(metas > 0 && prefs > 0, "found no set_meta/set_pref calls to check");
+        assert!(LOCAL_META.contains(&crate::app::tutorial::TUTORIAL_META));
     }
 }

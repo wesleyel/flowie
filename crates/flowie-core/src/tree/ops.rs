@@ -60,6 +60,37 @@ impl Tree {
         }
     }
 
+    /// Star `id` at position `index` of the starred list (counted without it;
+    /// past the end appends). Only `id` changes: its new key falls between its
+    /// neighbours' keys.
+    pub fn star_at(&mut self, id: NodeId, index: usize) {
+        let id = self.resolve(id);
+        if id == ROOT || !self.contains(id) {
+            return;
+        }
+        let keys: Vec<&str> = self.stars.iter().filter(|(_, s)| *s != id).map(|(k, _)| k.as_str()).collect();
+        let index = index.min(keys.len());
+        let valid = |k: &&str| crate::rank::is_valid(k);
+        let before = keys[..index].iter().rev().copied().find(valid);
+        let after = keys[index..].iter().copied().filter(valid).find(|k| before.is_none_or(|b| b < *k));
+        let star = crate::rank::between(before, after);
+        self.set_star(id, star);
+    }
+
+    pub fn unstar(&mut self, id: NodeId) {
+        self.set_star(id, String::new());
+    }
+
+    /// Set `id`'s star key as is (empty = not starred).
+    pub fn set_star(&mut self, id: NodeId, star: String) {
+        let id = self.resolve(id);
+        if id != ROOT && self.get(id).is_some_and(|n| n.star != star) {
+            let mut node = self.node(id).clone();
+            node.star = star;
+            self.put(node);
+        }
+    }
+
     /// Enter key. Splits `id` at byte offset `at`; returns the node the caret
     /// should move to and the caret offset inside it.
     ///

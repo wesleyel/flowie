@@ -699,3 +699,108 @@ fn markdown_images_round_trip() {
     q = Query::parse("-has:image");
     assert!(!q.matches(t.node(ids[0])));
 }
+
+#[test]
+fn stars_keep_the_order_they_were_added_in() {
+    let (mut t, [a, b, c, d]) = sample();
+    for id in [c, a, d] {
+        t.star_at(id, usize::MAX);
+    }
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![c, a, d]);
+    assert!(t.is_starred(a) && !t.is_starred(b));
+    // Other edits and a rebuild from the saved nodes keep the order.
+    t.set_text(a, "A");
+    t.move_to(c, b, 0);
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![c, a, d]);
+    let rebuilt = Tree::from_nodes(t.nodes().cloned().collect::<Vec<_>>());
+    assert_eq!(rebuilt.starred().collect::<Vec<_>>(), vec![c, a, d]);
+}
+
+#[test]
+fn star_between_two_changes_only_that_node() {
+    let (mut t, [a, b, c, _d]) = sample();
+    t.star_at(a, usize::MAX);
+    t.star_at(b, usize::MAX);
+    t.take_journal();
+    let (sa, sb) = (t.node(a).star.clone(), t.node(b).star.clone());
+    t.star_at(c, 1);
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![a, c, b]);
+    assert!(sa < t.node(c).star && t.node(c).star < sb);
+    let changed: Vec<NodeId> = t.take_journal().iter().map(|c| c.id).collect();
+    assert_eq!(changed, vec![c]);
+    assert_eq!((t.node(a).star.clone(), t.node(b).star.clone()), (sa, sb));
+    // Moving a starred node within the list.
+    t.star_at(b, 0);
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![b, a, c]);
+}
+
+#[test]
+fn unstar_and_deleted_nodes_leave_the_list() {
+    let (mut t, [a, b, c, d]) = sample();
+    for id in [a, c, d] {
+        t.star_at(id, usize::MAX);
+    }
+    t.unstar(c);
+    assert!(!t.is_starred(c) && t.node(c).star.is_empty());
+    t.delete(b);
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![a]);
+}
+
+#[test]
+fn undo_leaves_stars_alone() {
+    let (mut t, [a, ..]) = sample();
+    let mut h = History::new();
+    t.set_text(a, "A");
+    h.commit(&mut t, HistoryKind::Structure, None, None);
+    // Starring is not an undo step.
+    let mark = t.journal_mark();
+    t.star_at(a, usize::MAX);
+    t.forget_since(mark);
+    h.undo(&mut t);
+    assert_eq!(t.node(a).text, "a");
+    assert!(t.is_starred(a));
+    h.redo(&mut t);
+    assert_eq!(t.starred().collect::<Vec<_>>(), vec![a]);
+    t.unstar(a);
+    t.take_journal();
+    h.undo(&mut t);
+    assert!(!t.is_starred(a));
+}
+
+#[cfg(feature = "writer-thread")]
+#[test]
+fn stars_and_prefs_survive_save_and_reload() {
+    let dir = std::env::temp_dir().join(format!("flowie-stars-{}", NodeId::random()));
+    let path = dir.join("t.sqlite");
+    let (mut t, [a, b, c, _d]) = sample();
+    t.star_at(b, usize::MAX);
+    t.star_at(a, usize::MAX);
+    t.star_at(c, usize::MAX);
+    t.unstar(a);
+    {
+        let w = store::Writer::spawn(store::open(&path).unwrap());
+        let (up, del) = t.take_dirty();
+        w.write(up, del);
+        w.set_pref("saved_searches", "is:todo\n#work");
+        w.set_meta("zoom", "0");
+        w.flush().unwrap();
+    }
+    let conn = store::open(&path).unwrap();
+    let (nodes, meta) = store::load(&conn).unwrap();
+    let t2 = Tree::from_nodes(nodes);
+    assert_eq!(t2.starred().collect::<Vec<_>>(), vec![b, c]);
+    assert_eq!(t2.node(b).star, t.node(b).star);
+    assert_eq!(store::load_prefs(&conn).unwrap(), vec![("saved_searches".to_string(), "is:todo\n#work".to_string())]);
+    assert_eq!(meta, vec![("zoom".to_string(), "0".to_string())]);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[cfg(feature = "store")]
+#[test]
+fn meta_and_prefs_keys_do_not_overlap() {
+    for key in store::PREFS {
+        assert!(!store::LOCAL_META.contains(key), "{key} is both a local meta key and a synced pref");
+    }
+    // Stars live on the nodes, not in a meta or pref list.
+    assert!(!store::LOCAL_META.contains(&"starred") && !store::PREFS.contains(&"starred"));
+}

@@ -34,6 +34,8 @@ pub struct Tree {
     /// source -> mirrors of it.
     links: HashMap<NodeId, BTreeSet<NodeId>>,
     mirrors: HashMap<NodeId, BTreeSet<NodeId>>,
+    /// Starred nodes in starred-list order: (star key, id).
+    stars: BTreeSet<(String, NodeId)>,
 }
 
 /// Internal link targets (`flowie:ID`) in a node's text and note.
@@ -96,6 +98,14 @@ impl Tree {
         if node.id == ROOT {
             return;
         }
+        if !node.star.is_empty() {
+            let key = (node.star.clone(), node.id);
+            if add {
+                self.stars.insert(key);
+            } else {
+                self.stars.remove(&key);
+            }
+        }
         let edit = |map: &mut HashMap<NodeId, BTreeSet<NodeId>>, key: NodeId| {
             if add {
                 map.entry(key).or_default().insert(node.id);
@@ -119,6 +129,12 @@ impl Tree {
     fn sync_index(&mut self, before: Option<&Node>, after: Option<&Node>) {
         if let (Some(b), Some(a)) = (before, after) {
             if b.text == a.text && b.note == a.note && b.mirror == a.mirror {
+                if b.star != a.star {
+                    self.stars.remove(&(b.star.clone(), b.id));
+                    if !a.star.is_empty() {
+                        self.stars.insert((a.star.clone(), a.id));
+                    }
+                }
                 return;
             }
         }
@@ -252,6 +268,15 @@ impl Tree {
 
     pub fn nodes(&self) -> impl Iterator<Item = &Node> {
         self.nodes.values().filter(|n| n.id != ROOT)
+    }
+
+    /// Starred nodes, in starred-list order (star key, then id).
+    pub fn starred(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.stars.iter().map(|(_, id)| *id)
+    }
+
+    pub fn is_starred(&self, id: NodeId) -> bool {
+        self.get(id).is_some_and(|n| !n.star.is_empty())
     }
 
     pub fn children(&self, id: NodeId) -> &[NodeId] {
@@ -409,8 +434,16 @@ impl Tree {
     }
 
     /// Apply a node state without journaling (used by undo/redo, which journal themselves).
+    /// Stars are not part of undo: a node that stays keeps the star it has now.
     fn apply_state(&mut self, id: NodeId, state: Option<Node>) {
         let old = self.nodes.remove(&id);
+        let state = match (state, &old) {
+            (Some(mut node), Some(old)) => {
+                node.star.clone_from(&old.star);
+                Some(node)
+            }
+            (state, _) => state,
+        };
         self.sync_index(old.as_ref(), state.as_ref());
         if let Some(old) = old {
             if let Some(list) = self.children.get_mut(&old.parent) {
@@ -442,6 +475,12 @@ impl Tree {
 
     pub fn journal_is_empty(&self) -> bool {
         self.journal.is_empty()
+    }
+
+    /// Drop the journal entries made since `mark`, keeping the changes (they are
+    /// still saved, but not undone). For edits outside undo, such as stars.
+    pub fn forget_since(&mut self, mark: usize) {
+        self.journal.truncate(mark);
     }
 
     /// A point in the journal to roll back to with `rollback_to`.
@@ -477,12 +516,26 @@ impl Tree {
     pub fn revert(&mut self, changes: &[Change]) -> Vec<Change> {
         // Nodes must be restored parents-first; applying all states then fixing
         // the children index is simplest: apply in reverse order.
+        // Stars are not undone, so the inverse brings back the star each node has now
+        // (a starred node that this removes comes back starred).
+        let mut stars: HashMap<NodeId, String> = HashMap::new();
         for change in changes.iter().rev() {
+            if let Some(node) = self.nodes.get(&change.id) {
+                stars.entry(change.id).or_insert_with(|| node.star.clone());
+            }
             self.apply_state(change.id, change.before.clone());
         }
         self.reindex();
+        let with_star = |id: NodeId, node: &Option<Node>| {
+            node.clone().map(|mut node| {
+                if let Some(star) = stars.get(&id) {
+                    node.star.clone_from(star);
+                }
+                node
+            })
+        };
         // Reversed so that reverting the inverse replays the original order.
-        changes.iter().rev().map(|c| Change { id: c.id, before: c.after.clone(), after: c.before.clone() }).collect()
+        changes.iter().rev().map(|c| Change { id: c.id, before: with_star(c.id, &c.after), after: c.before.clone() }).collect()
     }
 
     /// Rebuild the children index from parent pointers (after bulk state changes).

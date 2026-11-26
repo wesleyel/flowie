@@ -168,6 +168,7 @@ impl Package {
                     kind: n.kind,
                     mirror: n.mirror_of.map_or(ROOT, map),
                     image: n.image.clone().unwrap_or_default(),
+                    star: String::new(),
                 });
                 if under == parent {
                     roots.push(new_id);

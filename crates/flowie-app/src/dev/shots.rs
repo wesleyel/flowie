@@ -33,11 +33,9 @@ impl Outline {
                 for kid in self.ws.tree.children(ROOT).to_vec() {
                     self.ws.tree.delete(kid);
                 }
-                self.starred.clear();
                 self.saved_searches.clear();
                 self.hide_completed = false;
-                self.set_meta("starred", "");
-                self.set_meta("saved_searches", "");
+                self.save_searches();
                 self.set_meta("hide_completed", "0");
                 self.commit_structure(None, cx);
                 self.ws.history.seal();
@@ -55,11 +53,7 @@ impl Outline {
             }
             "star" => {
                 let id = self.agent_node(p, "id")?;
-                if !self.starred.contains(&id) {
-                    self.starred.push(id);
-                }
-                let v = self.starred.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
-                self.set_meta("starred", &v);
+                self.ws.set_starred(id, true);
                 Ok("starred".into())
             }
             "save_search" => {
@@ -67,7 +61,7 @@ impl Outline {
                 if !self.saved_searches.contains(&q) {
                     self.saved_searches.push(q);
                 }
-                self.set_meta("saved_searches", &self.saved_searches.join("\n"));
+                self.save_searches();
                 Ok("saved".into())
             }
             // A mirror of `source` as the last child of `parent`.

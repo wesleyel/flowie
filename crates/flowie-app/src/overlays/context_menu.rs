@@ -260,7 +260,7 @@ impl Outline {
 
         let has_kids = ids.iter().any(|id| self.ws.tree.has_children(self.ws.tree.source(*id)));
         let all_done = ids.iter().all(|id| self.ws.tree.node(self.ws.tree.source(*id)).completed);
-        let starred = self.starred.contains(&first);
+        let starred = self.ws.tree.is_starred(first);
         let kind = self.ws.tree.node(first).kind;
         let same_kind = ids.iter().all(|id| self.ws.tree.node(*id).kind == kind);
 

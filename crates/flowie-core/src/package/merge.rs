@@ -131,6 +131,7 @@ impl Package {
                     kind: n.kind,
                     mirror: ROOT,
                     image: n.image.clone().unwrap_or_default(),
+                    star: String::new(),
                 });
                 touched.push(id);
             } else if take.contains(&id) && tree.contains(id) {

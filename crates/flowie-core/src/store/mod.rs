@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     modified  INTEGER NOT NULL,
     kind      INTEGER NOT NULL DEFAULT 0,
     mirror    BLOB    NOT NULL,
-    image     TEXT    NOT NULL DEFAULT ''
+    image     TEXT    NOT NULL DEFAULT '',
+    star      TEXT    NOT NULL DEFAULT ''   -- fractional index in the starred list; '' = not starred
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS blobs (   -- image files in the image folder
     name    TEXT    PRIMARY KEY,     -- <sha256>.<ext>
@@ -69,11 +70,25 @@ CREATE TABLE IF NOT EXISTS import_bases (   -- each imported bullet as the packa
     root      BLOB NOT NULL,                -- the imported root it came with
     base_hash TEXT NOT NULL                 -- package::content_hash at the last import
 ) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS meta (
+CREATE TABLE IF NOT EXISTS meta (   -- this device only (LOCAL_META)
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
 ";
+
+/// Keys of the `meta` table: state of this device only, never synced (window,
+/// scroll, the page shown, view options, device and tutorial ids). A key that
+/// should follow the user to other devices goes in `PREFS` instead; user
+/// content (like stars) goes on the nodes.
+pub const LOCAL_META: &[&str] = &["device", "hide_completed", "scroll", "tutorial", "window", "zoom"];
+
+/// Keys of the `prefs` table: preferences that sync. Sync sends the whole table
+/// as one `Prefs` record, last writer wins.
+pub const PREFS: &[&str] = &["saved_searches"];
 
 /// The database format, kept in `PRAGMA user_version`. An older database is
 /// moved aside, not converted.
@@ -148,7 +163,7 @@ fn set_aside(path: &Path) -> std::io::Result<PathBuf> {
 
 pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, String)>)> {
     let mut stmt =
-        conn.prepare("SELECT id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image FROM nodes")?;
+        conn.prepare("SELECT id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image, star FROM nodes")?;
     let nodes = stmt
         .query_map([], |r| {
             Ok(Node {
@@ -164,12 +179,25 @@ pub fn load(conn: &Connection) -> rusqlite::Result<(Vec<Node>, Vec<(String, Stri
                 kind: crate::tree::BlockKind::from_u8(r.get::<_, i64>(9)? as u8),
                 mirror: r.get(10)?,
                 image: r.get(11)?,
+                star: r.get(12)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut stmt = conn.prepare("SELECT key, value FROM meta")?;
     let meta = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok((nodes, meta))
+}
+
+/// The synced preferences (`PREFS`).
+pub fn load_prefs(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
+    let mut stmt = conn.prepare("SELECT key, value FROM prefs")?;
+    let prefs = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(prefs)
+}
+
+pub fn write_pref(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
+    conn.execute("INSERT INTO prefs (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2", params![key, value])?;
+    Ok(())
 }
 
 pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], meta: &[(String, String)]) -> rusqlite::Result<()> {
@@ -180,10 +208,10 @@ pub fn write_batch(conn: &mut Connection, upserts: &[Node], deletes: &[NodeId], 
 
 fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, upserts: &[Node], deletes: &[NodeId], meta: &[(String, String)]) -> rusqlite::Result<()> {
     let mut up = tx.prepare_cached(
-        "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        "INSERT INTO nodes (id, parent, rank, text, note, completed, collapsed, created, modified, kind, mirror, image, star)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(id) DO UPDATE SET parent=?2, rank=?3, text=?4, note=?5,
-           completed=?6, collapsed=?7, modified=?9, kind=?10, mirror=?11, image=?12",
+           completed=?6, collapsed=?7, modified=?9, kind=?10, mirror=?11, image=?12, star=?13",
     )?;
     for n in upserts {
         up.execute(params![
@@ -198,7 +226,8 @@ fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, upserts: &[Node], deletes: &[N
             n.modified,
             n.kind.to_u8() as i64,
             n.mirror,
-            n.image
+            n.image,
+            n.star
         ])?;
     }
     let mut del = tx.prepare_cached("DELETE FROM nodes WHERE id = ?1")?;

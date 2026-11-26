@@ -16,9 +16,27 @@
   <img src="https://img.shields.io/badge/Windows-preview-black" alt="Windows 预览版（10 和 11，x64）">
 </p>
 
-<p align="center"><a href="README.md">English</a> · <b>简体中文</b> · <a href="https://wesleyel.github.io/flowie/">官网</a></p>
+<p align="center"><a href="README.md">English</a> · <b>简体中文</b> · <a href="https://wesleyel.github.io/flowie/">官网</a> · <a href="website/images">截图</a></p>
 
 <p align="center"><img src="website/images/01-outline-zh-Hans.jpg" width="820" alt="Flowie 中带有标题、待办、提及和日期的项目页面"></p>
+
+## 大纲再大也快
+
+在 Apple M4 上，把 Bike 的《白鲸》大纲导入五遍，共 13,505 个条目
+（[benchmark](crates/flowie-core/benches/large_outline.rs)：先运行 `scripts/fetch-bench-data.sh`，再运行
+`cargo bench -p flowie-core --bench large_outline`）：
+
+| | |
+|---|---:|
+| 导入全部 13,505 个条目 | 42 ms |
+| 全部展开后排出整个大纲 | 1.3 ms |
+| 存入数据库（后台进行） | 99 ms |
+| 大纲占用的内存 | 9.6 MB |
+| 整次导入的撤销记录 | 0.4 MB |
+| 读入 6.4 MB 的 Markdown 文件 | 6 ms |
+
+Flowie 是原生 Rust 应用，用 [GPUI](https://gpui.rs) 在 GPU 上绘制。它只绘制屏幕上的行，其余每一行的高度都根据文字算出来，
+所以滚动之前滚动条就是准的。
 
 ## 功能
 
@@ -30,15 +48,8 @@
 - 任意条目都能写备注，所有操作都能撤销。
 - 把图片粘贴或拖进大纲，还能给图片加一行说明。
 
-<p align="center">
-  <img src="website/images/03-commands-zh-Hans.jpg" width="400" alt="/ 命令菜单">
-  <img src="website/images/06-focus-zh-Hans.jpg" width="400" alt="向下滚动后，标题收进顶部路径">
-</p>
-
 **数学公式**
 - 行内 `$…$` 与独立 `$$…$$` LaTeX 公式，原生实时渲染，编辑时在行下方预览。
-
-<p align="center"><img src="website/images/10-images-zh-Hans.jpg" width="640" alt="带公式和图表说明的研究笔记"></p>
 
 **连接想法**
 - 输入 `[[` 链接到任意条目。鼠标停在链接上就能预览，打开目标页面就能看到反向链接。
@@ -46,19 +57,9 @@
 - `#标签` 和 `@提及` 自动补全；日期可以点击。
 - 每天一页日记，配合日历快速跳转。
 
-<p align="center">
-  <img src="website/images/07-links-zh-Hans.jpg" width="400" alt="用 [[ 链接到页面">
-  <img src="website/images/04-journal-calendar-zh-Hans.jpg" width="400" alt="日记与日历">
-</p>
-
 **查找一切**
 - ⌘P 跳转到任意条目、收藏页面或保存的搜索，也能直接新建页面。
 - 带条件的搜索：短语、标签、人名、待办、已完成、标题、备注、日期，以及「最近 N 天修改过」。
-
-<p align="center">
-  <img src="website/images/02-quick-open-zh-Hans.jpg" width="400" alt="快速跳转">
-  <img src="website/images/05-search-zh-Hans.jpg" width="400" alt="带条件的搜索">
-</p>
 
 **保存和分享笔记**
 - 大纲存在本地 SQLite 数据库。无需账号，没有云端，没有追踪。
@@ -73,12 +74,10 @@
 - 浅色与深色主题、强调色，支持简体中文与英文。
 - 打开「帮助 → 新功能」，就能看到每个版本改了什么。
 
-<p align="center"><img src="website/images/08-dark-zh-Hans.jpg" width="640" alt="深色主题与紫色强调色"></p>
-
 **与 AI 助手协作**
 - 内置 [MCP](https://modelcontextprotocol.io) 服务器，Claude 等 AI 助手可以读取你的大纲；你允许后还能编辑。每次修改都实时可见，并且可以撤销。
 
-<p align="center"><img src="website/images/09-agent-zh-Hans.jpg" width="640" alt="Agent 设置：通过 MCP 连接 Claude"></p>
+<p align="center"><img src="website/images/08-dark-zh-Hans.jpg" width="640" alt="深色主题与紫色强调色"></p>
 
 ## 获取 Flowie
 
@@ -90,7 +89,11 @@
 - **Homebrew** 用 `brew install --cask wesleyel/tap/flowie` 安装，用 `brew upgrade --cask wesleyel/tap/flowie` 更新。
 - **GitHub** 下载 `Flowie-<版本号>-macos.zip`，解压后把 `Flowie.app` 移到「应用程序」。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。
 
-Homebrew 和 GitHub 提供的版本未经公证。如果 macOS 15 或更高版本阻止打开，先尝试打开一次，再到「系统设置 → 隐私与安全性」点「仍要打开」。在更早的 macOS 上，右键点按应用，选择「打开」。
+Homebrew 和 GitHub 提供的版本未经公证，macOS 一开始会拒绝打开。把 Flowie 移到「应用程序」（或用 Homebrew 安装）之后，在终端运行下面的命令去掉隔离标记，再打开它；每次更新后都要再运行一次：
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Flowie.app
+```
 
 ### Windows（预览）
 

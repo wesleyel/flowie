@@ -16,9 +16,28 @@ Zoom into any bullet, link and mirror ideas, write math, and search your outline
   <img src="https://img.shields.io/badge/Windows-preview-black" alt="Windows preview (10 and 11, x64)">
 </p>
 
-<p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="https://wesleyel.github.io/flowie/">Website</a></p>
+<p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="https://wesleyel.github.io/flowie/">Website</a> · <a href="website/images">Screenshots</a></p>
 
 <p align="center"><img src="website/images/01-outline-en-US.jpg" width="820" alt="A project page in Flowie with headings, to-dos, mentions and dates"></p>
+
+## Fast with big outlines
+
+Measured on an Apple M4 with Bike's *Moby-Dick* outline imported five times, 13,505 bullets
+([benchmark](crates/flowie-core/benches/large_outline.rs): `scripts/fetch-bench-data.sh`, then
+`cargo bench -p flowie-core --bench large_outline`):
+
+| | |
+|---|---:|
+| Import all 13,505 bullets | 42 ms |
+| Lay out the whole outline, everything expanded | 1.3 ms |
+| Save it to the database (in the background) | 99 ms |
+| The outline in memory | 9.6 MB |
+| Undo for the entire import | 0.4 MB |
+| Read a 6.4 MB Markdown file | 6 ms |
+
+Flowie is native Rust drawn on the GPU with [GPUI](https://gpui.rs). It draws only the rows on
+screen, and works out every other row's height from its text, so the scrollbar is right before
+you scroll.
 
 ## Features
 
@@ -30,15 +49,8 @@ Zoom into any bullet, link and mirror ideas, write math, and search your outline
 - Notes under any bullet, and undo for everything.
 - Paste or drop images into the outline and add captions.
 
-<p align="center">
-  <img src="website/images/03-commands-en-US.jpg" width="400" alt="The / command menu">
-  <img src="website/images/06-focus-en-US.jpg" width="400" alt="A scrolled page: the title tucked into the path at the top">
-</p>
-
 **Math**
 - Inline `$…$` and display `$$…$$` LaTeX, rendered natively as you type, with a live preview while editing.
-
-<p align="center"><img src="website/images/10-images-en-US.jpg" width="640" alt="Research notes with formulas and a captioned chart"></p>
 
 **Connect ideas**
 - Link to any bullet with `[[`. Hover over an internal link to preview its target, or open the target to see backlinks.
@@ -46,19 +58,9 @@ Zoom into any bullet, link and mirror ideas, write math, and search your outline
 - `#tags` and `@mentions` with completion; clickable dates.
 - A journal page for every day and a calendar to get around.
 
-<p align="center">
-  <img src="website/images/07-links-en-US.jpg" width="400" alt="Linking to a page with [[">
-  <img src="website/images/04-journal-calendar-en-US.jpg" width="400" alt="Journal and calendar">
-</p>
-
 **Find anything**
 - ⌘P jumps to any bullet, starred page or saved search — or creates a new page.
 - Search with filters: phrases, tags, people, to-dos, completed, headings, notes, dates and "changed in the last N days".
-
-<p align="center">
-  <img src="website/images/02-quick-open-en-US.jpg" width="400" alt="Quick open">
-  <img src="website/images/05-search-en-US.jpg" width="400" alt="Search with filters">
-</p>
 
 **Keep and share your notes**
 - Flowie stores the outline in a local SQLite database. No account, no cloud, no tracking.
@@ -73,12 +75,10 @@ Zoom into any bullet, link and mirror ideas, write math, and search your outline
 - Light and dark themes, accent colors, English and 简体中文.
 - Read release notes in the app under **Help → What's New**.
 
-<p align="center"><img src="website/images/08-dark-en-US.jpg" width="640" alt="Dark theme with a purple accent"></p>
-
 **Works with AI assistants**
 - A built-in [MCP](https://modelcontextprotocol.io) server lets Claude and other assistants read your outline — and edit it, if you allow it. Every change is live and undoable.
 
-<p align="center"><img src="website/images/09-agent-en-US.jpg" width="640" alt="Agent settings: connecting Claude through MCP"></p>
+<p align="center"><img src="website/images/08-dark-en-US.jpg" width="640" alt="Dark theme with a purple accent"></p>
 
 ## Get Flowie
 
@@ -90,7 +90,11 @@ Requires macOS 13 or later on Apple silicon or Intel.
 - **Homebrew** — install with `brew install --cask wesleyel/tap/flowie` and update with `brew upgrade --cask wesleyel/tap/flowie`.
 - **GitHub** — download `Flowie-<version>-macos.zip`, unzip it and move `Flowie.app` to Applications. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest).
 
-The Homebrew and GitHub builds are not notarized. On macOS 15 or later, try opening `Flowie.app` first, then go to **System Settings → Privacy & Security → Open Anyway** if macOS blocks it. On older macOS versions, right-click the app and choose **Open**.
+The Homebrew and GitHub builds are not notarized, so macOS won't open them at first. After moving Flowie to Applications (or installing it with Homebrew), clear the quarantine flag in Terminal, then open it; do this again after each update:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Flowie.app
+```
 
 ### Windows (preview)
 

@@ -112,7 +112,12 @@ impl AppState {
 pub fn router_with_web(state: AppState, web: Option<PathBuf>) -> Router {
     let router = router(state);
     match web {
-        Some(dir) => router.fallback_service(tower_http::services::ServeDir::new(dir)),
+        // Revalidated on each load, so a new build of the page is never mixed with a cached one.
+        Some(dir) => router.fallback_service(tower_http::set_header::SetResponseHeader::overriding(
+            tower_http::services::ServeDir::new(dir),
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-cache"),
+        )),
         None => router,
     }
 }

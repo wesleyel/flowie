@@ -21,3 +21,5 @@
 
 # Built by scripts/build-web.sh
 /web/pkg/
+/web/node_modules/
+/web/dist/

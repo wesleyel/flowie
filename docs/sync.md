@@ -46,7 +46,7 @@ scripts/build-web.sh
 ```
 
 Open the server's address and paste a device token. The browser version shows and edits the
-outline (add, edit, tick off, delete) and keeps it in the browser's own storage (OPFS), so it
+outline (open bullets as pages, fold, add, edit, tick off, delete; Enter, Tab and Shift-Tab work as on the desktop) and keeps it in the browser's own storage (OPFS), so it
 opens without the server and sends what changed meanwhile once it can reach it. A browser
 without OPFS (an old one, some private windows) keeps it in memory and fetches it again.
 

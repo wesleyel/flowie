@@ -45,3 +45,21 @@ fn two_browser_outlines_sync_and_keep_what_they_saved() {
     round(&mut a, &mut server);
     assert!(!a.has_unsent());
 }
+
+#[wasm_bindgen_test]
+fn structure_edits_and_breadcrumbs() {
+    let mut o = Outline::open("structure.sqlite", "memory").unwrap();
+    let a = o.create(None, 0, "a").unwrap();
+    let b = o.create_after(&a, "b").unwrap();
+    assert!(o.indent(&b).unwrap(), "b goes under a");
+    let page: serde_json::Value = serde_json::from_str(&o.page(None).unwrap()).unwrap();
+    assert_eq!((page[1]["text"].as_str(), page[1]["depth"].as_u64()), (Some("b"), Some(1)));
+    let path: serde_json::Value = serde_json::from_str(&o.path(&b).unwrap()).unwrap();
+    assert_eq!(path.as_array().unwrap().iter().map(|p| p["text"].as_str().unwrap()).collect::<Vec<_>>(), ["a", "b"]);
+    assert!(!o.outdent(&b, Some(a.clone())).unwrap(), "not out of the page it is zoomed into");
+    assert!(o.outdent(&b, None).unwrap());
+    o.set_collapsed(&a, true).unwrap();
+    let page: serde_json::Value = serde_json::from_str(&o.page(None).unwrap()).unwrap();
+    assert_eq!(page.as_array().unwrap().len(), 2);
+    assert_eq!(page[1]["depth"], 0);
+}

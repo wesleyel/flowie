@@ -96,6 +96,52 @@ impl Outline {
         Ok(id.to_string())
     }
 
+    /// Add a bullet right after `sibling`; returns its id. An undo step.
+    pub fn create_after(&mut self, sibling: &str, text: &str) -> Result<String, JsError> {
+        let sibling = self.real(sibling)?;
+        let id = self.ws.tree.create_after(sibling, &text.replace('\n', " "));
+        self.ws.commit_with_imports(None, None, None);
+        Ok(id.to_string())
+    }
+
+    /// Make a bullet the last child of the one above it. False if there is none.
+    pub fn indent(&mut self, id: &str) -> Result<bool, JsError> {
+        let id = self.real(id)?;
+        let done = self.ws.tree.indent(id);
+        self.ws.commit_with_imports(None, None, None);
+        Ok(done)
+    }
+
+    /// Move a bullet out to follow its parent, but not out of the page at `root` (none: Home).
+    pub fn outdent(&mut self, id: &str, root: Option<String>) -> Result<bool, JsError> {
+        let id = self.real(id)?;
+        let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
+        let done = self.ws.tree.outdent(id, root);
+        self.ws.commit_with_imports(None, None, None);
+        Ok(done)
+    }
+
+    /// Fold or unfold a bullet's children (this device only).
+    pub fn set_collapsed(&mut self, id: &str, collapsed: bool) -> Result<(), JsError> {
+        let id = self.real(id)?;
+        self.ws.tree.set_collapsed(id, collapsed);
+        self.ws.commit_with_imports(None, None, None);
+        Ok(())
+    }
+
+    /// The pages from Home's child down to `id`, as JSON (`[{id, text}]`), for breadcrumbs.
+    pub fn path(&self, id: &str) -> Result<String, JsError> {
+        let tree = &self.ws.tree;
+        let mut id = self.real(id)?;
+        let mut path = Vec::new();
+        while id != ROOT {
+            path.push(serde_json::json!({ "id": id.to_string(), "text": tree.node(tree.source(id)).text }));
+            id = tree.parent(id);
+        }
+        path.reverse();
+        serde_json::to_string(&path).map_err(error)
+    }
+
     pub fn set_text(&mut self, id: &str, text: &str) -> Result<(), JsError> {
         let id = self.source(id)?;
         self.ws.tree.set_text(id, &text.replace('\n', " "));
@@ -181,6 +227,15 @@ impl Outline {
 }
 
 impl Outline {
+    /// The bullet with `id` (a row inside a mirror counts as its own bullet).
+    fn real(&self, id: &str) -> Result<NodeId, JsError> {
+        let id = self.ws.tree.resolve(parse(id)?);
+        if !self.ws.tree.contains(id) {
+            return Err(error(format!("no bullet {id}")));
+        }
+        Ok(id)
+    }
+
     fn source(&self, id: &str) -> Result<NodeId, JsError> {
         let id = parse(id)?;
         if !self.ws.tree.contains(id) {

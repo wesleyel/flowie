@@ -18,3 +18,6 @@
 /apple/FlowieCloudKit/.build/
 /apple/FlowieCloudKit/Sources/FlowieFFI/flowie_ffi.swift
 /apple/FlowieCloudKit/Sources/flowie_ffiFFI/include/
+
+# Built by scripts/build-web.sh
+/web/pkg/

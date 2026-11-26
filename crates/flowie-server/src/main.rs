@@ -1,7 +1,7 @@
 //! `flowie-server`: Flowie's self-hosted sync backend.
 //!
 //! ```text
-//! flowie-server serve [--db PATH] [--listen ADDR] [--blobs DIR]
+//! flowie-server serve [--db PATH] [--listen ADDR] [--blobs DIR] [--web DIR]
 //! flowie-server token add NAME        issue a device token (shown once)
 //! flowie-server token list
 //! flowie-server token revoke NAME
@@ -13,21 +13,23 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str = "usage:
-  flowie-server serve [--db PATH] [--listen ADDR] [--blobs DIR]
+  flowie-server serve [--db PATH] [--listen ADDR] [--blobs DIR] [--web DIR]
   flowie-server token add NAME | list | revoke NAME   [--db PATH]
 
-defaults: --db flowie-server.sqlite  --listen 127.0.0.1:8787  --blobs blobs";
+defaults: --db flowie-server.sqlite  --listen 127.0.0.1:8787  --blobs blobs
+--web serves the browser version (scripts/build-web.sh builds it into web/)";
 
 struct Options {
     db: PathBuf,
     listen: String,
     blobs: PathBuf,
+    web: Option<PathBuf>,
     rest: Vec<String>,
 }
 
 fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut options =
-        Options { db: "flowie-server.sqlite".into(), listen: "127.0.0.1:8787".into(), blobs: "blobs".into(), rest: Vec::new() };
+        Options { db: "flowie-server.sqlite".into(), listen: "127.0.0.1:8787".into(), blobs: "blobs".into(), web: None, rest: Vec::new() };
     let mut args = args.peekable();
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
@@ -35,6 +37,7 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--db" => options.db = value("--db")?.into(),
             "--listen" => options.listen = value("--listen")?,
             "--blobs" => options.blobs = value("--blobs")?.into(),
+            "--web" => options.web = Some(value("--web")?.into()),
             "-h" | "--help" => return Err(String::new()),
             _ => options.rest.push(arg),
         }
@@ -76,7 +79,7 @@ fn run(options: Options) -> Result<(), String> {
                 }
                 eprintln!("flowie-server: listening on {}", options.listen);
                 let state = flowie_server::AppState::new(conn, options.blobs);
-                flowie_server::serve(listener, state).await.map_err(|e| e.to_string())
+                flowie_server::serve_with_web(listener, state, options.web).await.map_err(|e| e.to_string())
             })
         }
         ["token", "add", name] => {

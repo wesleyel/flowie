@@ -36,6 +36,19 @@ out. The server speaks plain HTTP: put it behind a reverse proxy that terminates
 nginx), and give devices the `https://` address. Every token can read and write the whole
 outline, so issue them only to your own devices.
 
+## In a browser (preview)
+
+The server can also serve Flowie's browser version, which syncs with it like any device:
+
+```bash
+scripts/build-web.sh
+./target/release/flowie-server serve --web web
+```
+
+Open the server's address and paste a device token. The browser version shows and edits the
+outline (add, edit, tick off, delete); it keeps the outline in memory for now, so it fetches
+it again from the server when the page reloads.
+
 ## Turn it on in Flowie
 
 In **Settings → Sync**, turn on **Sync with a server**, enter the server's address and the

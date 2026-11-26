@@ -108,6 +108,15 @@ impl AppState {
     }
 }
 
+/// The HTTP API, and with `web`, that folder's files (the browser version) at the other paths.
+pub fn router_with_web(state: AppState, web: Option<PathBuf>) -> Router {
+    let router = router(state);
+    match web {
+        Some(dir) => router.fallback_service(tower_http::services::ServeDir::new(dir)),
+        None => router,
+    }
+}
+
 /// The HTTP API.
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
@@ -122,6 +131,11 @@ pub fn router(state: AppState) -> Router {
 /// Serve until the process is stopped.
 pub async fn serve(listener: tokio::net::TcpListener, state: AppState) -> std::io::Result<()> {
     axum::serve(listener, router(state)).await
+}
+
+/// Serve the API and the browser version's files in `web`.
+pub async fn serve_with_web(listener: tokio::net::TcpListener, state: AppState, web: Option<PathBuf>) -> std::io::Result<()> {
+    axum::serve(listener, router_with_web(state, web)).await
 }
 
 /// Run `f` on the database off the async workers: SQLite blocks, and a slow write must not

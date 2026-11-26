@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
 /// scroll, the page shown, view options, device and tutorial ids). A key that
 /// should follow the user to other devices goes in `PREFS` instead; user
 /// content (like stars) goes on the nodes.
-pub const LOCAL_META: &[&str] = &["actor.app", "device", "hide_completed", "scroll", "tutorial", "window", "zoom"];
+pub const LOCAL_META: &[&str] = &["actor.app", "device", "hide_completed", "scroll", "sync.held", "tutorial", "window", "zoom"];
 
 /// Keys of the `prefs` table: preferences that sync. Sync sends the whole table
 /// as one `Prefs` record, last writer wins.

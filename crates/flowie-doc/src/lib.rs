@@ -82,6 +82,7 @@ impl Workspace {
             actor
         });
         ws.tree.set_actor(actor);
+        ws.recover_held(&meta);
         ws.purge_expired();
         Ok((ws, meta))
     }

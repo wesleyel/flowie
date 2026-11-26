@@ -129,6 +129,40 @@ impl Tree {
         (new, 0)
     }
 
+    /// Paste plain multi-line `text` into code row `id`, replacing the byte
+    /// `range` of its text. Code isn't an outline, so nothing is parsed: the
+    /// first line goes in at `range`, and every further line becomes a code
+    /// row of its own below, verbatim (rows are single-line). The text after
+    /// `range` ends up after the last pasted line. Returns the row and offset
+    /// where the caret goes.
+    pub fn paste_code_lines(&mut self, id: NodeId, range: std::ops::Range<usize>, text: &str) -> (NodeId, usize) {
+        let old = self.node(id).text.clone();
+        let start = range.start.min(old.len());
+        let end = range.end.clamp(start, old.len());
+        let (head, tail) = (&old[..start], &old[end..]);
+        let kind = self.node(id).kind;
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        let mut lines: Vec<&str> = text.split('\n').collect();
+        if lines.len() > 1 && lines.last() == Some(&"") {
+            lines.pop();
+        }
+        let first = format!("{head}{}", lines[0]);
+        if lines.len() == 1 {
+            self.set_text(id, &format!("{first}{tail}"));
+            return (id, first.len());
+        }
+        self.set_text(id, &first);
+        let mut row = id;
+        for line in &lines[1..lines.len() - 1] {
+            row = self.create_after(row, line);
+            self.set_kind(row, kind);
+        }
+        let last = lines[lines.len() - 1];
+        row = self.create_after(row, &format!("{last}{tail}"));
+        self.set_kind(row, kind);
+        (row, last.len())
+    }
+
     /// Backspace at the start of `id`: merge its text into `into` (usually the
     /// row above). Its note goes after `into`'s note, and its children move to
     /// the end of `into`'s children. An image or mirror row is not merged (its

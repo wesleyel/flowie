@@ -12,6 +12,17 @@ fn items_to_clipboard(tree: &Tree, ids: &[NodeId]) -> ClipboardItem {
 }
 
 impl Outline {
+    /// The code row whose text is being edited (not the page title or a mirror).
+    fn editing_code_row(&self) -> Option<NodeId> {
+        match self.edit_target() {
+            Some(Target::Text(id)) if id != self.zoom => {
+                let node = self.ws.tree.get(id)?;
+                (node.kind == flowie_core::BlockKind::Code && node.mirror == flowie_core::ROOT).then_some(id)
+            }
+            _ => None,
+        }
+    }
+
     /// Copy bullets with full fidelity for pasting inside Flowie, plus
     /// Markdown text for other apps.
     pub fn copy_items(&self, ids: &[NodeId], cx: &mut Context<Self>) {
@@ -61,14 +72,24 @@ impl Outline {
         }
         let Some(text) = item.text() else { return };
         // Bullets copied from Flowie carry their full structure as metadata.
-        let mut items: Vec<flowie_core::Item> = item
-            .entries()
-            .iter()
-            .find_map(|e| match e {
-                gpui::ClipboardEntry::String(s) => s.metadata_json::<Vec<flowie_core::Item>>(),
-                _ => None,
-            })
-            .unwrap_or_else(|| if text.trim_end_matches('\n').contains('\n') { flowie_core::io::parse_any(&text) } else { Vec::new() });
+        let copied: Option<Vec<flowie_core::Item>> = item.entries().iter().find_map(|e| match e {
+            gpui::ClipboardEntry::String(s) => s.metadata_json::<Vec<flowie_core::Item>>(),
+            _ => None,
+        });
+        // Other text pasted into a code row is code: each line goes in as is.
+        if let (None, Some(id)) = (&copied, self.editing_code_row()) {
+            if text.trim_end_matches(['\n', '\r']).contains(['\n', '\r']) {
+                let before = self.caret();
+                let sel = self.edit.as_ref().unwrap().sel.clone();
+                let (row, off) = self.ws.tree.paste_code_lines(id, sel, &text);
+                self.edit = Some(Edit::new(Target::Text(row), off));
+                self.commit_structure(before, cx);
+                return;
+            }
+        }
+        let mut items: Vec<flowie_core::Item> =
+            copied
+                .unwrap_or_else(|| if text.trim_end_matches('\n').contains('\n') { flowie_core::io::parse_any(&text) } else { Vec::new() });
         self.resolve_item_images(&mut items, None);
         let multiline = !items.is_empty();
         match self.edit_target() {

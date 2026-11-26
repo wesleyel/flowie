@@ -45,6 +45,22 @@ fn indent_outdent() {
 }
 
 #[test]
+fn paste_code_lines_keeps_each_line_verbatim() {
+    let (mut t, [a, b, ..]) = sample();
+    t.set_kind(a, BlockKind::Code);
+    t.set_text(a, "let x = ();");
+    // Paste over "x" with lines that would parse as a heading and nested items.
+    let (row, caret) = t.paste_code_lines(a, 4..5, "y = {\r\n# not a heading\n    - nested\n}\n");
+    assert_eq!(texts(&t, ROOT), ["let y = {", "# not a heading", "    - nested", "} = ();", "b", "c"]);
+    assert!(t.children(ROOT)[..4].iter().all(|&id| t.node(id).kind == BlockKind::Code));
+    assert_eq!((t.node(row).text.as_str(), caret), ("} = ();", 1));
+    assert_eq!(t.children(ROOT)[4], b);
+    // A single line goes in place.
+    let (row, caret) = t.paste_code_lines(a, 0..0, "// ");
+    assert_eq!((row, caret, t.node(a).text.as_str()), (a, 3, "// let y = {"));
+}
+
+#[test]
 fn split_and_merge() {
     let (mut t, [a, ..]) = sample();
     t.set_text(a, "hello world");

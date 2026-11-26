@@ -8,6 +8,10 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ## [Unreleased]
 
+### Fixed
+
+- **Code blocks**: pasting several lines of text into a code row no longer reads them as an outline. Each line becomes a code row of its own, exactly as written, so `#` comments, `-` and indentation stay code.
+
 ## [1.0.0] - 2026-11-26
 
 **Upgrading from a release candidate?** Export your outline as OPML or as a `.flowie` share package before updating, then import it into 1.0. Flowie preserves the old database as `flowie.sqlite.old-<timestamp>` and keeps its images beside it. Do not rename the old database over the new one.

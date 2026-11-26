@@ -933,6 +933,13 @@ impl Tree {
         if !self.index.moved.is_empty() && before.is_none_or(|b| b.parent != after.parent || b.rank != after.rank) {
             return true;
         }
+        // Deleting a record here stamps the deletion with a clock newer than every creation
+        // below it, so it revives nothing; with no revival or cycle standing that another
+        // deletion could end, only what is reachable changes (the Trash, deleting a bullet).
+        let deletes = before.is_some_and(|b| b.parent == after.parent && b.deleted_at.is_none()) && after.deleted_at.is_some();
+        if deletes && self.index.moved.is_empty() && self.index.revived.is_empty() {
+            return false;
+        }
         let structural = before.is_none_or(|b| b.parent != after.parent || b.deleted_at != after.deleted_at);
         structural
             && (!self.index.moved.is_empty()
@@ -1158,6 +1165,23 @@ mod tests {
             b.sort();
             assert_eq!(a, b);
         }
+    }
+
+    #[test]
+    fn deleting_without_a_reindex_matches_one() {
+        let (mut t, [a, b, c, d]) = sample();
+        let e = t.create_at(c, 0, "e");
+        // Deletions inside a deleted subtree, of a parent and then its child, and of a leaf.
+        for id in [b, a, e, d] {
+            t.trash(id);
+            assert_derived(&t);
+        }
+        assert!(t.index.revived.is_empty() && t.index.moved.is_empty());
+        assert!(!t.contains(c) && !t.contains(d));
+        // Bringing them back takes the full path, which this checks against too.
+        assert!(t.untrash(a));
+        assert_derived(&t);
+        assert!(t.contains(a) && !t.contains(b));
     }
 
     const TARGET: &str = "0000000000000000000000000000abcd";

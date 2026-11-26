@@ -5,6 +5,7 @@ mod agent;
 mod appearance;
 mod general;
 mod shortcuts;
+mod sync;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -57,6 +58,9 @@ pub struct Config {
     /// What closing the window does on Windows and Linux (ask, hide to tray, or quit).
     #[serde(default)]
     pub close_action: CloseAction,
+    /// Sync with a self-hosted server.
+    #[serde(default)]
+    pub sync: crate::outline::sync::SyncConfig,
 }
 
 fn yes() -> bool {
@@ -78,6 +82,7 @@ impl Default for Config {
             seen_version: None,
             whats_new_after_updates: true,
             close_action: CloseAction::default(),
+            sync: Default::default(),
         }
     }
 }
@@ -110,6 +115,7 @@ pub enum Tab {
     Shortcuts,
     Appearance,
     Agent,
+    Sync,
     About,
 }
 
@@ -131,6 +137,8 @@ impl Outline {
     pub(crate) fn show_settings(&mut self, tab: Tab, cx: &mut Context<Self>) {
         if self.settings.as_ref().is_some_and(|s| s.tab == tab) {
             self.settings = None;
+            self.end_field_edit();
+            self.apply_sync_config(cx);
             if let Some((t, off)) = self.settings_return.take() {
                 self.start_edit(t, off, cx);
             }
@@ -151,13 +159,15 @@ impl Outline {
         // Focus may be on a selectable label inside the panel; give it back.
         window.focus(&self.focus, cx);
         self.settings = None;
+        self.end_field_edit();
+        self.apply_sync_config(cx);
         if let Some((t, off)) = self.settings_return.take() {
             self.start_edit(t, off, cx);
         }
         cx.notify();
     }
 
-    fn save_config(&self) {
+    pub(crate) fn save_config(&self) {
         self.config.save(&self.config_path);
     }
 
@@ -230,6 +240,7 @@ impl Outline {
             (Tab::Shortcuts, t!("settings.tab.shortcuts"), "keyboard"),
             (Tab::Appearance, t!("settings.tab.appearance"), "sun-moon"),
             (Tab::Agent, t!("settings.tab.agent"), "bot"),
+            (Tab::Sync, t!("settings.tab.sync"), "cloud"),
             (Tab::About, t!("settings.tab.about"), "info"),
         ];
         let sidebar = div()
@@ -264,6 +275,7 @@ impl Outline {
             Tab::Shortcuts => self.render_shortcuts(window, cx),
             Tab::Appearance => self.render_appearance(window, cx),
             Tab::Agent => self.render_agent(cx),
+            Tab::Sync => self.render_sync(window, cx),
             Tab::About => self.render_about(cx),
         };
         let content = if tab == Tab::Shortcuts {

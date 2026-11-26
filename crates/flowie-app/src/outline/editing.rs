@@ -102,7 +102,11 @@ impl Outline {
             Target::Palette => self.palette.as_ref().map_or(0, |p| p.query.len()),
             Target::Field(f) => self.field_text(f).len(),
         };
+        let left_sync_field = matches!(self.edit_target(), Some(Target::Field(Field::SyncServer | Field::SyncToken)));
         self.edit = Some(Edit::new(target, offset.min(len)));
+        if left_sync_field {
+            self.apply_sync_config(cx);
+        }
         if reveal {
             self.reveal_edit();
         }

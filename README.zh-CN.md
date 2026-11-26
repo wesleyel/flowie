@@ -62,7 +62,8 @@ Flowie 是原生 Rust 应用，用 [GPUI](https://gpui.rs) 在 GPU 上绘制。�
 - 带条件的搜索：短语、标签、人名、待办、已完成、标题、备注、日期，以及「最近 N 天修改过」。
 
 **保存和分享笔记**
-- 大纲存在本地 SQLite 数据库。无需账号，没有云端，没有追踪。
+- 大纲存在本地 SQLite 数据库。无需账号，没有云服务，没有追踪。
+- 通过你自己运行的 Flowie 服务器（`flowie-server`，见 [docs/sync.md](docs/sync.md)）在几台电脑之间同步：每个条目单独同步，离线时的修改也不会丢。
 - 导入 OPML、Markdown 和纯文本（支持 Workflowy 导出文件）；导出 Markdown、OPML 或纯文本。
 - Flowie 导出的 OPML 会保留内部链接和镜像。要一起带走图片，可以用 `.flowie` 分享包，或者带上 Markdown 导出时附带的 `images` 文件夹。
 - 把条目、子项和图片打包成 `.flowie` 文件发给别人。对方可以先预览，再选位置导入。收到新版分享包时，可以合并变更，保留自己的修改。用 `is:new` 查找未读条目。

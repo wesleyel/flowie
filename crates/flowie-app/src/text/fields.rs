@@ -9,6 +9,8 @@ impl Outline {
     pub fn field_text(&self, f: Field) -> &str {
         match f {
             Field::AuthorName => &self.config.author.name,
+            Field::SyncServer => &self.config.sync.server,
+            Field::SyncToken => &self.config.sync.token,
             Field::ShortcutSearch => self.settings.as_ref().map_or("", |s| s.shortcut_query.as_str()),
             Field::PackageTitle => self.package_export.as_ref().map_or("", |p| p.title.as_str()),
             Field::PackageDescription => self.package_export.as_ref().map_or("", |p| p.description.as_str()),
@@ -19,6 +21,14 @@ impl Outline {
     pub fn set_field_text(&mut self, f: Field, text: String) {
         match f {
             Field::AuthorName => self.set_author_name(text),
+            Field::SyncServer => {
+                self.config.sync.server = text;
+                self.save_config();
+            }
+            Field::SyncToken => {
+                self.config.sync.token = text;
+                self.save_config();
+            }
             Field::ShortcutSearch => {
                 if let Some(s) = self.settings.as_mut() {
                     s.shortcut_query = text;
@@ -66,6 +76,7 @@ impl Outline {
         match ks.key.as_str() {
             "escape" | "enter" | "tab" => {
                 self.end_field_edit();
+                self.apply_sync_config(cx);
             }
             "backspace" => self.backspace(&Backspace, window, cx),
             "delete" => self.delete(&Delete, window, cx),

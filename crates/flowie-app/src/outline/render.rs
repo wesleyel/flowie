@@ -366,6 +366,16 @@ impl Render for Outline {
                         .on_click(cx.listener(|this, _, window, cx| this.save_search(&SaveSearch, window, cx))),
                 )
             })
+            .when_some(self.sync.as_ref().map(|s| s.phase().clone()), |d, phase| {
+                let (icon, color) = match phase {
+                    flowie_doc::SyncPhase::Syncing => ("refresh-cw", theme.muted),
+                    flowie_doc::SyncPhase::Synced => ("cloud", theme.muted),
+                    flowie_doc::SyncPhase::Offline(_) => ("cloud-off", theme.danger),
+                };
+                d.child(
+                    tool("sync", icon, color).on_click(cx.listener(|this, _, _, cx| this.show_settings(crate::settings::Tab::Sync, cx))),
+                )
+            })
             .child(
                 tool("calendar", "calendar", theme.muted)
                     .on_click(cx.listener(|this, _, window, cx| this.show_calendar(&ShowCalendar, window, cx))),
@@ -378,6 +388,9 @@ impl Render for Outline {
             const TOOL: f32 = 28.;
             const GAP: f32 = 4.;
             let mut widths = vec![TOOL]; // calendar
+            if self.sync.is_some() {
+                widths.push(TOOL);
+            }
             if self.zoom != ROOT {
                 widths.push(TOOL);
             }

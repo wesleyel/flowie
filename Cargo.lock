@@ -1553,6 +1553,7 @@ dependencies = [
  "flowie-core",
  "flowie-doc",
  "flowie-math",
+ "flowie-sync",
  "futures",
  "gpui-kit",
  "interprocess",

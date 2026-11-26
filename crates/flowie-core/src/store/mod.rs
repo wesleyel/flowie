@@ -240,6 +240,14 @@ pub fn write_pref(conn: &Connection, key: &str, value: &str) -> rusqlite::Result
     Ok(())
 }
 
+/// Copy the database at `db` to `dest` as it is now (what the writer has saved), without
+/// stopping the writer: a consistent snapshot, even mid-write. Fails if `dest` exists.
+pub fn snapshot(db: &Path, dest: &Path) -> rusqlite::Result<()> {
+    let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    conn.execute("VACUUM INTO ?1", params![dest.to_string_lossy()])?;
+    Ok(())
+}
+
 /// Give the file back the space that deleted rows leave behind, when there is
 /// enough of it to be worth rewriting the file: at least 1 MB and a quarter of
 /// the pages. SQLite otherwise keeps freed pages for reuse and the file never
@@ -454,6 +462,19 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
             out.push(format!("{kind} {name}: {}", cols.join(", ")));
         }
         out
+    }
+
+    #[test]
+    fn a_snapshot_copies_what_is_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let (db, copy) = (dir.path().join("flowie.sqlite"), dir.path().join("copy.sqlite"));
+        let mut conn = open(&db).unwrap();
+        let node = Node::new(NodeId::random(), ROOT, crate::rank::between(None, None));
+        write_batch(&mut conn, &Dirty { upserts: vec![node.clone()], ..Dirty::default() }, &[]).unwrap();
+        snapshot(&db, &copy).unwrap();
+        let (nodes, _) = load(&open(&copy).unwrap()).unwrap();
+        assert_eq!(nodes, [node]);
+        assert!(snapshot(&db, &copy).is_err(), "never over an existing file");
     }
 
     #[test]

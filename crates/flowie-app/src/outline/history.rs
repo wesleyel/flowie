@@ -56,6 +56,7 @@ impl Outline {
         if follow {
             self.follow_edit();
         }
+        self.pump_sync(cx);
         cx.notify();
     }
 
@@ -66,6 +67,7 @@ impl Outline {
         if !self.query.is_empty() {
             self.refresh(false);
         }
+        self.pump_sync(cx);
         cx.notify();
     }
 

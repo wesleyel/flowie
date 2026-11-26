@@ -63,7 +63,8 @@ you scroll.
 - Search with filters: phrases, tags, people, to-dos, completed, headings, notes, dates and "changed in the last N days".
 
 **Keep and share your notes**
-- Flowie stores the outline in a local SQLite database. No account, no cloud, no tracking.
+- Flowie stores the outline in a local SQLite database. No account, no cloud service, no tracking.
+- Sync your computers through a Flowie server you run yourself (`flowie-server`, see [docs/sync.md](docs/sync.md)): each bullet syncs on its own, offline edits included.
 - Import OPML, Markdown and text (Workflowy exports work); export Markdown, OPML or text.
 - Flowie's OPML exports keep internal links and mirrors. To take images with you, use a `.flowie` package or keep the `images` folder with your Markdown export.
 - Share a branch as a `.flowie` file. The recipient can preview it, choose where to import it, and merge later updates while keeping their own edits. Use `is:new` to find unread imports.

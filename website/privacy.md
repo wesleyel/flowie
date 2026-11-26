@@ -22,7 +22,8 @@ Flowie does not collect, store on any server, share or sell any personal informa
 {: .lead}
 
 - **Data collected: none.** Flowie's App Store privacy label is "Data Not Collected", and the app's privacy manifest declares no collected data and no tracking.
-- **Your notes stay on your Mac.** Everything you write is saved in a database inside Flowie's app container on your Mac. Flowie has no accounts, no cloud sync, no analytics, no advertising and no crash reporting, and it makes no network requests of its own.
+- **Your notes stay on your Mac.** Everything you write is saved in a database inside Flowie's app container on your Mac. Flowie has no accounts, no cloud service of its own, no analytics, no advertising and no crash reporting.
+- **Sync (optional).** If you turn on sync in Settings → Sync, Flowie sends your outline to the server address you enter — a Flowie server you run yourself — and only there. With sync off, Flowie makes no network requests of its own.
 - **No third parties.** Flowie contains no third-party analytics, advertising or tracking code, and it shares nothing with third parties.
 - **Files you choose.** When you import or export, Flowie reads or writes only the file you pick in the Open or Save dialog.
 - **Links.** Clicking a web link opens it in your default browser; what happens there is governed by that website's policy.
@@ -50,7 +51,8 @@ Flowie 不收集、不在任何服务器上存储、不分享也不出售任何�
 {: .lead}
 
 - **收集的数据：无。** Flowie 在 App Store 上的隐私标签为「未收集数据」，应用的隐私清单也声明不收集任何数据、不进行追踪。
-- **笔记只保存在你的 Mac 上。** 你写的一切都保存在 Flowie 应用容器内的数据库中。Flowie 没有账号、云同步、统计分析、广告或崩溃上报，自身不发起任何网络请求。
+- **笔记只保存在你的 Mac 上。** 你写的一切都保存在 Flowie 应用容器内的数据库中。Flowie 没有账号、自己的云服务、统计分析、广告或崩溃上报。
+- **同步（可选）。** 如果你在「设置 → 同步」中打开同步，Flowie 会把大纲发送到你填写的服务器地址（你自己运行的 Flowie 服务器），且只发送到那里。同步关闭时，Flowie 自身不发起任何网络请求。
 - **没有第三方。** Flowie 不包含任何第三方统计、广告或追踪代码，也不与任何第三方共享数据。
 - **你选择的文件。** 导入或导出时，Flowie 只读取或写入你在打开 / 保存对话框中选择的文件。
 - **链接。** 点击网页链接会在默认浏览器中打开，之后的行为受该网站的政策约束。

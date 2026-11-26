@@ -13,6 +13,7 @@ mod render;
 mod rows;
 mod selection;
 mod structure;
+pub(crate) mod sync;
 
 use std::ops::Range;
 
@@ -155,6 +156,9 @@ pub enum Target {
 pub enum Field {
     /// Settings → General → Author name.
     AuthorName,
+    /// Settings → Sync → the server's address and this device's token.
+    SyncServer,
+    SyncToken,
     /// Settings → Shortcuts → the search box.
     ShortcutSearch,
     /// The export dialog's title and description.
@@ -306,6 +310,11 @@ pub struct Outline {
     /// Set when the database couldn't be opened and the window shows an empty
     /// outline that isn't saved: the message to show.
     pub load_error: Option<String>,
+    /// Sync with a server, while it is on (Settings → Sync).
+    pub sync: Option<sync::SyncSession>,
+    /// The tutorial this device added last (meta `tutorial`), which a first sync leaves out
+    /// while it is untouched.
+    pub tutorial: Option<NodeId>,
     close_prompt_open: bool,
 }
 
@@ -396,6 +405,8 @@ impl Outline {
             whats_new_pending: None,
             save_error: None,
             load_error: None,
+            sync: None,
+            tutorial: meta.iter().find(|(k, _)| k == crate::app::tutorial::TUTORIAL_META).and_then(|(_, v)| v.parse().ok()),
             close_prompt_open: false,
             kill_buffer: String::new(),
             mouse_block: false,
@@ -425,6 +436,7 @@ impl Outline {
         if let Some(first) = top.or_else(|| this.rows.first().map(|r| r.id)) {
             this.edit = Some(Edit::new(Target::Text(first), this.ws.tree.node(first).text.len()));
         }
+        this.apply_sync_config(cx);
         this
     }
 

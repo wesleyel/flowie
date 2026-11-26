@@ -54,6 +54,10 @@ pub struct SyncDriver {
     save_failures: u32,
     fetch_failures: u32,
     error: Option<String>,
+    /// Saves wait until the first fetch has caught up (see `hold_saves`).
+    holding: bool,
+    /// Records fetched so far.
+    received: usize,
     /// How long a fetch waits on the backend once caught up.
     pub long_poll: Duration,
 }
@@ -115,6 +119,8 @@ impl SyncDriver {
             save_failures: 0,
             fetch_failures: 0,
             error: None,
+            holding: false,
+            received: 0,
             long_poll: Duration::from_secs(30),
         }
     }
@@ -142,6 +148,7 @@ impl SyncDriver {
                     self.fetching = false;
                     self.fetch_failures = 0;
                     self.caught_up = !batch.more;
+                    self.received += batch.records.len();
                     self.engine.on_fetched(ws, batch);
                 }
                 Answer::Fetched(Err(error)) => {
@@ -154,7 +161,7 @@ impl SyncDriver {
         if self.save_failures == 0 && self.fetch_failures == 0 {
             self.error = None;
         }
-        if !self.saving {
+        if !self.saving && !self.holding {
             let saves = self.engine.next_saves(ws, BATCH);
             if !saves.is_empty() && self.saves.send((backoff(self.save_failures), Call::Save(saves))).is_ok() {
                 self.saving = true;
@@ -170,11 +177,32 @@ impl SyncDriver {
         ws.tree.revision() != revision
     }
 
+    /// Send nothing until the first fetch has caught up with the backend and
+    /// [`release_saves`](Self::release_saves) is called: for a first sync, which looks at what
+    /// the backend has before deciding what to send (an untouched tutorial isn't).
+    pub fn hold_saves(&mut self) {
+        self.holding = true;
+    }
+
+    pub fn release_saves(&mut self) {
+        self.holding = false;
+    }
+
+    /// The last fetch had nothing more waiting after it.
+    pub fn caught_up(&self) -> bool {
+        self.caught_up
+    }
+
+    /// How many records came from the backend since the driver started.
+    pub fn received(&self) -> usize {
+        self.received
+    }
+
     /// Where sync stands now.
     pub fn phase(&self, ws: &Workspace) -> SyncPhase {
         match &self.error {
             Some(error) => SyncPhase::Offline(error.clone()),
-            None if self.saving || !self.caught_up || ws.sync.has_unsent() => SyncPhase::Syncing,
+            None if self.saving || self.holding || !self.caught_up || ws.sync.has_unsent() => SyncPhase::Syncing,
             None => SyncPhase::Synced,
         }
     }

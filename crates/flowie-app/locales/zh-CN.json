@@ -133,6 +133,7 @@
       "shortcuts": "快捷键",
       "appearance": "外观",
       "agent": "Agent",
+      "sync": "同步",
       "about": "关于"
     },
     "general": {
@@ -234,6 +235,28 @@
       },
       "other_clients": "其他 MCP 客户端",
       "tools": "工具：current、search、read、starred、create、update、complete、move、delete、attach_image、journal、batch、open。"
+    },
+    "sync": {
+      "title": "同步",
+      "intro": "通过你自己运行的 Flowie 服务器，让这份大纲在你的几台电脑上保持一致。每个条目单独同步，不同设备同时做的修改（包括离线时）都会保留下来。",
+      "enabled": "与服务器同步",
+      "status": {
+        "off": "同步已关闭。",
+        "incomplete": "请填写服务器地址和本设备的令牌。",
+        "syncing": "正在同步…",
+        "synced": "已是最新（上次同步于 {time}）。",
+        "offline": "无法同步：{error}。修改会先保存在本机，连上服务器后再发送。"
+      },
+      "server": {
+        "label": "服务器",
+        "hint": "你的 flowie-server 的地址，例如 https://sync.example.com。请放在 HTTPS 后面。"
+      },
+      "token": {
+        "label": "设备令牌",
+        "hint": "在服务器上用 `flowie-server token add 名称` 为每台设备签发一个。",
+        "placeholder": "粘贴令牌"
+      },
+      "backup": "第一次与某台服务器同步之前，Flowie 会在数据库旁边保留一份副本（flowie.sqlite.before-sync-<时间>）。"
     },
     "about": {
       "tagline": "用列表思考的快速大纲工具。",
@@ -574,5 +597,8 @@
     "title": "新功能",
     "unreleased": "即将推出",
     "new": "新"
+  },
+  "sync": {
+    "snapshot_failed": "同步没有开始：无法先备份大纲（{error}）"
   }
 }

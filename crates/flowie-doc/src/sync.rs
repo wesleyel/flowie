@@ -83,6 +83,21 @@ impl Workspace {
         changed
     }
 
+    /// Delete the subtree at `root` for good without telling the backend: records that never
+    /// left this device and shouldn't (a fresh device's untouched tutorial, when it joins an
+    /// outline that already has one). Not an undo step.
+    pub fn discard_unsent(&mut self, root: NodeId) {
+        self.tree.trash(root);
+        let ids = self.tree.purge(root);
+        self.history.forget(&ids);
+        self.persist();
+        for id in ids {
+            if self.sync.outbox.remove(&id) {
+                self.save_sync(SyncWrite::Sent(id));
+            }
+        }
+    }
+
     /// After a restart: a record held while it was being edited (see `begin_edit`) was never
     /// applied, though its version was noted as seen. Take it from that version.
     pub(crate) fn recover_held(&mut self, meta: &[(String, String)]) {
@@ -249,6 +264,27 @@ mod tests {
         drop(b);
         let b = open(&db_b);
         assert_eq!(b.tree.node(x).note, "a's note");
+    }
+
+    #[test]
+    fn discarded_records_are_gone_without_a_word_to_the_backend() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("a.sqlite");
+        let mut server = MemoryServer::new();
+        let mut a = open(&db);
+        let tutorial = a.tree.create_at(ROOT, 0, "tutorial");
+        a.tree.create_at(tutorial, 0, "lesson");
+        let kept = a.tree.create_at(ROOT, 1, "kept");
+        a.commit_with_imports(None, None, None);
+        a.discard_unsent(tutorial);
+        assert!(!a.tree.has_record(tutorial) && a.tree.trashed().is_empty());
+        sync(&mut a, &mut Engine::new(), &mut server);
+        let sent = server.changes(None, 50).records;
+        assert_eq!(sent.len(), 1, "only {kept} goes out, not the discarded records or their tombstones");
+        a.flush().unwrap();
+        drop(a);
+        let a = open(&db);
+        assert!(!a.tree.has_record(tutorial) && !a.sync.has_unsent());
     }
 
     #[test]

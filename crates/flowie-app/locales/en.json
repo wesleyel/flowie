@@ -166,6 +166,7 @@
       "shortcuts": "Shortcuts",
       "appearance": "Appearance",
       "agent": "Agent",
+      "sync": "Sync",
       "about": "About"
     },
     "general": {
@@ -267,6 +268,28 @@
       },
       "other_clients": "Other MCP clients",
       "tools": "Tools: current, search, read, starred, create, update, complete, move, delete, attach_image, journal, batch, open."
+    },
+    "sync": {
+      "title": "Sync",
+      "intro": "Keep this outline the same on your computers through a Flowie server you run yourself. Each bullet syncs on its own, so edits made on different devices at once, even offline, all come through.",
+      "enabled": "Sync with a server",
+      "status": {
+        "off": "Sync is off.",
+        "incomplete": "Enter the server address and this device’s token.",
+        "syncing": "Syncing…",
+        "synced": "Up to date (last synced {time}).",
+        "offline": "Can’t sync: {error}. Edits are kept here and sent when the server can be reached."
+      },
+      "server": {
+        "label": "Server",
+        "hint": "The address of your flowie-server, such as https://sync.example.com. Put it behind HTTPS."
+      },
+      "token": {
+        "label": "Device token",
+        "hint": "Issue one for each device on the server with `flowie-server token add NAME`.",
+        "placeholder": "Paste the token"
+      },
+      "backup": "Before the first sync with a server, Flowie keeps a copy of this outline’s database beside it (flowie.sqlite.before-sync-<time>)."
     },
     "about": {
       "tagline": "A fast outliner for thinking in lists.",
@@ -634,5 +657,8 @@
     "title": "What's New",
     "unreleased": "Coming next",
     "new": "New"
+  },
+  "sync": {
+    "snapshot_failed": "Sync didn’t start: couldn’t back up the outline first ({error})"
   }
 }

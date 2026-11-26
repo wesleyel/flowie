@@ -65,4 +65,4 @@ item's status (长期 / 待办 / 进行中 / 已完成). Discuss and revise desi
 - **Per-node sync**: an LWW-per-field engine (`flowie-sync`) with CloudKit and self-hosted backends. The format it needs (fractional-index ranks, soft deletes, deterministic journal IDs, per-field clocks, outbox and tombstones) is in place since database format 6.
 - **iOS and cross-platform**: a native iOS app (SwiftUI + UIKit, a reduced feature set) over the Rust core through UniFFI (`flowie-ffi` over `flowie-doc`); the desktop stays on GPUI; the browser comes last as a TypeScript UI over a wasm core. See `docs/roadmap/release-plan.md` for the order.
 
-More docs: `docs/building.md` (platforms, data paths), `docs/usage.md`, `docs/mcp.md`, `docs/translations.md`, `CONTRIBUTING.md`.
+More docs: `docs/building.md` (platforms, data paths), `docs/usage.md`, `docs/mcp.md`, `docs/sync.md` (the self-hosted sync server), `docs/translations.md`, `CONTRIBUTING.md`.

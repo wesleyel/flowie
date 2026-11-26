@@ -142,6 +142,7 @@ impl Outline {
                 let tab = match s(p, "tab") {
                     Some("appearance") => Tab::Appearance,
                     Some("agent") => Tab::Agent,
+                    Some("sync") => Tab::Sync,
                     Some("about") => Tab::About,
                     Some("general") => Tab::General,
                     _ => Tab::Shortcuts,

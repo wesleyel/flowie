@@ -1,6 +1,6 @@
 // Checks what can be checked without iCloud: a Flowie record makes a CKRecord and comes back
 // the same, and the system fields of a saved one restore its id. Run by
-// scripts/cloudkit-package-check.sh.
+// scripts/apple-package-check.sh.
 import CloudKit
 import FlowieCloudKit
 import FlowieFFI

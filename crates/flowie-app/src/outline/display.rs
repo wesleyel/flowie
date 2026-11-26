@@ -12,15 +12,35 @@ const MAX_ANIMATED_ROWS: usize = 150;
 /// Above this many new rows at once, the list is reset rather than spliced (see
 /// `Outline::row_height_hint`).
 const BULK_ROWS: usize = 200;
+
+/// Maximum rows sampled when estimating GPUI's uniform fallback height.
+const HINT_SAMPLE: usize = 64;
+
 use crate::ui::anim::{self, Channel};
+
+/// Evenly spaced indices across `0..len`, capped at `max_samples`.
+fn sample_indices(len: usize, max_samples: usize) -> impl Iterator<Item = usize> {
+    let step = len.div_ceil(max_samples.max(1)).max(1);
+    (0..len).step_by(step)
+}
 
 impl Outline {
     /// Recompute visible rows. With `animate`, rows that appear grow in and
     /// rows that disappear shrink out.
     pub fn refresh(&mut self, animate: bool) {
+        self.refresh_with(animate, false);
+    }
+
+    /// Recompute visible rows and reset GPUI's list measurements (page zoom, search).
+    pub(super) fn refresh_reset(&mut self) {
+        self.refresh_with(false, true);
+    }
+
+    fn refresh_with(&mut self, animate: bool, mut reset_list: bool) {
         // Never draw a page that no longer exists (deleted while zoomed into it).
         if self.zoom != ROOT && !self.ws.tree.contains(self.zoom) {
             self.zoom = ROOT;
+            reset_list = true;
         }
         let opts = self.view_options();
         self.highlight_terms = opts.query.as_ref().map(|q| q.highlight_terms()).unwrap_or_default();
@@ -63,11 +83,11 @@ impl Outline {
         };
         self.row_pos = new_rows.iter().enumerate().map(|(ix, r)| (r.id, ix)).collect();
         self.rows = new_rows;
-        self.set_display(&old_display, new_display);
+        self.set_display(&old_display, new_display, reset_list);
     }
 
-    /// Install a new display list: index it, then splice the list view.
-    fn set_display(&mut self, old: &[DisplayRow], new: Vec<DisplayRow>) {
+    /// Install a new display list: index it, then splice or reset the list view.
+    fn set_display(&mut self, old: &[DisplayRow], new: Vec<DisplayRow>, reset_list: bool) {
         let mut pos = std::collections::HashMap::with_capacity(new.len());
         for (ix, d) in new.iter().enumerate() {
             // A live row wins over a leaving copy of the same id.
@@ -80,7 +100,11 @@ impl Outline {
                 .or_insert(ix);
         }
         self.display_pos = pos;
-        self.splice_list(old, &new);
+        if reset_list {
+            self.list.reset_with_uniform_height(new.len() + HEAD + 1, self.row_height_hint(&new));
+        } else {
+            self.splice_list(old, &new);
+        }
         self.display = new;
         self.heights.invalidate();
     }
@@ -127,32 +151,44 @@ impl Outline {
         }
     }
 
-    /// The height to assume for a row the list hasn't measured yet: the average
-    /// of an estimate for each of `rows` (lines of text at the usual width, the
-    /// note, an image). Without one an unmeasured row counts as 0 px, so in a long
-    /// outline the scrollbar thumb keeps shrinking as rows scroll into view and
-    /// dragging it to the bottom doesn't reach the end.
+    /// Uniform fallback height for GPUI's `ListState` before items are measured
+    /// (so wheel scrolling and `scroll_to` have a sensible scale before the real
+    /// `HeightMap` takes over). Reuses cached heights when available and samples
+    /// at most `HINT_SAMPLE` rows so bulk refreshes stay O(1).
     pub fn row_height_hint(&self, rows: &[DisplayRow]) -> gpui::Pixels {
+        if rows.is_empty() {
+            return px(super::LINE_H + 6.0);
+        }
         let tree = &self.ws.tree;
         // The text column's width: the list's (or a typical window's before the
         // first layout), at most the content width setting.
         let list_w = f32::from(self.list.viewport_bounds().size.width);
         let list_w = if list_w > 0. { list_w } else { 900. };
         let column = self.config.content_width.max_px().map_or(list_w, |max| list_w.min(max));
-        let total: f32 = rows
-            .iter()
-            .filter_map(|d| tree.get(tree.source(d.row.id)).map(|n| (d.row.depth, n)))
-            .map(|(depth, n)| {
-                let (font_size, line_h, top_pad) = super::row_metrics(n.kind);
-                // About half an em per character of the system font.
-                let text_w = column - 2. * super::PAD_X - depth as f32 * super::INDENT - 24.;
-                let per_line = (text_w / (font_size * 0.5)).max(20.);
-                let lines = (n.text.chars().count() as f32 / per_line).ceil().max(1.);
-                let note = if n.note.is_empty() { 0.0 } else { 20.0 };
-                line_h * lines + top_pad + 3.0 + note
-            })
-            .sum();
-        px(if rows.is_empty() { super::LINE_H + 6.0 } else { total / rows.len() as f32 })
+        let (mut total, mut count) = (0.0f32, 0usize);
+        for ix in sample_indices(rows.len(), HINT_SAMPLE) {
+            let d = rows[ix];
+            if d.leaving {
+                continue;
+            }
+            if let Some(h) = self.heights.cached_height(d.row.id, d.row.depth) {
+                total += h;
+                count += 1;
+                continue;
+            }
+            let Some(node) = tree.get(d.row.id) else { continue };
+            let src = tree.node(tree.source(d.row.id));
+            let (font_size, line_h, top_pad) = super::row_metrics(node.kind);
+            // About half an em per character of the system font.
+            let text_w = column - 2. * super::PAD_X - d.row.depth as f32 * super::INDENT - 24.;
+            let per_line = (text_w / (font_size * 0.5)).max(20.);
+            let lines = (src.text.chars().count() as f32 / per_line).ceil().max(1.);
+            let note = if src.note.is_empty() { 0.0 } else { 20.0 };
+            let image = self.row_image(d.row.id).map_or(0.0, |(_, info)| Self::image_box(info).1 + 6.0);
+            total += line_h * lines + top_pad + 3.0 + note + image;
+            count += 1;
+        }
+        px(if count == 0 { super::LINE_H + 6.0 } else { total / count as f32 })
     }
 
     /// Called each frame while animating: drop rows that finished leaving.
@@ -168,7 +204,7 @@ impl Outline {
                     self.ghosts.remove(&real);
                 }
             }
-            self.set_display(&old, new);
+            self.set_display(&old, new, false);
         }
         self.anims.gc();
         if !self.ghosts.is_empty() && !self.display.iter().any(|d| d.leaving) {
@@ -254,5 +290,22 @@ impl Outline {
         let Some(ix) = self.list_item(id) else { return true };
         let view = self.list.viewport_bounds();
         self.list.bounds_for_item(ix).is_some_and(|b| b.top() >= view.top() && b.bottom() <= view.bottom())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sample_indices_is_bounded_and_spread() {
+        assert_eq!(sample_indices(0, HINT_SAMPLE).collect::<Vec<_>>(), Vec::<usize>::new());
+        assert_eq!(sample_indices(10, HINT_SAMPLE).collect::<Vec<_>>(), (0..10).collect::<Vec<_>>());
+        assert_eq!(sample_indices(HINT_SAMPLE, HINT_SAMPLE).collect::<Vec<_>>(), (0..HINT_SAMPLE).collect::<Vec<_>>());
+
+        let big: Vec<usize> = sample_indices(100_000, HINT_SAMPLE).collect();
+        assert!(big.len() <= HINT_SAMPLE);
+        assert_eq!(big.first(), Some(&0));
+        assert!(big.last().is_some_and(|&last| last > 90_000));
     }
 }

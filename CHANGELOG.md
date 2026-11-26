@@ -8,6 +8,10 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ## [Unreleased]
 
+### Fixed
+
+- **Scrolling**: editing text to the same length, changing an image, zooming between pages, or folding deeply nested rows no longer leaves the scrollbar height map out of sync, and large zoom or search switches no longer scan every row twice.
+
 ## [1.0.1] - 2026-11-26
 
 **Upgrading from a release candidate?** Export your outline as OPML or as a `.flowie` share package before updating, then import it into 1.0.1: a database from a candidate is kept aside as `flowie.sqlite.old-<timestamp>`, not upgraded. From 1.0.0 on, updates upgrade the database in place after backing it up.

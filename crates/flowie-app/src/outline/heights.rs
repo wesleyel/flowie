@@ -18,10 +18,11 @@
 //! drag is on, new measurements wait, so the map holds still under the pointer.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use flowie_core::{markup, BlockKind, NodeId};
+use flowie_core::{markup, BlockKind, NodeId, Tree, ROOT};
 use gpui::{px, ListOffset, ListState, Pixels, Window};
 
 use super::{row_metrics, Outline, HEAD, INDENT, PAD_X};
@@ -143,9 +144,7 @@ impl HeightMap {
 /// greedily at spaces (and between CJK characters); a word longer than a line is broken
 /// between characters. Never less than one line.
 pub fn wrap_lines(text: &str, width: f32, mut advance: impl FnMut(char) -> f32) -> usize {
-    if width <= 1. {
-        return 1;
-    }
+    let width = width.max(0.);
     let (mut lines, mut x) = (1usize, 0f32);
     // The word being collected and its width.
     let (mut word, mut word_w) = (Vec::new(), 0f32);
@@ -159,7 +158,7 @@ pub fn wrap_lines(text: &str, width: f32, mut advance: impl FnMut(char) -> f32) 
         }
         if *word_w > width {
             for &w in word.iter() {
-                if *x > 0. && *x + w > width {
+                if w > 0. && *x > 0. && *x + w > width {
                     *lines += 1;
                     *x = 0.;
                 }
@@ -202,9 +201,44 @@ fn is_cjk(ch: char) -> bool {
     matches!(ch as u32, 0x2E80..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF | 0x20000..=0x2FFFF)
 }
 
+/// Minimum text column width assumed under extreme nesting or very narrow windows so
+/// prediction keeps wrapping tightly instead of collapsing to one line.
+const MIN_TEXT_WIDTH: f32 = 16.;
+
+/// Available text column width for a row at `depth` and `kind` inside `column`.
+fn row_text_width(column: f32, depth: u16, kind: BlockKind) -> f32 {
+    // Row padding, indent, bullet (18) and the gap after it (6), then the block's own padding.
+    let extra = match kind {
+        BlockKind::Quote => 12.,
+        BlockKind::Code => 16.,
+        _ => 0.,
+    };
+    (column - 2. * PAD_X - depth as f32 * INDENT - 24. - extra).max(MIN_TEXT_WIDTH)
+}
+
+/// What a row's height depends on; a change to any of it invalidates the cached height.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RowKey {
+    content: u64,
+    image_box: Option<(u32, u32)>,
+    kind: BlockKind,
+    depth: u16,
+    column: u32,
+}
+
+impl RowKey {
+    fn new(text: &str, note: &str, image: &str, image_box: Option<(f32, f32)>, kind: BlockKind, depth: u16, column: f32) -> Self {
+        let mut h = DefaultHasher::new();
+        text.hash(&mut h);
+        note.hash(&mut h);
+        image.hash(&mut h);
+        Self { content: h.finish(), image_box: image_box.map(|(w, h)| (w.to_bits(), h.to_bits())), kind, depth, column: column.to_bits() }
+    }
+}
+
 /// One row's height as last worked out, and what it depends on.
 struct Cached {
-    key: (usize, usize, BlockKind, u16, u32),
+    key: RowKey,
     predicted: f64,
     measured: Option<f64>,
 }
@@ -216,7 +250,9 @@ pub struct Heights {
     /// Rebuild the map at the next frame (rows changed).
     dirty: bool,
     rows: HashMap<NodeId, Cached>,
-    /// Measured header and footer heights.
+    /// The zoom root (and no-match header state) `edges` were measured for.
+    zoom: Option<(NodeId, bool)>,
+    /// Measured header and footer heights for `zoom`.
     edges: (Option<f64>, Option<f64>),
     /// Glyph advances by (character, size, bold, monospace).
     glyphs: HashMap<(char, u32, bool, bool), f32>,
@@ -227,6 +263,49 @@ pub struct Heights {
 impl Heights {
     pub fn invalidate(&mut self) {
         self.dirty = true;
+    }
+
+    /// Drop cached header/footer measurements whenever the zoom root (or no-match header) changes.
+    fn sync_zoom(&mut self, zoom: NodeId, empty_hint: bool) -> bool {
+        if self.zoom == Some((zoom, empty_hint)) {
+            return false;
+        }
+        self.zoom = Some((zoom, empty_hint));
+        self.edges = (None, None);
+        self.dirty = true;
+        true
+    }
+
+    /// Header height for `zoom`: measured for this zoom root, or its default estimate.
+    fn header_height(&self, zoom: NodeId, empty_hint: bool) -> f64 {
+        let measured = if self.zoom == Some((zoom, empty_hint)) { self.edges.0 } else { None };
+        measured.unwrap_or(if zoom == ROOT && !empty_hint { 0. } else { 64. })
+    }
+
+    /// Drop cached entries for deleted nodes (and stale virtual rows) when the cache outgrows the tree.
+    fn prune(&mut self, tree: &Tree, display_pos: &HashMap<NodeId, usize>) {
+        let limit = tree.len().saturating_add(display_pos.len()).saturating_add(256);
+        if self.rows.len() > limit {
+            self.rows.retain(|id, _| if id.is_virtual() { display_pos.contains_key(id) } else { tree.contains(*id) });
+        }
+    }
+
+    /// Cached height for `id` if it was worked out at the same `depth`.
+    pub(super) fn cached_height(&self, id: NodeId, depth: u16) -> Option<f32> {
+        self.rows.get(&id).filter(|c| c.key.depth == depth).map(|c| c.measured.unwrap_or(c.predicted) as f32)
+    }
+
+    /// Current scroll offset in pixels from this height map, when it is up to date for `zoom`.
+    pub(super) fn scroll_top(&self, list: &ListState, zoom: NodeId) -> Option<f32> {
+        if self.dirty || self.zoom.is_none_or(|(z, _)| z != zoom) {
+            return None;
+        }
+        let map = self.map.borrow();
+        if map.sums.len() == 0 {
+            return None;
+        }
+        let top = list.logical_scroll_top();
+        Some((map.sums.prefix(top.item_ix) as f32 + f32::from(top.offset_in_item)).max(0.))
     }
 
     /// What the scrollbar shows and moves: the list, placed by this map.
@@ -276,23 +355,29 @@ impl Outline {
             return;
         }
         let column = self.config.content_width.max_px().map_or(list_w, |max| list_w.min(max));
+        let empty_hint = self.rows.is_empty() && !self.query.is_empty();
+        let mut stale_bounds = self.heights.sync_zoom(self.zoom, empty_hint);
         if (column - self.heights.column).abs() >= 1. {
             self.heights.column = column;
             self.heights.rows.clear();
             self.heights.edges = (None, None);
             self.heights.dirty = true;
+            stale_bounds = true;
         }
         if self.heights.dirty {
             self.heights.dirty = false;
+            self.heights.prune(&self.ws.tree, &self.display_pos);
             let mut values = Vec::with_capacity(self.display.len() + HEAD + 1);
-            values.push(self.heights.edges.0.unwrap_or(if self.zoom == flowie_core::ROOT { 0. } else { 64. }));
+            values.push(self.heights.header_height(self.zoom, empty_hint));
             for ix in 0..self.display.len() {
                 values.push(self.row_height(ix, window));
             }
             values.push(self.heights.edges.1.unwrap_or(40.));
             self.heights.map.borrow_mut().reset(values);
         }
-        self.measure_drawn_items();
+        if !stale_bounds {
+            self.measure_drawn_items();
+        }
     }
 
     /// Record the heights the list drew its items at, from the top of the viewport down.
@@ -314,13 +399,30 @@ impl Outline {
                     ix += 1;
                     continue;
                 }
-                if let Some(cached) = self.heights.rows.get_mut(&d.row.id) {
-                    cached.measured = Some(h);
+                if let Some(cached) = self.heights.rows.get(&d.row.id) {
+                    if cached.measured.is_none_or(|prev| (prev - h).abs() >= 0.5) {
+                        let key = self.row_key(d.row.id, d.row.depth).map(|(k, _)| k);
+                        if let Some(cached) = self.heights.rows.get_mut(&d.row.id) {
+                            if let Some(key) = key {
+                                cached.key = key;
+                            }
+                            cached.measured = Some(h);
+                        }
+                    }
                 }
             }
             self.heights.map.borrow_mut().set(ix, h);
             ix += 1;
         }
+    }
+
+    fn row_key(&self, id: NodeId, depth: u16) -> Option<(RowKey, Option<(f32, f32)>)> {
+        let tree = &self.ws.tree;
+        let node = tree.get(id)?;
+        let src = tree.node(tree.source(id));
+        let image_box = self.row_image(id).map(|(_, info)| Self::image_box(info));
+        let key = RowKey::new(&src.text, &src.note, &src.image, image_box, node.kind, depth, self.heights.column);
+        Some((key, image_box))
     }
 
     /// The height of display row `ix`: measured if it was drawn as it is now, else predicted.
@@ -329,36 +431,27 @@ impl Outline {
         if d.leaving {
             return 0.;
         }
-        let tree = &self.ws.tree;
-        let Some(node) = tree.get(d.row.id) else { return 0. };
-        let src = tree.node(tree.source(d.row.id));
-        let key = (src.text.len(), src.note.len(), node.kind, d.row.depth, self.heights.column.to_bits());
+        let Some((key, image_box)) = self.row_key(d.row.id, d.row.depth) else { return 0. };
         if let Some(cached) = self.heights.rows.get(&d.row.id).filter(|c| c.key == key) {
             return cached.measured.unwrap_or(cached.predicted);
         }
-        let predicted = self.predict_row_height(d.row.id, d.row.depth, window);
+        let predicted = self.predict_row_height(d.row.id, d.row.depth, image_box, window);
         self.heights.rows.insert(d.row.id, Cached { key, predicted, measured: None });
         predicted
     }
 
     /// A row's height worked out from its text, without drawing it (see `rows::render_row`
     /// for the geometry this follows).
-    fn predict_row_height(&mut self, id: NodeId, depth: u16, window: &Window) -> f64 {
+    fn predict_row_height(&mut self, id: NodeId, depth: u16, image_box: Option<(f32, f32)>, window: &Window) -> f64 {
         let tree = &self.ws.tree;
         let kind = tree.node(id).kind;
         let src = tree.node(tree.source(id));
         let (font_size, line_h, top_pad) = row_metrics(kind);
         let code = kind == BlockKind::Code;
-        // Row padding, indent, bullet (18) and the gap after it (6), then the block's own padding.
-        let mut width = self.heights.column - 2. * PAD_X - depth as f32 * INDENT - 24.;
-        width -= match kind {
-            BlockKind::Quote => 12.,
-            BlockKind::Code => 16.,
-            _ => 0.,
-        };
+        let width = row_text_width(self.heights.column, depth, kind);
         let text = if code { src.text.clone() } else { markup::plain_text(&src.text) };
         let note = (!src.note.is_empty()).then(|| markup::plain_text(&src.note));
-        let image = self.row_image(id).map_or(0., |(_, info)| Self::image_box(info).1 + 6.);
+        let image = image_box.map_or(0., |(_, h)| h + 6.);
         let bold = matches!(kind, BlockKind::H1 | BlockKind::H2 | BlockKind::H3);
         let lines = self.count_lines(&text, width, font_size, bold, code, window);
         let mut h = top_pad + 3. + lines as f32 * line_h + image;
@@ -441,5 +534,113 @@ mod tests {
         assert_eq!(m.sums.total(), 30.);
         m.freeze(false);
         assert_eq!(m.sums.total(), 70.);
+    }
+
+    #[test]
+    fn row_key_invalidates_on_same_length_text_newline_note_and_image_changes() {
+        let base = RowKey::new("iiii", "aaaa", "", None, BlockKind::Bullet, 0, 600.);
+        assert_eq!(base, RowKey::new("iiii", "aaaa", "", None, BlockKind::Bullet, 0, 600.));
+        // Same-length text edit (narrow -> wide glyphs) and newline insertion.
+        assert_ne!(base, RowKey::new("mmmm", "aaaa", "", None, BlockKind::Bullet, 0, 600.));
+        let one_line = RowKey::new("ab cd", "", "", None, BlockKind::Bullet, 0, 600.);
+        assert_ne!(one_line, RowKey::new("ab\ncd", "", "", None, BlockKind::Bullet, 0, 600.));
+        // Same-length note edit.
+        assert_ne!(base, RowKey::new("iiii", "a\nbb", "", None, BlockKind::Bullet, 0, 600.));
+        // Image presence, dimensions, and blob identity changes.
+        let with_img = RowKey::new("iiii", "aaaa", "img1", Some((560., 216.)), BlockKind::Image, 0, 600.);
+        let loaded_img = RowKey::new("iiii", "aaaa", "img1", Some((200., 100.)), BlockKind::Image, 0, 600.);
+        let swapped_img = RowKey::new("iiii", "aaaa", "img2", Some((200., 100.)), BlockKind::Image, 0, 600.);
+        assert_ne!(with_img, loaded_img);
+        assert_ne!(loaded_img, swapped_img);
+        assert_ne!(base, RowKey::new("iiii", "aaaa", "", None, BlockKind::Code, 0, 600.));
+        assert_ne!(base, RowKey::new("iiii", "aaaa", "", None, BlockKind::Bullet, 1, 600.));
+        assert_ne!(base, RowKey::new("iiii", "aaaa", "", None, BlockKind::Bullet, 0, 640.));
+    }
+
+    #[test]
+    fn zoom_change_invalidates_cached_header_height() {
+        let mut h = Heights::default();
+        let page_a = NodeId::random();
+        let page_b = NodeId::random();
+
+        assert!(h.sync_zoom(page_a, false));
+        assert_eq!(h.header_height(page_a, false), 64.);
+        h.edges = (Some(88.), Some(260.));
+        assert_eq!(h.header_height(page_a, false), 88.);
+        // Staying on the same zoom keeps measured edge heights.
+        assert!(!h.sync_zoom(page_a, false));
+        assert_eq!(h.header_height(page_a, false), 88.);
+
+        // Zooming back to ROOT must drop page_a's 88px header instead of reusing it.
+        assert!(h.sync_zoom(ROOT, false));
+        assert_eq!(h.edges, (None, None));
+        assert!(h.dirty);
+        assert_eq!(h.header_height(ROOT, false), 0.);
+
+        // Zooming from ROOT (0px measured) to page_b must not reuse ROOT's 0px header.
+        h.edges.0 = Some(0.);
+        assert!(h.sync_zoom(page_b, false));
+        assert_eq!(h.edges, (None, None));
+        assert_eq!(h.header_height(page_b, false), 64.);
+
+        // Toggling the no-match search hint on ROOT also invalidates header height.
+        h.sync_zoom(ROOT, false);
+        h.edges.0 = Some(0.);
+        assert!(h.sync_zoom(ROOT, true));
+        assert_eq!(h.edges, (None, None));
+    }
+
+    #[test]
+    fn prune_drops_deleted_and_stale_virtual_rows() {
+        let mut tree = Tree::new();
+        let live_a = tree.create_at(ROOT, 0, "a");
+        let live_b = tree.create_at(ROOT, 1, "b");
+        let deleted = tree.create_at(ROOT, 2, "gone");
+        tree.delete(deleted);
+
+        let v_live = flowie_core::tree::virtual_id(live_a, live_b);
+        let v_stale = flowie_core::tree::virtual_id(live_b, live_a);
+        let mut display_pos = HashMap::new();
+        display_pos.insert(live_a, 0);
+        display_pos.insert(live_b, 1);
+        display_pos.insert(v_live, 2);
+
+        let mut h = Heights::default();
+        let dummy = || Cached { key: RowKey::new("", "", "", None, BlockKind::Bullet, 0, 600.), predicted: 30., measured: Some(30.) };
+        for id in [live_a, live_b, deleted, v_live, v_stale] {
+            h.rows.insert(id, dummy());
+        }
+        // Push past the prune threshold with deleted node ids.
+        for _ in 0..300 {
+            h.rows.insert(NodeId::random(), dummy());
+        }
+
+        h.prune(&tree, &display_pos);
+
+        assert!(h.rows.contains_key(&live_a));
+        assert!(h.rows.contains_key(&live_b));
+        assert!(h.rows.contains_key(&v_live));
+        assert!(!h.rows.contains_key(&deleted));
+        assert!(!h.rows.contains_key(&v_stale));
+        assert_eq!(h.rows.len(), 3);
+    }
+
+    #[test]
+    fn narrow_width_wrapping_wraps_tightly() {
+        let one = |_| 1.;
+        assert_eq!(wrap_lines("", 0., one), 1);
+        assert_eq!(wrap_lines("abcd", 0.5, one), 4);
+        assert_eq!(wrap_lines("abcd", 0., one), 4);
+        assert_eq!(wrap_lines("abcd", -20., one), 4);
+        assert_eq!(wrap_lines("a\nb\nc", -10., one), 3);
+        assert_eq!(wrap_lines("一二三", 0.5, one), 3);
+        // Zero-width combining marks stay with their base character even at width 0.
+        assert_eq!(wrap_lines("a\u{0301}b", 0., |c| if c == '\u{0301}' { 0. } else { 1. }), 2);
+
+        // Deep nesting and very narrow windows clamp to a positive minimum width.
+        let deep_w = row_text_width(300., 30, BlockKind::Bullet);
+        assert!(deep_w >= MIN_TEXT_WIDTH);
+        assert!(row_text_width(100., 0, BlockKind::Code) >= MIN_TEXT_WIDTH);
+        assert!(wrap_lines("deeply nested paragraph text", deep_w, |_| 8.) > 1);
     }
 }

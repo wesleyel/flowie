@@ -197,7 +197,7 @@ impl Outline {
     }
 
     fn scroll_px(&self) -> f32 {
-        f32::from(-self.list.scroll_px_offset_for_scrollbar().y).max(0.)
+        self.heights.scroll_top(&self.list, self.zoom).unwrap_or_else(|| f32::from(-self.list.scroll_px_offset_for_scrollbar().y).max(0.))
     }
 
     /// After each scroll, wait for it to stop; then a title left half

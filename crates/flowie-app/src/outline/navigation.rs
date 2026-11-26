@@ -144,8 +144,7 @@ impl Outline {
         self.block = None;
         self.ws.history.seal();
         self.anims.clear();
-        self.refresh(false);
-        self.list.reset_with_uniform_height(self.display.len() + HEAD + 1, self.row_height_hint(&self.display));
+        self.refresh_reset();
         self.zoom_tween = Some(Tween::new(anim::ZOOM));
         self.set_meta("zoom", &id.to_string());
         let top = self.restore_scroll();
@@ -253,8 +252,7 @@ impl Outline {
             self.remember_scroll();
         }
         self.query = q;
-        self.refresh(false);
-        self.list.reset_with_uniform_height(self.display.len() + HEAD + 1, self.row_height_hint(&self.display));
+        self.refresh_reset();
         self.restore_scroll();
     }
 

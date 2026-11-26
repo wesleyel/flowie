@@ -280,6 +280,11 @@ async function run(): Promise<void> {
   await draw();
 }
 
+// Keep the page's files for opening offline (sw.js); the outline is in OPFS already.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch((error: unknown) => console.warn("Flowie: no offline page:", error));
+}
+
 run().catch((error: unknown) => {
   status.textContent = `error: ${error instanceof Error ? error.message : String(error)}`;
   console.error(error);

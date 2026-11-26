@@ -15,4 +15,5 @@ AR_wasm32_unknown_unknown="$(rustc --print sysroot)/lib/rustlib/$host/bin/llvm-a
     cargo build -p flowie-wasm --target wasm32-unknown-unknown --release --locked
 "$tools/bin/wasm-bindgen" --target web --out-dir web/pkg target/wasm32-unknown-unknown/release/flowie_wasm.wasm
 (cd web && npm ci --no-audit --no-fund && npm run build)
+cp assets/icon.png web/icon.png
 echo "built web/pkg and web/dist"

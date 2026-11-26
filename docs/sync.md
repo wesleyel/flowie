@@ -46,8 +46,9 @@ scripts/build-web.sh
 ```
 
 Open the server's address and paste a device token. The browser version shows and edits the
-outline (open bullets as pages, fold, add, edit, tick off, delete; Enter, Tab and Shift-Tab work as on the desktop; search, stars, today's journal page, images and undo) and keeps it in the browser's own storage (OPFS), so it
-opens without the server and sends what changed meanwhile once it can reach it. A browser
+outline (open bullets as pages, fold, add, edit, tick off, delete; Enter, Tab and Shift-Tab work as on the desktop; search, stars, today's journal page, images and undo) and keeps it in the browser's own storage (OPFS); a service worker keeps the page's own files, so
+it opens without the server, can be installed as an app, and sends what changed meanwhile
+once it can reach the server. A browser
 without OPFS (an old one, some private windows) keeps it in memory and fetches it again.
 
 ## Turn it on in Flowie

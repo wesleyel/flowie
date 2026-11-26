@@ -636,21 +636,21 @@ mod imp {
         }
     }
 
+    /// The unique bus name of the process that owns the watcher now, if any. A panel that
+    /// restarts gets a new one, and has forgotten the items registered with its predecessor.
+    fn watcher_owner(conn: &Connection) -> Option<String> {
+        conn.call_method(
+            Some("org.freedesktop.DBus"),
+            "/org/freedesktop/DBus",
+            Some("org.freedesktop.DBus"),
+            "GetNameOwner",
+            &(WATCHER_NAME,),
+        )
+        .ok()
+        .and_then(|reply| reply.body().deserialize::<String>().ok())
+    }
+
     fn watcher_has_host(conn: &Connection) -> bool {
-        let has_owner = conn
-            .call_method(
-                Some("org.freedesktop.DBus"),
-                "/org/freedesktop/DBus",
-                Some("org.freedesktop.DBus"),
-                "NameHasOwner",
-                &(WATCHER_NAME,),
-            )
-            .ok()
-            .and_then(|reply| reply.body().deserialize::<bool>().ok())
-            .unwrap_or(false);
-        if !has_owner {
-            return false;
-        }
         conn.call_method(
             Some(WATCHER_NAME),
             WATCHER_PATH,
@@ -664,11 +664,16 @@ mod imp {
         .unwrap_or(false)
     }
 
-    fn register_item(conn: &Connection, service_name: &str) -> bool {
+    /// Register the item with the watcher that owns the name now, if a tray host is there to
+    /// show it. Returns that watcher's unique name when the item is registered with it.
+    fn register_item(conn: &Connection, service_name: &str) -> Option<String> {
+        let owner = watcher_owner(conn)?;
         if !watcher_has_host(conn) {
-            return false;
+            return None;
         }
-        conn.call_method(Some(WATCHER_NAME), WATCHER_PATH, Some(WATCHER_IFACE), "RegisterStatusNotifierItem", &(service_name,)).is_ok()
+        conn.call_method(Some(WATCHER_NAME), WATCHER_PATH, Some(WATCHER_IFACE), "RegisterStatusNotifierItem", &(service_name,))
+            .ok()
+            .map(|_| owner)
     }
 
     enum Cmd {
@@ -711,12 +716,15 @@ mod imp {
                             return;
                         }
                     };
+                    // The watcher the item is registered with (its unique bus name).
                     let mut registered = register_item(&conn, &service_name);
-                    thread_available.store(registered, Ordering::Relaxed);
+                    thread_available.store(registered.is_some(), Ordering::Relaxed);
                     let _ = ready_tx.send(true);
 
-                    // Periodically re-check watcher/host presence so late-starting panels
-                    // or disabled AppIndicator extensions are reflected accurately.
+                    // Periodically re-check the watcher and its host, so a panel that starts
+                    // late, restarts (a new watcher that doesn't know the item) or loses its
+                    // AppIndicator extension is reflected: register again with a new watcher,
+                    // and report no tray while there is no host.
                     loop {
                         match cmd_rx.recv_timeout(Duration::from_secs(5)) {
                             Ok(Cmd::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -727,13 +735,13 @@ mod imp {
                                 let _ = conn.emit_signal(None::<&str>, MENU_PATH, "com.canonical.dbusmenu", "LayoutUpdated", &(rev, 0i32));
                             }
                             Err(mpsc::RecvTimeoutError::Timeout) => {
-                                let has_host = watcher_has_host(&conn);
-                                if has_host && !registered {
+                                let owner = watcher_owner(&conn);
+                                if owner.is_none() || !watcher_has_host(&conn) {
+                                    registered = None;
+                                } else if registered != owner {
                                     registered = register_item(&conn, &service_name);
-                                } else if !has_host {
-                                    registered = false;
                                 }
-                                thread_available.store(registered, Ordering::Relaxed);
+                                thread_available.store(registered.is_some(), Ordering::Relaxed);
                             }
                         }
                     }

@@ -96,6 +96,10 @@ The Homebrew and GitHub builds are not notarized. On macOS 15 or later, try open
 
 Requires Windows 10 or 11 (64-bit). Download `Flowie-<version>-windows-x64.zip`, unzip it and run `Flowie.exe`. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest).
 
+### Linux (preview)
+
+For x86_64 with glibc 2.35 or later (Ubuntu 22.04 and newer). Download `Flowie-<version>-linux-x86_64.AppImage`, make it executable and run it, or extract `Flowie-<version>-linux-x86_64.tar.gz` into `~/.local` (`tar -xzf Flowie-<version>-linux-x86_64.tar.gz -C ~/.local --strip-components=1`) and run `flowie`. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest). The Linux build is a preview; [what it needs](docs/building.md#linux).
+
 GitHub Releases and Homebrew include release candidates (`-rc.N`).
 
 ### Build from source

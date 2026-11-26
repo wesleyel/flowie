@@ -22,14 +22,33 @@ calls removed, for the App Store; see `FLOWIE-PATCH.md` there.
 - Rust via [rustup](https://rustup.rs) (`x86_64-pc-windows-msvc`)
 
 ### Linux
-Not packaged yet, but it builds and CI checks it. Besides Rust via rustup, GPUI's X11 and
-Wayland backends need these development packages (Debian/Ubuntu names):
+Released as a preview: an AppImage and a tar.gz for x86_64, built on Ubuntu 22.04, so they need
+glibc 2.35 or later. To build it yourself, besides Rust via rustup, GPUI's X11 and Wayland
+backends need these development packages (Debian/Ubuntu names):
 
 ```bash
 sudo apt install pkg-config libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev
 ```
 
-A Vulkan driver is needed at run time (Mesa's is fine).
+At run time Flowie needs:
+
+- **A Vulkan driver** (Mesa's is fine).
+- **fontconfig and fonts.** The interface font and `monospace` are whatever fontconfig picks.
+  Chinese, Japanese and Korean text needs a CJK font such as Noto CJK (`fonts-noto-cjk` on
+  Debian/Ubuntu, `google-noto-sans-cjk-fonts` on Fedora, `noto-fonts-cjk` on Arch).
+- **xdg-desktop-portal** with a backend, for the open and save dialogs (Import, Export, Insert
+  Image). GNOME and KDE come with one; on i3, sway and other bare window managers install
+  `xdg-desktop-portal` and `xdg-desktop-portal-gtk`. Without it Flowie says it can't open the
+  file dialog.
+- **An input method**, for typing Chinese and other languages: fcitx5 or IBus reach Flowie
+  through Wayland's text-input-v3 or, on X11, XIM (with `XMODIFIERS=@im=fcitx` or
+  `@im=ibus` set as usual). Input methods are among what the preview still needs reports on.
+
+Flowie runs on Wayland when the session has it, else on X11. It asks the window manager for
+a title bar; GNOME doesn't draw one for Wayland apps, so there Flowie draws its own in the menu
+bar, with the window buttons from GNOME's layout. `FLOWIE_X11=1` runs Flowie on X11 instead
+(XWayland under a Wayland session), where the window manager always draws the title bar, but
+text can look blurry with fractional scaling.
 
 ## Build and run
 
@@ -62,6 +81,28 @@ cargo build --release -p flowie-app
 ./target/release/flowie
 ```
 
+To package it the way releases are:
+
+```bash
+scripts/bundle-linux.sh target/release/flowie
+```
+
+This makes `build/Flowie-<version>-linux-<arch>.tar.gz` and, with
+[appimagetool](https://github.com/AppImage/appimagetool) on `PATH` (or in `APPIMAGETOOL`),
+`build/Flowie-<version>-linux-<arch>.AppImage`. Smaller icon sizes need ImageMagick. The tar.gz is
+an install prefix: extract it into `~/.local` and refresh the desktop's caches so the menu
+entry, icon and `.flowie` file type show up (`~/.local/bin` must be on `PATH`, since the menu
+entry runs `flowie`):
+
+```bash
+tar -xzf build/Flowie-*-linux-*.tar.gz -C ~/.local --strip-components=1
+update-desktop-database ~/.local/share/applications
+update-mime-database ~/.local/share/mime
+```
+
+Both name the desktop entry, icon and window `flowie.spokey.cn`, so Wayland matches the window
+to its icon.
+
 ### One instance per outline
 
 Launching Flowie again while it is open brings the open window forward instead of opening
@@ -93,7 +134,7 @@ crates/flowie-core   tree, operations, undo, flattening, search, markup parser, 
 crates/flowie-doc    Workspace: opens an outline and commits edits (undo history, writer), no GPUI
 crates/flowie-math   RaTeX layout and native GPUI painting of formulas
 crates/flowie-app    the GPUI application (UI, settings, i18n, MCP server)
-scripts/             app bundle, App Store package, icon
+scripts/             app bundle, Linux packages, App Store package, icon
 appstore/            Mac App Store release: fastlane, listing, screenshots, sandbox files
 website/             flowie's GitHub Pages site (home, privacy policy, terms of use)
 docs/                these documents

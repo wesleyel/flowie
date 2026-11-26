@@ -2,8 +2,9 @@
 
 Flowie is a keyboard-first outliner (bullets, zoom, journal, math, images, MCP agent access), written in
 Rust on GPUI (Zed's UI framework, taken through `gpui-kit`'s `gpui-pre` snapshots). It ships for macOS
-(App Store, GitHub releases, Homebrew cask) and Windows; Linux builds in CI but isn't packaged. It's a
-solo project and the version is `1.0.0`, released as `1.0.0-rc.N` candidates.
+(App Store, GitHub releases, Homebrew cask) and Windows, and for Linux as a preview (tar.gz and AppImage,
+`scripts/bundle-linux.sh`). It's a solo project and the version is `1.0.0`, released as `1.0.0-rc.N`
+candidates.
 
 ## Workspace
 

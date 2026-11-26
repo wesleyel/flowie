@@ -96,6 +96,10 @@ Homebrew 和 GitHub 提供的版本未经公证。如果 macOS 15 或更高版�
 
 需要 Windows 10 或 11（64 位）。下载 `Flowie-<版本号>-windows-x64.zip`，解压后运行 `Flowie.exe`。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。
 
+### Linux（预览）
+
+适用于 x86_64、glibc 2.35 及以上（Ubuntu 22.04 及更新版本）。下载 `Flowie-<版本号>-linux-x86_64.AppImage`，加上可执行权限后运行；或把 `Flowie-<版本号>-linux-x86_64.tar.gz` 解压到 `~/.local`（`tar -xzf Flowie-<版本号>-linux-x86_64.tar.gz -C ~/.local --strip-components=1`），再运行 `flowie`。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。Linux 版目前是预览版，[运行要求见这里](docs/building.md#linux)。
+
 GitHub Releases 和 Homebrew 都提供候选版（`-rc.N`）。
 
 ### 从源码构建

@@ -250,8 +250,17 @@ impl Outline {
             }
             n
         });
+        // Deleting a bullet takes its whole subtree, rows a search filter hides
+        // included: say so, since they weren't on screen.
+        let hidden = self.filter_shown().map_or(0, |shown| {
+            let tree = &self.ws.tree;
+            ids.iter().flat_map(|&id| tree.descendants(tree.resolve(id))).filter(|d| !shown.contains(d)).count()
+        });
         for id in &ids {
             self.ws.tree.trash(*id);
+        }
+        if hidden > 0 {
+            self.toast(crate::app::i18n::t!("toast.deleted_hidden", count = hidden));
         }
         self.block = None;
         self.edit = fallback.filter(|f| self.ws.tree.contains(*f)).map(|f| Edit::new(Target::Text(f), self.ws.tree.node(f).text.len()));

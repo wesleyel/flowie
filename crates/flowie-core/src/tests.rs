@@ -61,6 +61,15 @@ fn paste_code_lines_keeps_each_line_verbatim() {
 }
 
 #[test]
+fn to_items_where_drops_rows_it_rejects() {
+    let (t, [_a, b, _c, d]) = sample();
+    let all = t.to_items(&[b]);
+    assert_eq!(all[0].children.len(), 1);
+    let shown = t.to_items_where(&[b], &|id| id != d);
+    assert_eq!((shown[0].text.as_str(), shown[0].children.len()), ("b", 0));
+}
+
+#[test]
 fn split_and_merge() {
     let (mut t, [a, ..]) = sample();
     t.set_text(a, "hello world");

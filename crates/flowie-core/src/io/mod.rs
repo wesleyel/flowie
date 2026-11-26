@@ -51,14 +51,24 @@ impl Tree {
     /// Detached copies of `ids` and their subtrees. Mirrors are resolved to
     /// their source's content.
     pub fn to_items(&self, ids: &[NodeId]) -> Vec<Item> {
-        ids.iter().filter(|id| self.contains(**id)).map(|&id| self.item(id, 0)).collect()
+        self.to_items_where(ids, &|_| true)
     }
 
-    fn item(&self, id: NodeId, guard: usize) -> Item {
+    /// Like [`Tree::to_items`], but a descendant is copied only when `keep`
+    /// accepts it (with a search filter on: only the rows the filter shows).
+    pub fn to_items_where(&self, ids: &[NodeId], keep: &dyn Fn(NodeId) -> bool) -> Vec<Item> {
+        ids.iter().filter(|id| self.contains(**id)).map(|&id| self.item(id, keep, 0)).collect()
+    }
+
+    fn item(&self, id: NodeId, keep: &dyn Fn(NodeId) -> bool, guard: usize) -> Item {
         let n = self.node(id);
         let src = self.source(id);
         let s = self.node(src);
-        let children = if guard > 200 { Vec::new() } else { self.children(src).iter().map(|&c| self.item(c, guard + 1)).collect() };
+        let children = if guard > 200 {
+            Vec::new()
+        } else {
+            self.children(src).iter().filter(|&&c| keep(c)).map(|&c| self.item(c, keep, guard + 1)).collect()
+        };
         Item {
             text: s.text.clone(),
             note: s.note.clone(),

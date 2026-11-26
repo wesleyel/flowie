@@ -1,12 +1,13 @@
 //! Clipboard commands for text, outline subtrees, and images.
 
-use flowie_core::{io, NodeId, Tree};
+use std::collections::HashSet;
+
+use flowie_core::{io, Item, NodeId};
 use gpui::{ClipboardItem, Context, Window};
 
 use super::{BlockSel, Copy, Cut, DeleteNode, Edit, Outline, Paste, Target};
 
-fn items_to_clipboard(tree: &Tree, ids: &[NodeId]) -> ClipboardItem {
-    let items = tree.to_items(ids);
+fn items_to_clipboard(items: Vec<Item>) -> ClipboardItem {
     let text = io::to_markdown(&items);
     ClipboardItem::new_string_with_json_metadata(text, items)
 }
@@ -23,10 +24,20 @@ impl Outline {
         }
     }
 
+    /// With a search filter on, the rows it shows (as real ids); `None` without one.
+    pub fn filter_shown(&self) -> Option<HashSet<NodeId>> {
+        self.view_options().query.is_some().then(|| self.rows.iter().map(|r| self.ws.tree.resolve(r.id)).collect())
+    }
+
     /// Copy bullets with full fidelity for pasting inside Flowie, plus
-    /// Markdown text for other apps.
+    /// Markdown text for other apps. With a search filter on, only the rows
+    /// it shows are copied, as they appear.
     pub fn copy_items(&self, ids: &[NodeId], cx: &mut Context<Self>) {
-        cx.write_to_clipboard(items_to_clipboard(&self.ws.tree, ids));
+        let items = match self.filter_shown() {
+            Some(shown) => self.ws.tree.to_items_where(ids, &|id| shown.contains(&id)),
+            None => self.ws.tree.to_items(ids),
+        };
+        cx.write_to_clipboard(items_to_clipboard(items));
     }
 
     pub fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
@@ -47,7 +58,9 @@ impl Outline {
             if roots.is_empty() {
                 return;
             }
-            self.copy_items(&roots, cx);
+            // Cut moves the bullets, so the clipboard gets everything Delete
+            // takes, rows the search filter hides included.
+            cx.write_to_clipboard(items_to_clipboard(self.ws.tree.to_items(&roots)));
             self.delete_node(&DeleteNode, window, cx);
             self.toast(crate::app::i18n::t!("toast.cut_kept_in_trash"));
         } else if let Some(e) = &self.edit {
@@ -133,7 +146,7 @@ impl Outline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flowie_core::{BlockKind, ROOT};
+    use flowie_core::{BlockKind, Tree, ROOT};
 
     #[test]
     fn cut_image_clipboard_keeps_the_caption_and_subtree() {
@@ -148,7 +161,7 @@ mod tests {
         node.collapsed = true;
         tree.put(node);
 
-        let clipboard = items_to_clipboard(&tree, &[image]);
+        let clipboard = items_to_clipboard(tree.to_items(&[image]));
         let [gpui::ClipboardEntry::String(entry)] = clipboard.entries() else { panic!("expected structured text") };
         let items = entry.metadata_json::<Vec<flowie_core::Item>>().unwrap();
         tree.delete(image);

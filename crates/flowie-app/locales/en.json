@@ -30,6 +30,10 @@
     "nothing_to_export": "Nothing to export",
     "bullet_deleted": "That bullet was deleted (see Trash)",
     "cut_kept_in_trash": "Cut — also kept in Trash",
+    "deleted_hidden": {
+      "one": "Also moved {count} bullet the search hides to Trash",
+      "other": "Also moved {count} bullets the search hides to Trash"
+    },
     "moved": {
       "one": "Moved {count} bullet to “{target}”",
       "other": "Moved {count} bullets to “{target}”"

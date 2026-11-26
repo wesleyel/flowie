@@ -30,6 +30,7 @@
     "nothing_to_export": "没有可导出的内容",
     "bullet_deleted": "该条目已删除（见废纸篓）",
     "cut_kept_in_trash": "已剪切，废纸篓中也保留了一份",
+    "deleted_hidden": "搜索隐藏的 {count} 个条目也一并移到了废纸篓",
     "moved": "已将 {count} 个条目移动到“{target}”",
     "starred": "已收藏“{name}”，按 {shortcut} 跳转",
     "unstarred": "已取消收藏“{name}”",

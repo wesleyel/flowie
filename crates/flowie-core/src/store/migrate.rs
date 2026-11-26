@@ -220,14 +220,14 @@ fn prune_backups(path: &Path) {
     }
 }
 
-/// Rename an old-format database (and its WAL and shared-memory files) to
-/// `<name>.old-<millis>`, where a newer Flowie leaves it alone.
+/// Rename an old-format database and its sidecars, including the image folder,
+/// to `<name>.old-<millis>`, where a newer Flowie leaves them alone.
 fn set_aside(path: &Path) -> std::io::Result<PathBuf> {
     let mut aside = path.as_os_str().to_owned();
     aside.push(format!(".old-{}", crate::tree::now_millis()));
     let aside = PathBuf::from(aside);
     let mut moved = Vec::new();
-    for suffix in ["", "-wal", "-shm"] {
+    for suffix in ["", "-wal", "-shm", ".images"] {
         let mut from = path.as_os_str().to_owned();
         from.push(suffix);
         let mut to = aside.as_os_str().to_owned();
@@ -421,12 +421,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("flowie.sqlite");
         drop(database_at(&path, BASELINE - 1));
+        let images = crate::images::ImageDir::beside(&path);
+        let original = b"GIF89a\x05\x00\x07\x00";
+        let image = images.put(original).unwrap();
         let conn = open(&path, &format(&[add_note])).unwrap();
         assert_eq!(version(&conn), BASELINE + 1);
         assert!(texts(&conn).is_empty());
-        let aside = files_with(dir.path(), ".old-");
+        let aside = files_with(dir.path(), ".old-").into_iter().filter(|path| path.is_file()).collect::<Vec<_>>();
         let [moved] = aside.as_slice() else { panic!("expected one database set aside, found {aside:?}") };
         assert_eq!(texts(&Connection::open(moved).unwrap()), ["a", "b"]);
+        assert!(!images.has(&image.name));
+        let old_images = crate::images::ImageDir::beside(moved);
+        assert_eq!(std::fs::read(old_images.path(&image.name).unwrap()).unwrap(), original);
         assert!(files_with(dir.path(), ".backup-").is_empty());
     }
 

@@ -133,7 +133,8 @@ and rename a backup to `flowie.sqlite` (with an older Flowie, the one that wrote
 the backup or the upgrade fails, the database is left as it was and Flowie opens an empty window
 that says so. A database from a newer Flowie is never changed: Flowie asks you to update.
 A database from a 1.0 release candidate isn't upgraded but kept as
-`flowie.sqlite.old-<timestamp>`, and Flowie starts a new one.
+`flowie.sqlite.old-<timestamp>`, with its image folder at `flowie.sqlite.old-<timestamp>.images`.
+Flowie starts a new database.
 
 To change the format, change `SCHEMA` and append a migration to `MIGRATIONS` in
 `crates/flowie-core/src/store/mod.rs`; the steps and the tests a migration needs are in that

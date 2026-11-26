@@ -10,7 +10,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ## [1.0.0] - 2026-11-26
 
-**Upgrading from a release candidate?** Export your outline as OPML or as a `.flowie` share package before updating, then import it into 1.0. Flowie preserves the old database as `flowie.sqlite.old-<timestamp>` and starts a fresh one. Do not rename the old database over the new one.
+**Upgrading from a release candidate?** Export your outline as OPML or as a `.flowie` share package before updating, then import it into 1.0. Flowie preserves the old database as `flowie.sqlite.old-<timestamp>` and keeps its images beside it. Do not rename the old database over the new one.
 
 ### Added
 

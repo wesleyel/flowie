@@ -33,5 +33,10 @@ uuid = { version = "1", features = ["js"] }
 [dev-dependencies]
 tempfile = "3"
 
+# `cargo bench -p flowie-core --bench large_outline`: time and memory of a large outline.
+[[bench]]
+name = "large_outline"
+harness = false
+
 [lints]
 workspace = true

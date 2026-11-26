@@ -98,9 +98,9 @@ impl Tree {
     /// - caret at start of non-empty text → empty sibling above, caret stays.
     /// - expanded node with children, caret at end → new first child.
     /// - otherwise → the text after the caret moves to a new sibling below.
-    /// - empty to-do or numbered item → it turns back into a plain bullet.
+    /// - empty to-do, numbered item or paragraph → it turns back into a plain bullet.
     ///
-    /// A new row takes the list kind (to-do, numbered) of the row it sits
+    /// A new row takes the list kind (to-do, numbered, paragraph) of the row it sits
     /// next to: the split row for a sibling, the old first child for a child.
     pub fn split(&mut self, id: NodeId, at: usize) -> (NodeId, usize) {
         let text = self.node(id).text.clone();

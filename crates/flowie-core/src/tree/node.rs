@@ -29,9 +29,10 @@ pub enum BlockKind {
 }
 
 impl BlockKind {
-    /// List kinds carry over to the row Enter creates next to them.
+    /// Kinds that carry over to the row Enter creates next to them: lists
+    /// and paragraphs. Enter on an empty one turns it back into a bullet.
     pub fn is_list(self) -> bool {
-        matches!(self, BlockKind::Todo | BlockKind::Numbered)
+        matches!(self, BlockKind::Todo | BlockKind::Numbered | BlockKind::Paragraph)
     }
 
     /// The kind a new row next to a row of this kind starts with.

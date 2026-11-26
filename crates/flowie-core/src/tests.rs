@@ -70,6 +70,21 @@ fn to_items_where_drops_rows_it_rejects() {
 }
 
 #[test]
+fn enter_on_a_paragraph_continues_it() {
+    let (mut t, [a, ..]) = sample();
+    t.set_kind(a, BlockKind::Paragraph);
+    let (new, _) = t.split(a, 1);
+    assert_eq!(t.node(new).kind, BlockKind::Paragraph);
+    // Enter on the empty paragraph goes back to a bullet.
+    let (same, _) = t.split(new, 0);
+    assert_eq!((same, t.node(new).kind), (new, BlockKind::Bullet));
+    // Headings and quotes still start a bullet.
+    t.set_kind(a, BlockKind::H2);
+    let (next, _) = t.split(a, 1);
+    assert_eq!(t.node(next).kind, BlockKind::Bullet);
+}
+
+#[test]
 fn split_and_merge() {
     let (mut t, [a, ..]) = sample();
     t.set_text(a, "hello world");

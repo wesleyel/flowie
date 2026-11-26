@@ -10,6 +10,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ### Fixed
 
+- **Paragraphs**: Enter on a paragraph starts another paragraph instead of a bullet, like to-dos and numbered items; Enter on an empty paragraph turns it into a bullet.
 - **Code blocks**: pasting several lines of text into a code row no longer reads them as an outline. Each line becomes a code row of its own, exactly as written, so `#` comments, `-` and indentation stay code.
 - **Search**: with a search filter on, copying bullets copies only the rows the filter shows, as they appear. Cut still takes whole bullets, since it moves them, and deleting a bullet whose children the filter hides now says how many hidden bullets went to the Trash with it.
 

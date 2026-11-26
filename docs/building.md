@@ -66,8 +66,9 @@ cargo build --release -p flowie-app
 
 Launching Flowie again while it is open brings the open window forward instead of opening
 the outline twice; a launch with `--background` (as `flowie mcp` starts it) just exits.
-The running app owns a local socket per database (a Unix socket in `/tmp`, or a named pipe on
-Windows), which is also what `flowie mcp` talks to.
+The running app owns a local socket per database (a Unix socket in `/tmp` on macOS, in
+`$XDG_RUNTIME_DIR` or `/run/user/<uid>` on Linux, or a named pipe on Windows), which is also what
+`flowie mcp` talks to.
 
 ## Where data lives
 

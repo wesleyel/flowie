@@ -1,6 +1,6 @@
 //! The local socket that belongs to the Flowie instance holding a database:
-//! a Unix domain socket (owner-only, in `/tmp` or the sandbox's tmp) or a
-//! named pipe on Windows. Claiming it is also how Flowie stays a single
+//! a Unix domain socket (owner-only, in `/tmp`, the sandbox's tmp or, on
+//! Linux, the user's runtime folder) or a named pipe on Windows. Claiming it is also how Flowie stays a single
 //! instance per database: a second launch finds the first one here and
 //! hands over instead of opening the same database twice.
 
@@ -34,10 +34,33 @@ pub fn socket_path(db: &Path) -> std::path::PathBuf {
     let uid = unsafe { libc::getuid() };
     let name = format!("flowie-{uid}-{:08x}.sock", hash_u32(db));
     // The sandbox can't use /tmp; its container has its own tmp.
-    match crate::app::platform::sandbox_container() {
-        Some(data) => data.join("tmp").join(name),
-        None => std::path::PathBuf::from("/tmp").join(name),
+    if let Some(data) = crate::app::platform::sandbox_container() {
+        return data.join("tmp").join(name);
     }
+    #[cfg(not(target_os = "macos"))]
+    if let Some(dir) = runtime_dir(uid, &name, std::env::var_os("XDG_RUNTIME_DIR")) {
+        return dir.join(name);
+    }
+    std::path::PathBuf::from("/tmp").join(name)
+}
+
+/// Linux and the other Unix desktops: the user's own runtime folder rather than the shared
+/// `/tmp`. That is `$XDG_RUNTIME_DIR`, else `/run/user/<uid>` (what it normally names), so
+/// the app and a `flowie mcp` started without the variable still meet at the same socket.
+/// A candidate counts only if it is a folder this user owns and leaves the socket's path
+/// short enough; with neither, the socket stays in `/tmp`.
+#[cfg(unix)]
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn runtime_dir(uid: u32, name: &str, xdg_runtime_dir: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    // A Unix socket's path is limited to 108 bytes on Linux, 104 on the BSDs.
+    const MAX_SOCKET_PATH: usize = 100;
+    let from_env = xdg_runtime_dir.filter(|d| !d.is_empty()).map(std::path::PathBuf::from);
+    from_env.into_iter().chain([std::path::PathBuf::from(format!("/run/user/{uid}"))]).find(|dir| {
+        dir.is_absolute()
+            && dir.join(name).as_os_str().len() <= MAX_SOCKET_PATH
+            && std::fs::metadata(dir).is_ok_and(|m| m.is_dir() && m.uid() == uid)
+    })
 }
 
 /// The socket's name for the database at `db`. Named pipes live in one
@@ -174,5 +197,32 @@ pub fn call(stream: &LocalSocketStream, method: &str, params: Value) -> Result<S
         (Some(r), _) => Ok(r.as_str().unwrap_or_default().to_string()),
         (_, Some(e)) => Err(e.as_str().unwrap_or("error").to_string()),
         _ => Err("bad answer".into()),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_dir_takes_an_owned_folder_and_skips_bad_ones() {
+        // SAFETY: getuid has no preconditions and cannot fail.
+        let uid = unsafe { libc::getuid() };
+        let name = "flowie-test.sock";
+        let mine = std::env::temp_dir().join(format!("flowie-runtime-{}", std::process::id()));
+        std::fs::create_dir_all(&mine).unwrap();
+        let mine = mine.canonicalize().unwrap();
+        let chosen = runtime_dir(uid, name, Some(mine.clone().into()));
+        // A long temp folder is skipped for the socket's length limit; it's ours otherwise.
+        if mine.join(name).as_os_str().len() <= 100 {
+            assert_eq!(chosen.as_deref(), Some(mine.as_path()));
+        }
+        for bad in ["relative/dir", "/nonexistent/flowie-runtime", ""] {
+            assert_ne!(runtime_dir(uid, name, Some(bad.into())), Some(bad.into()), "{bad:?}");
+        }
+        let long = mine.join("x".repeat(100));
+        std::fs::create_dir_all(&long).unwrap();
+        assert_ne!(runtime_dir(uid, name, Some(long.clone().into())), Some(long));
+        std::fs::remove_dir_all(&mine).unwrap();
     }
 }

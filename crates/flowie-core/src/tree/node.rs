@@ -88,7 +88,9 @@ impl BlockKind {
 pub struct Node {
     pub id: NodeId,
     pub parent: NodeId,
-    pub rank: f64,
+    /// Position among its siblings: a fractional-index key (`crate::rank`),
+    /// compared as bytes; equal keys fall back to the id.
+    pub rank: String,
     pub text: String,
     pub note: String,
     pub completed: bool,
@@ -107,7 +109,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(id: NodeId, parent: NodeId, rank: f64) -> Self {
+    pub fn new(id: NodeId, parent: NodeId, rank: String) -> Self {
         let now = now_millis();
         Node {
             id,

@@ -362,7 +362,7 @@ mod tests {
         let work = std::env::temp_dir().join(format!("flowie-untrash-{}", NodeId::random()));
         let db = work.join("flowie.sqlite");
         let writer = Writer::spawn(open(&db).unwrap());
-        let (a, b) = (Node::new(NodeId::random(), ROOT, 1.0), Node::new(NodeId::random(), ROOT, 2.0));
+        let (a, b) = (Node::new(NodeId::random(), ROOT, "a0".into()), Node::new(NodeId::random(), ROOT, "a1".into()));
         writer.trash(a.id, "a", vec![a.clone()]);
         writer.trash(a.id, "a again", vec![a.clone()]);
         writer.trash(b.id, "b", vec![b.clone()]);
@@ -393,9 +393,9 @@ mod tests {
         let blocker = open(&db).unwrap();
         blocker.execute_batch("BEGIN EXCLUSIVE").unwrap();
 
-        let mut a = Node::new(NodeId::random(), ROOT, 1.0);
+        let mut a = Node::new(NodeId::random(), ROOT, "a0".into());
         a.text = "kept after retry".into();
-        let b = Node::new(NodeId::random(), ROOT, 2.0);
+        let b = Node::new(NodeId::random(), ROOT, "a1".into());
         writer.write(vec![a.clone()], Vec::new());
         writer.trash(b.id, "deleted b", vec![b.clone()]);
         let error = writer.flush().unwrap_err();

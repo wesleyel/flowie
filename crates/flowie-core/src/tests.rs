@@ -139,18 +139,60 @@ fn move_up_down_and_across_parents() {
 }
 
 #[test]
-fn many_inserts_between_trigger_renumber() {
+fn inserts_and_moves_never_rewrite_other_ranks() {
     let mut t = Tree::new();
     let first = t.create_at(ROOT, 0, "first");
     t.create_after(first, "last");
+    t.take_journal();
     for i in 0..200 {
         t.create_at(ROOT, 1, &format!("{i}"));
+        // One change per insert: the new node, nobody else.
+        assert_eq!(t.take_journal().len(), 1);
     }
     let ts = texts(&t, ROOT);
     assert_eq!(ts.first().unwrap(), "first");
     assert_eq!(ts.last().unwrap(), "last");
     assert_eq!(ts[1], "199");
     assert_eq!(ts[200], "0");
+    let ranks: Vec<&str> = t.children(ROOT).iter().map(|c| t.node(*c).rank.as_str()).collect();
+    assert!(ranks.windows(2).all(|w| w[0] < w[1]));
+    let moved = t.children(ROOT)[5];
+    for _ in 0..50 {
+        assert!(t.move_to(moved, ROOT, 1));
+        assert!(t.move_to(moved, ROOT, 3));
+    }
+    let journal = t.take_journal();
+    assert!(journal.iter().all(|c| c.id == moved), "only the moved node changes");
+}
+
+#[test]
+fn tied_ranks_place_new_nodes_after_the_tie() {
+    let key = rank::between(None, None);
+    let mut nodes: Vec<Node> = (0..3).map(|_| Node::new(NodeId::random(), ROOT, key.clone())).collect();
+    nodes.sort_by_key(|n| n.id);
+    let mut t = Tree::from_nodes(nodes.clone());
+    assert_eq!(t.children(ROOT), nodes.iter().map(|n| n.id).collect::<Vec<_>>(), "equal keys order by id");
+    t.take_dirty();
+    let new = t.create_at(ROOT, 1, "new");
+    assert_eq!(t.children(ROOT).last(), Some(&new));
+    let front = t.create_at(ROOT, 0, "front");
+    assert_eq!(t.children(ROOT)[0], front);
+    let (dirty, _) = t.take_dirty();
+    assert_eq!(dirty.len(), 2);
+}
+
+#[test]
+fn malformed_ranks_are_repaired_on_load_keeping_order() {
+    let mut a = Node::new(NodeId::random(), ROOT, String::new());
+    a.text = "a".into();
+    let mut b = Node::new(NodeId::random(), ROOT, "a0".into());
+    b.text = "b".into();
+    let mut c = Node::new(NodeId::random(), ROOT, "a1".into());
+    c.text = "c".into();
+    let mut t = Tree::from_nodes([c, b, a]);
+    assert_eq!(texts(&t, ROOT), ["a", "b", "c"]);
+    assert!(t.children(ROOT).iter().all(|id| rank::is_valid(&t.node(*id).rank)));
+    assert_eq!(t.take_dirty().0.len(), 3);
 }
 
 #[test]

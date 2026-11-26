@@ -60,7 +60,7 @@ mod tests {
         let db = work.join("flowie.sqlite");
         let conn = open(&db).unwrap();
         let now = crate::tree::now_millis();
-        let ok_node = Node::new(NodeId::random(), ROOT, 1.0);
+        let ok_node = Node::new(NodeId::random(), ROOT, "a0".into());
         let ok_payload = serde_json::to_string(&vec![ok_node.clone()]).unwrap();
         let bad_root = NodeId::random();
         let empty_root = NodeId::random();

@@ -72,7 +72,7 @@ mod tests {
             writer.blob(blob.clone());
         }
         let image_node = |name: &str| {
-            let mut node = Node::new(NodeId::random(), ROOT, 1.0);
+            let mut node = Node::new(NodeId::random(), ROOT, "a0".into());
             node.kind = BlockKind::Image;
             node.image = name.to_string();
             node

@@ -146,9 +146,10 @@ impl Package {
         let now = crate::tree::now_millis();
         let mut roots = Vec::new();
         let index = index.min(tree.children(parent).len());
-        for (i, &r) in self.outline.roots.iter().enumerate() {
-            let rank = tree.rank_at(parent, index + i);
+        let ranks = tree.ranks_at(parent, index, self.outline.roots.len());
+        for (&r, rank) in self.outline.roots.iter().zip(ranks) {
             // (package node, parent in the tree, rank), parents before children.
+            // Ranks are made here, for this tree: packages carry only order.
             let mut stack = vec![(r, parent, rank)];
             while let Some((id, under, rank)) = stack.pop() {
                 let Some(n) = by_id.get(&id) else { continue };
@@ -171,8 +172,9 @@ impl Package {
                 if under == parent {
                     roots.push(new_id);
                 }
-                for (j, &c) in children.iter().enumerate().rev() {
-                    stack.push((c, new_id, j as f64 + 1.0));
+                // `new_id` is new, so its children are the only ones.
+                for (&c, rank) in children.iter().zip(crate::rank::n_between(None, None, children.len())).rev() {
+                    stack.push((c, new_id, rank));
                 }
             }
         }

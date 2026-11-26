@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use flowie_core::markup::{rewrite_links, LinkEdit};
-use flowie_core::{store, BlockKind, Node, NodeId, ROOT};
+use flowie_core::{rank, store, BlockKind, Node, NodeId, ROOT};
 use rusqlite::{backup::NO_PROGRESS, params, Connection, OpenFlags, MAIN_DB};
 use serde::Deserialize;
 use tempfile::NamedTempFile;
@@ -71,7 +71,7 @@ impl LegacyNode {
         Node {
             id: remap(ids, self.id),
             parent: remap(ids, self.parent),
-            rank: self.rank,
+            rank: String::new(),
             text,
             note,
             completed: self.completed,
@@ -83,6 +83,24 @@ impl LegacyNode {
             image: String::new(),
         }
     }
+}
+
+/// Fractional-index ranks for migrated nodes, keeping each sibling list's
+/// legacy order (rank, then id: the new ids keep the old ids' order).
+fn migrate_all(legacy: Vec<LegacyNode>, ids: &mut IdMap) -> Vec<Node> {
+    let ranks: Vec<f64> = legacy.iter().map(|node| node.rank).collect();
+    let mut nodes: Vec<Node> = legacy.into_iter().map(|node| node.migrate(ids)).collect();
+    let mut siblings: HashMap<NodeId, Vec<usize>> = HashMap::new();
+    for (i, node) in nodes.iter().enumerate() {
+        siblings.entry(node.parent).or_default().push(i);
+    }
+    for mut list in siblings.into_values() {
+        list.sort_by(|&a, &b| ranks[a].total_cmp(&ranks[b]).then(nodes[a].id.cmp(&nodes[b].id)));
+        for (i, key) in list.iter().zip(rank::n_between(None, None, list.len())) {
+            nodes[*i].rank = key;
+        }
+    }
+    nodes
 }
 
 struct LegacyTrash {
@@ -179,7 +197,7 @@ fn build_rc4(snapshot: &Connection, parent: &Path) -> Result<(NamedTempFile, usi
         })?
         .collect::<Result<Vec<_>>>()?;
     let mut ids = ids_in_sibling_tiebreak_order(&nodes, &trash);
-    let nodes: Vec<_> = nodes.into_iter().map(|node| node.migrate(&mut ids)).collect();
+    let nodes = migrate_all(nodes, &mut ids);
     let mut statement = snapshot.prepare("SELECT key, value FROM meta")?;
     let meta = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
     let mut metadata = Vec::new();
@@ -201,7 +219,7 @@ fn build_rc4(snapshot: &Connection, parent: &Path) -> Result<(NamedTempFile, usi
     let batch = output.transaction()?;
     for entry in &trash {
         let root = remap(&mut ids, entry.root);
-        let nodes: Vec<_> = entry.nodes.iter().cloned().map(|node| node.migrate(&mut ids)).collect();
+        let nodes = migrate_all(entry.nodes.clone(), &mut ids);
         batch.execute(
             "INSERT INTO trash (seq, root, deleted_at, label, payload) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![entry.seq, root, entry.deleted_at, entry.label, serde_json::to_string(&nodes)?],

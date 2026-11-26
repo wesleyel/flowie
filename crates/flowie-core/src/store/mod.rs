@@ -28,7 +28,7 @@ PRAGMA synchronous = NORMAL;
 CREATE TABLE IF NOT EXISTS nodes (
     id        BLOB    PRIMARY KEY,
     parent    BLOB    NOT NULL,
-    rank      REAL    NOT NULL,
+    rank      TEXT    NOT NULL,   -- fractional index (crate::rank), BINARY order
     text      TEXT    NOT NULL DEFAULT '',
     note      TEXT    NOT NULL DEFAULT '',
     completed INTEGER NOT NULL DEFAULT 0,
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS meta (
 
 /// The database format, kept in `PRAGMA user_version`. An older database is
 /// moved aside, not converted.
-const FORMAT: i64 = 3;
+const FORMAT: i64 = 4;
 
 impl rusqlite::ToSql for NodeId {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
@@ -189,7 +189,7 @@ fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, upserts: &[Node], deletes: &[N
         up.execute(params![
             n.id,
             n.parent,
-            n.rank,
+            &n.rank,
             n.text,
             n.note,
             n.completed as i64,

@@ -58,7 +58,7 @@ fn link_targets(node: &Node) -> HashSet<NodeId> {
 impl Tree {
     pub fn new() -> Self {
         let mut tree = Tree::default();
-        tree.nodes.insert(ROOT, Node::new(ROOT, ROOT, 0.0));
+        tree.nodes.insert(ROOT, Node::new(ROOT, ROOT, String::new()));
         tree.children.insert(ROOT, Vec::new());
         tree
     }
@@ -80,8 +80,9 @@ impl Tree {
         }
         let nodes = &tree.nodes;
         for list in tree.children.values_mut() {
-            list.sort_by(|a, b| nodes[a].rank.total_cmp(&nodes[b].rank).then(a.cmp(b)));
+            list.sort_by(|a, b| nodes[a].rank.cmp(&nodes[b].rank).then(a.cmp(b)));
         }
+        tree.repair_ranks();
         tree.break_cycles();
         let all: Vec<Node> = tree.nodes.values().cloned().collect();
         for n in &all {
@@ -162,6 +163,24 @@ impl Tree {
             });
         }
         ids
+    }
+
+    /// Defensive: give fresh keys to sibling lists holding a malformed rank
+    /// (bad data; the editor never writes one), keeping their order.
+    fn repair_ranks(&mut self) {
+        let broken: Vec<NodeId> = self
+            .children
+            .iter()
+            .filter(|(_, list)| list.iter().any(|c| !crate::rank::is_valid(&self.nodes[c].rank)))
+            .map(|(parent, _)| *parent)
+            .collect();
+        for parent in broken {
+            let list = self.children[&parent].clone();
+            for (id, rank) in list.iter().zip(crate::rank::n_between(None, None, list.len())) {
+                self.nodes.get_mut(id).unwrap().rank = rank;
+                self.dirty.insert(*id);
+            }
+        }
     }
 
     /// Defensive: any node unreachable from the root (a parent cycle in bad data) moves to the root.
@@ -309,42 +328,36 @@ impl Tree {
         }
     }
 
-    /// A rank that sorts at position `index` among the current children of `parent`.
-    pub fn rank_at(&mut self, parent: NodeId, index: usize) -> f64 {
+    /// A new rank that sorts at position `index` among the current children
+    /// of `parent`. Only the neighbours' keys are read; no other node changes.
+    pub fn rank_at(&self, parent: NodeId, index: usize) -> String {
         self.rank_at_excluding(parent, index, None)
     }
 
     /// Like `rank_at`, but computed as if `exclude` were not among the children
     /// (`index` counts siblings without it).
-    pub fn rank_at_excluding(&mut self, parent: NodeId, index: usize, exclude: Option<NodeId>) -> f64 {
-        let list: Vec<NodeId> = self.children(parent).iter().copied().filter(|c| Some(*c) != exclude).collect();
-        let index = index.min(list.len());
-        let before = index.checked_sub(1).map(|i| self.nodes[&list[i]].rank);
-        let after = list.get(index).map(|id| self.nodes[id].rank);
-        match (before, after) {
-            (None, None) => 1.0,
-            (Some(b), None) => b + 1.0,
-            (None, Some(a)) => a - 1.0,
-            (Some(b), Some(a)) => {
-                let mid = (a + b) / 2.0;
-                if mid > b && mid < a && (a - b) > 1e-9 {
-                    mid
-                } else {
-                    self.renumber(parent, exclude);
-                    index as f64 + 0.5
-                }
-            }
-        }
+    pub fn rank_at_excluding(&self, parent: NodeId, index: usize, exclude: Option<NodeId>) -> String {
+        let (before, after) = self.rank_bounds(parent, index, exclude);
+        crate::rank::between(before, after)
     }
 
-    /// Respace sibling ranks to 1, 2, 3… (rare; recorded like any other change).
-    fn renumber(&mut self, parent: NodeId, exclude: Option<NodeId>) {
-        let list: Vec<NodeId> = self.children(parent).iter().copied().filter(|c| Some(*c) != exclude).collect();
-        for (i, id) in list.into_iter().enumerate() {
-            let mut node = self.nodes[&id].clone();
-            node.rank = i as f64 + 1.0;
-            self.put(node);
-        }
+    /// `n` new ranks, in order, for a run of nodes inserted at `index` among
+    /// `parent`'s children (short, evenly spread keys for pastes and imports).
+    pub fn ranks_at(&self, parent: NodeId, index: usize, n: usize) -> Vec<String> {
+        let (before, after) = self.rank_bounds(parent, index, None);
+        crate::rank::n_between(before, after, n)
+    }
+
+    /// The keys a new rank at `index` must fall strictly between. Siblings
+    /// sharing one key are ordered by id, so no key fits between them: a new
+    /// node there goes after the whole tied run instead.
+    fn rank_bounds(&self, parent: NodeId, index: usize, exclude: Option<NodeId>) -> (Option<&str>, Option<&str>) {
+        let ranks: Vec<&str> = self.children(parent).iter().filter(|c| Some(**c) != exclude).map(|c| self.nodes[c].rank.as_str()).collect();
+        let index = index.min(ranks.len());
+        let valid = |r: &&str| crate::rank::is_valid(r);
+        let before = ranks[..index].iter().rev().copied().find(valid);
+        let after = ranks[index..].iter().copied().filter(valid).find(|r| before.is_none_or(|b| b < *r));
+        (before, after)
     }
 
     /// Insert or replace a node, keeping the children index sorted and recording the change.
@@ -376,10 +389,7 @@ impl Tree {
         let list = self.children.entry(node.parent).or_default();
         let pos = list
             .iter()
-            .position(|c| {
-                let r = nodes.get(c).map(|n| n.rank).unwrap_or(f64::MAX);
-                r > node.rank || (r == node.rank && *c > node.id)
-            })
+            .position(|c| nodes.get(c).is_none_or(|n| (n.rank.as_str(), *c) > (node.rank.as_str(), node.id)))
             .unwrap_or(list.len());
         list.insert(pos, node.id);
     }
@@ -488,7 +498,7 @@ impl Tree {
         }
         let nodes = &self.nodes;
         for list in children.values_mut() {
-            list.sort_by(|a, b| nodes[a].rank.total_cmp(&nodes[b].rank).then(a.cmp(b)));
+            list.sort_by(|a, b| nodes[a].rank.cmp(&nodes[b].rank).then(a.cmp(b)));
         }
         self.children = children;
     }

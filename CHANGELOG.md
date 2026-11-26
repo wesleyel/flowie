@@ -17,6 +17,7 @@ notes (`scripts/changelog-section.sh`). A version first ships as release candida
 
 - **Journal**: the Journal bullet and each day's page now have fixed IDs derived from the date, so they are found by ID instead of by their text, and two devices that open the same day will share one page once sync arrives. A journal made by an earlier release candidate isn't recognized: Today and the calendar start a new Journal bullet beside it.
 - **Linux**: the socket that `flowie mcp` and a second launch use to reach the running app is now in your runtime folder (`$XDG_RUNTIME_DIR`, usually `/run/user/<uid>`) rather than in `/tmp`.
+- **Storage**: a bullet's position among its siblings is now a short text key that a new bullet or a move can always fit between, so inserting or moving a bullet changes only that bullet and never renumbers its siblings. This changes the database format: a database from an earlier release candidate is kept beside the new one as `<database>.old-<timestamp>` and Flowie starts with an empty outline.
 
 ### Fixed
 

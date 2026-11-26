@@ -18,6 +18,7 @@ pub mod journal;
 pub mod markup;
 #[cfg(feature = "store")]
 pub mod package;
+pub mod rank;
 pub mod search;
 pub mod short_id;
 #[cfg(feature = "store")]

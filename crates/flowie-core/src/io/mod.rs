@@ -102,7 +102,9 @@ impl Tree {
     pub fn insert_items(&mut self, parent: NodeId, index: usize, items: &[Item]) -> Vec<NodeId> {
         let mut roots = Vec::new();
         let parent = self.source(parent);
-        let mut stack: Vec<_> = items.iter().enumerate().rev().map(|(offset, item)| (parent, index + offset, item)).collect();
+        // (parent in the tree, rank, item), parents before children.
+        let mut stack: Vec<_> =
+            items.iter().zip(self.ranks_at(parent, index, items.len())).rev().map(|(item, rank)| (parent, rank, item)).collect();
         let mut imported = Vec::new();
         let mut seen_ids = HashSet::new();
         let mut ambiguous = HashSet::new();
@@ -116,13 +118,13 @@ impl Tree {
             pending.extend(&item.children);
         }
         let mut mapped = HashMap::new();
-        while let Some((under, position, item)) = stack.pop() {
+        while let Some((under, rank, item)) = stack.pop() {
             let original = item.id.filter(|id| *id != ROOT && !id.is_virtual() && !ambiguous.contains(id));
             let id = original.filter(|id| !self.contains(*id)).unwrap_or_else(|| self.alloc_id());
             if let Some(original) = original {
                 mapped.insert(original, id);
             }
-            let mut node = Node::new(id, under, self.rank_at(under, position));
+            let mut node = Node::new(id, under, rank);
             node.text = item.text.clone();
             node.note = item.note.clone();
             node.completed = item.completed;
@@ -136,7 +138,14 @@ impl Tree {
                 roots.push(id);
             }
             imported.push((id, item.mirror_of));
-            stack.extend(item.children.iter().enumerate().rev().map(|(offset, child)| (id, offset, child)));
+            // `id` is new, so its children are the only ones.
+            stack.extend(
+                item.children
+                    .iter()
+                    .zip(crate::rank::n_between(None, None, item.children.len()))
+                    .rev()
+                    .map(|(child, rank)| (id, rank, child)),
+            );
         }
         let mirrors: HashSet<_> = imported.iter().filter(|(_, source)| source.is_some()).map(|(id, _)| *id).collect();
         let remap = |target: NodeId| mapped.get(&target).copied().unwrap_or(target);

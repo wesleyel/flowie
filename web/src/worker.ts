@@ -40,7 +40,10 @@ const handlers: Handlers = {
     sync.start();
     return { persistent };
   },
-  page: ({ root }) => JSON.parse(outline.page(root)),
+  page: ({ root, query }) => JSON.parse(outline.page(root, query)),
+  starred: () => JSON.parse(outline.starred()),
+  setStarred: ({ id, starred }) => edit(() => outline.set_starred(id, starred)),
+  today: () => edit(() => outline.today()),
   path: ({ id }) => JSON.parse(outline.path(id)),
   create: ({ parent, index, text }) => edit(() => outline.create(parent, index, text)),
   createAfter: ({ sibling, text }) => edit(() => outline.create_after(sibling, text)),
@@ -52,6 +55,7 @@ const handlers: Handlers = {
   delete: ({ id }) => edit(() => outline.delete(id)),
   setEditing: ({ id }) => outline.set_editing(id),
   undo: () => edit(() => outline.undo()),
+  redo: () => edit(() => outline.redo()),
 };
 
 scope.onmessage = async ({ data: { id, op, args } }) => {

@@ -6,6 +6,9 @@ import type { Calls, Op, Reply, Row } from "./protocol.js";
 const main = document.getElementById("main")!;
 const status = document.getElementById("status")!;
 const crumbs = document.getElementById("crumbs")!;
+const starredBar = document.getElementById("starred")!;
+const search = document.getElementById("search") as HTMLInputElement;
+const todayButton = document.getElementById("today") as HTMLButtonElement;
 
 const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 const waiting = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
@@ -52,6 +55,18 @@ function focusRow(id: string): void {
   selection?.addRange(range);
 }
 
+async function drawStarred(): Promise<void> {
+  const starred = await call("starred", {});
+  starredBar.replaceChildren(
+    ...starred.flatMap((page, i) => {
+      const link = document.createElement("a");
+      link.href = `#${page.id}`;
+      link.textContent = `★ ${page.text || "Untitled"}`;
+      return i ? [" ", link] : [link];
+    }),
+  );
+}
+
 async function drawCrumbs(root: string | undefined): Promise<void> {
   crumbs.innerHTML = "";
   const home = document.createElement("a");
@@ -89,6 +104,15 @@ function rowElement(row: Row, rows: Row[], index: number): HTMLLIElement {
   dot.href = `#${row.id}`;
   dot.textContent = "•";
   dot.title = "Open as a page";
+
+  const star = document.createElement("button");
+  star.className = row.starred ? "star on" : "star";
+  star.textContent = row.starred ? "★" : "☆";
+  star.title = row.starred ? "Unstar" : "Star";
+  star.addEventListener("click", async () => {
+    await call("setStarred", { id: row.id, starred: !row.starred });
+    await draw();
+  });
 
   const box = document.createElement("input");
   box.type = "checkbox";
@@ -152,7 +176,7 @@ function rowElement(row: Row, rows: Row[], index: number): HTMLLIElement {
     await draw();
   });
 
-  item.append(fold, dot, box, text, remove);
+  item.append(fold, dot, box, text, star, remove);
   return item;
 }
 
@@ -161,13 +185,13 @@ async function draw(focus?: string): Promise<void> {
   const root = zoomed();
   let rows: Row[];
   try {
-    rows = await call("page", { root });
+    rows = await call("page", { root, query: search.value || undefined });
   } catch {
     // The page's bullet is gone (deleted elsewhere): go Home.
     location.hash = "";
     return;
   }
-  await drawCrumbs(root);
+  await Promise.all([drawCrumbs(root), drawStarred()]);
   const list = document.createElement("ul");
   rows.forEach((row, index) => list.append(rowElement(row, rows, index)));
   const form = document.createElement("form");
@@ -202,6 +226,26 @@ async function run(): Promise<void> {
   const { persistent } = await call("start", { origin: location.origin, token });
   if (!persistent) status.title = "This browser can't keep the outline: it is fetched again from the server each time.";
   addEventListener("hashchange", () => void draw());
+  let typing: ReturnType<typeof setTimeout> | undefined;
+  search.addEventListener("input", () => {
+    clearTimeout(typing);
+    typing = setTimeout(() => void draw(), 150);
+  });
+  todayButton.addEventListener("click", async () => {
+    location.hash = await call("today", {});
+  });
+  // Undo and redo for the outline, like the desktop: typing in a bullet is saved first, so it
+  // is part of what undo takes back.
+  addEventListener("keydown", async (event) => {
+    if (!(event.metaKey || event.ctrlKey) || event.target === search) return;
+    const key = event.key.toLowerCase();
+    const redo = (key === "z" && event.shiftKey) || (key === "y" && event.ctrlKey);
+    if (key !== "z" && !redo) return;
+    event.preventDefault();
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.isContentEditable) active.blur();
+    if (await call(redo ? "redo" : "undo", {})) await draw();
+  });
   await draw();
 }
 

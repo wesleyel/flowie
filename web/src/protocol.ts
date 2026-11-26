@@ -10,6 +10,7 @@ export interface Row {
   completed: boolean;
   collapsed: boolean;
   has_children: boolean;
+  starred: boolean;
 }
 
 /** A page on the way down from Home, for breadcrumbs. */
@@ -21,7 +22,10 @@ export interface Crumb {
 /** The calls the worker answers, with their arguments and results. */
 export interface Calls {
   start: { args: { origin: string; token: string }; result: { persistent: boolean } };
-  page: { args: { root?: string }; result: Row[] };
+  page: { args: { root?: string; query?: string }; result: Row[] };
+  starred: { args: Record<string, never>; result: Crumb[] };
+  setStarred: { args: { id: string; starred: boolean }; result: void };
+  today: { args: Record<string, never>; result: string };
   path: { args: { id: string }; result: Crumb[] };
   create: { args: { parent?: string; index: number; text: string }; result: string };
   createAfter: { args: { sibling: string; text: string }; result: string };
@@ -33,6 +37,7 @@ export interface Calls {
   delete: { args: { id: string }; result: void };
   setEditing: { args: { id?: string }; result: void };
   undo: { args: Record<string, never>; result: boolean };
+  redo: { args: Record<string, never>; result: boolean };
 }
 
 export type Op = keyof Calls;

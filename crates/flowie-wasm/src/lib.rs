@@ -34,6 +34,7 @@ pub struct RowView {
     pub completed: bool,
     pub collapsed: bool,
     pub has_children: bool,
+    pub starred: bool,
 }
 
 fn error(e: impl std::fmt::Display) -> JsError {
@@ -63,11 +64,14 @@ impl Outline {
         Ok(Outline { ws, engine: Engine::new() })
     }
 
-    /// The rows of the page at `root` (none: Home), as JSON (an array of `RowView`).
-    pub fn page(&self, root: Option<String>) -> Result<String, JsError> {
+    /// The rows of the page at `root` (none: Home), as JSON (an array of `RowView`); with a
+    /// search `query` (the desktop's syntax: words, "phrases", #tags, is:todo…), the rows that
+    /// match and the bullets above them.
+    pub fn page(&self, root: Option<String>, query: Option<String>) -> Result<String, JsError> {
         let tree = &self.ws.tree;
         let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
-        let (rows, _) = flatten_mapped(tree, root, &ViewOptions::default());
+        let query = query.filter(|q| !q.trim().is_empty()).map(|q| flowie_core::Query::parse(&q));
+        let (rows, _) = flatten_mapped(tree, root, &ViewOptions { query, ..ViewOptions::default() });
         let rows: Vec<RowView> = rows
             .into_iter()
             .filter_map(|row| {
@@ -82,6 +86,7 @@ impl Outline {
                     completed: source.completed,
                     collapsed: node.collapsed,
                     has_children: tree.has_children(row.id),
+                    starred: tree.is_starred(tree.source(row.id)),
                 })
             })
             .collect();
@@ -127,6 +132,28 @@ impl Outline {
         self.ws.tree.set_collapsed(id, collapsed);
         self.ws.commit_with_imports(None, None, None);
         Ok(())
+    }
+
+    /// The starred pages, in order, as JSON (`[{id, text}]`).
+    pub fn starred(&self) -> Result<String, JsError> {
+        let tree = &self.ws.tree;
+        let starred: Vec<_> =
+            tree.starred().map(|id| serde_json::json!({ "id": id.to_string(), "text": tree.node(tree.source(id)).text })).collect();
+        serde_json::to_string(&starred).map_err(error)
+    }
+
+    /// Star a bullet (at the end of the starred list) or unstar it. Not an undo step.
+    pub fn set_starred(&mut self, id: &str, starred: bool) -> Result<(), JsError> {
+        let id = self.real(id)?;
+        self.ws.set_starred(id, starred);
+        Ok(())
+    }
+
+    /// Today's journal page, made if it isn't there yet; returns its id.
+    pub fn today(&mut self) -> String {
+        let id = flowie_core::journal::ensure_day(&mut self.ws.tree, &flowie_core::search::today(), true);
+        self.ws.commit_with_imports(None, None, None);
+        id.to_string()
     }
 
     /// The pages from Home's child down to `id`, as JSON (`[{id, text}]`), for breadcrumbs.

@@ -85,6 +85,28 @@ fn enter_on_a_paragraph_continues_it() {
 }
 
 #[test]
+fn undo_and_redo_rebuild_states_from_the_tree() {
+    // One step that creates a node and edits it twice: undo keeps no `after`
+    // copies, so redo has to get each state back from the tree.
+    let (mut t, [a, ..]) = sample();
+    let mut h = History::new();
+    let n = t.create_after(a, "one");
+    t.set_text(n, "two");
+    t.set_note(n, "note");
+    t.set_text(a, "a2");
+    h.commit(&mut t, HistoryKind::Structure, None, None);
+    let after = outline(&t, ROOT);
+    for _ in 0..2 {
+        h.undo(&mut t).unwrap();
+        assert_eq!(outline(&t, ROOT), "a\nb\n  d\nc");
+        assert!(!t.contains(n));
+        h.redo(&mut t).unwrap();
+        assert_eq!(outline(&t, ROOT), after);
+        assert_eq!((t.node(n).text.as_str(), t.node(n).note.as_str()), ("two", "note"));
+    }
+}
+
+#[test]
 fn split_and_merge() {
     let (mut t, [a, ..]) = sample();
     t.set_text(a, "hello world");

@@ -25,7 +25,8 @@ pub use node::{now_millis, set_clock, system_millis, BlockKind, Clock, Node};
 /// How long a deleted subtree stays in the Trash before it is deleted for good.
 pub const TRASH_DAYS: i64 = 30;
 
-/// One recorded change: the node before and after (None = absent).
+/// One recorded change: the node before and after (None = absent). Undo keeps
+/// only `before` (see [`Tree::revert`]).
 #[derive(Debug, Clone)]
 pub struct Change {
     pub id: NodeId,
@@ -758,29 +759,31 @@ impl Tree {
     }
 
     /// Revert a list of changes (newest first), returning the inverse list.
+    ///
+    /// Only each change's `before` is read: the tree must be in the state the
+    /// changes left it in, so a node's current state is its `after`. The inverse
+    /// takes that state from the tree as it goes and leaves its own `after` empty,
+    /// so a step kept for undo and redo holds one copy of each node, not two (an
+    /// import, whose `before`s are all absent, holds next to nothing).
     pub fn revert(&mut self, changes: &[Change]) -> Vec<Change> {
         // Nodes must be restored parents-first; applying all states then rebuilding
         // the derived index is simplest: apply in reverse order.
         // Stars are not undone, so the inverse brings back the star each node has now
         // (a starred node that this removes comes back starred).
         let mut stars: HashMap<NodeId, String> = HashMap::new();
+        // Reversed, so that reverting the inverse replays the original order.
+        let mut inverse = Vec::with_capacity(changes.len());
         for change in changes.iter().rev() {
-            if let Some(node) = self.nodes.get(&change.id) {
-                stars.entry(change.id).or_insert_with(|| node.star.clone());
-            }
+            let now = self.nodes.get(&change.id).cloned().map(|mut node| {
+                let star = stars.entry(change.id).or_insert_with(|| node.star.clone());
+                node.star.clone_from(star);
+                node
+            });
             self.apply_state(change.id, change.before.clone());
+            inverse.push(Change { id: change.id, before: now, after: None });
         }
         self.reindex();
-        let with_star = |id: NodeId, node: &Option<Node>| {
-            node.clone().map(|mut node| {
-                if let Some(star) = stars.get(&id) {
-                    node.star.clone_from(star);
-                }
-                node
-            })
-        };
-        // Reversed so that reverting the inverse replays the original order.
-        changes.iter().rev().map(|c| Change { id: c.id, before: with_star(c.id, &c.after), after: c.before.clone() }).collect()
+        inverse
     }
 
     /// Rebuild the children index and reachability from the records (after bulk state changes).

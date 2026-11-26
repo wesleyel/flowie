@@ -14,6 +14,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 
 ### Fixed
 
+- **Memory**: undo history takes far less memory. An undo step now keeps one copy of each bullet as it was before the step, instead of copies from before and after every change; importing Moby-Dick five times used to add about 13 MB for undo and now adds under 1 MB.
 - **Trash**: deleting bullets forever, or emptying the Trash, gives the space back: the database file shrinks once enough of it is free, instead of keeping its size.
 - **Editing**: pressing Enter on the last row in the window scrolls the new row into view instead of leaving it just below the edge.
 - **Paragraphs**: Enter on a paragraph starts another paragraph instead of a bullet, like to-dos and numbered items; Enter on an empty paragraph turns it into a bullet.

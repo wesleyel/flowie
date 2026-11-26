@@ -176,6 +176,8 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
       - name: Build Windows binary
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
         run: cargo build --release --locked -p flowie-app --target x86_64-pc-windows-msvc
       - name: Package zip and checksum
         shell: pwsh

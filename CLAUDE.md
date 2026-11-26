@@ -40,9 +40,10 @@ scripts/bundle-macos.sh target/release/flowie Flowie flowie.spokey.cn   # local 
 
 CI (`.github/workflows/ci.yml`) runs fmt, a CHANGELOG check, cargo-deny (which also allows `gpui-kit` only in
 flowie-app/flowie-math and `rusqlite` only in flowie-core), the wasm check above, then clippy, test and build
-on macOS, Windows and Linux. Pushing a `v*` tag runs `release.yml`. On a pull request, CI's Windows and Linux jobs also
-upload the build they already made as 7-day artifacts (Windows x64; Linux x86_64 and aarch64 as tar.gz and
-AppImage) for testing on other machines or VMs (`gh run download`). Other env vars: `FLOWIE_THEME`,
+on macOS, Windows and Linux. Pushing a `v*` tag runs `release.yml`. On a pull request, CI uploads Windows x64
+and Linux x86_64/aarch64 builds as 7-day artifacts for testing on other machines or VMs (`gh run download`).
+Windows test builds use the release profile to embed DirectX shaders; Linux packages the existing build as
+tar.gz and AppImage. Other env vars: `FLOWIE_THEME`,
 `FLOWIE_WINDOW_SIZE`, `FLOWIE_SHOT_*` (screenshots).
 
 ## Rules

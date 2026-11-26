@@ -126,30 +126,38 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked
       - name: Test
         run: cargo test --workspace --locked
-      - name: Build
+      - name: Build (debug)
+        if: github.event_name == 'push'
         run: cargo build --locked -p flowie-app
-      - name: Smoke test (MCP stdio)
-        # Started over pipes the way MCP clients start it (CreateProcess). PowerShell neither
-        # waits for nor captures a GUI-subsystem exe, which the release build is.
-        shell: python
-        run: |
-          import json, subprocess
-          reqs = [
-              {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
-              {"jsonrpc": "2.0", "id": 2, "method": "ping", "params": {}},
-          ]
-          stdin = "".join(json.dumps(r) + "\n" for r in reqs)
-          out = subprocess.run([r"target\debug\flowie.exe", "mcp"], input=stdin, capture_output=True, text=True, timeout=60).stdout
-          print(out)
-          assert '"name":"flowie"' in out, "MCP initialize failed"
-          assert '"id":2' in out, "MCP ping failed"
+      - name: Build the portable Windows test build
+        if: github.event_name != 'push'
+        env:
+          RUSTFLAGS: -D warnings -C target-feature=+crt-static
+        run: cargo build --release --locked -p flowie-app --target x86_64-pc-windows-msvc
       - name: Stage the test build
         if: github.event_name != 'push'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path build\Flowie | Out-Null
-          Copy-Item target\debug\flowie.exe build\Flowie\Flowie.exe
+          Copy-Item target\x86_64-pc-windows-msvc\release\flowie.exe build\Flowie\Flowie.exe
           Copy-Item LICENSE build\Flowie\LICENSE
+      - name: Smoke test (MCP stdio)
+        # Started over pipes the way MCP clients start it (CreateProcess). PowerShell neither
+        # waits for nor captures a GUI-subsystem exe, which the release build is.
+        env:
+          FLOWIE_EXE: ${{ github.event_name == 'push' && 'target/debug/flowie.exe' || 'build/Flowie/Flowie.exe' }}
+        shell: python
+        run: |
+          import json, os, subprocess
+          reqs = [
+              {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+              {"jsonrpc": "2.0", "id": 2, "method": "ping", "params": {}},
+          ]
+          stdin = "".join(json.dumps(r) + "\n" for r in reqs)
+          out = subprocess.run([os.environ["FLOWIE_EXE"], "mcp"], input=stdin, capture_output=True, text=True, timeout=60, check=True).stdout
+          print(out)
+          assert '"name":"flowie"' in out, "MCP initialize failed"
+          assert '"id":2' in out, "MCP ping failed"
       - name: Upload the test build
         if: github.event_name != 'push'
         uses: actions/upload-artifact@v4

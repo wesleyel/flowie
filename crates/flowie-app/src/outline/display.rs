@@ -124,12 +124,20 @@ impl Outline {
     /// dragging it to the bottom doesn't reach the end.
     pub fn row_height_hint(&self, rows: &[DisplayRow]) -> gpui::Pixels {
         let tree = &self.ws.tree;
+        // The text column's width: the list's (or a typical window's before the
+        // first layout), at most the content width setting.
+        let list_w = f32::from(self.list.viewport_bounds().size.width);
+        let list_w = if list_w > 0. { list_w } else { 900. };
+        let column = self.config.content_width.max_px().map_or(list_w, |max| list_w.min(max));
         let total: f32 = rows
             .iter()
-            .filter_map(|d| tree.get(tree.source(d.row.id)))
-            .map(|n| {
-                let (_, line_h, top_pad) = super::row_metrics(n.kind);
-                let lines = 1.0 + (n.text.len() as f32 / 90.0).floor();
+            .filter_map(|d| tree.get(tree.source(d.row.id)).map(|n| (d.row.depth, n)))
+            .map(|(depth, n)| {
+                let (font_size, line_h, top_pad) = super::row_metrics(n.kind);
+                // About half an em per character of the system font.
+                let text_w = column - 2. * super::PAD_X - depth as f32 * super::INDENT - 24.;
+                let per_line = (text_w / (font_size * 0.5)).max(20.);
+                let lines = (n.text.chars().count() as f32 / per_line).ceil().max(1.);
                 let note = if n.note.is_empty() { 0.0 } else { 20.0 };
                 line_h * lines + top_pad + 3.0 + note
             })

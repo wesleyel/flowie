@@ -50,20 +50,18 @@ impl Source {
     }
 
     fn set_top(&self, top: Pixels) {
-        let top = top.clamp(Pixels::ZERO, self.max());
+        let max = self.max();
+        let top = top.clamp(Pixels::ZERO, max);
         match self {
             Source::Handle(h) => h.set_offset(point(h.offset().x, -top)),
+            // A list knows only the heights of the rows it has drawn and estimates the
+            // rest, and drawing the rows it scrolls to corrects the total. So the thumb's
+            // place is kept as a fraction of the current total (not pixels of the total
+            // when the drag began), and its ends are the page's ends: the end is laid out
+            // back from the last row, so it is reached however tall the rows turn out.
+            Source::List(l) if top >= max - px(0.5) => l.scroll_to_end(),
+            Source::List(l) if top <= Pixels::ZERO => l.scroll_to(gpui::ListOffset { item_ix: 0, offset_in_item: Pixels::ZERO }),
             Source::List(l) => l.set_offset_from_scrollbar(point(Pixels::ZERO, -top)),
-        }
-    }
-
-    fn drag(&self, on: bool) {
-        if let Source::List(l) = self {
-            if on {
-                l.scrollbar_drag_started();
-            } else {
-                l.scrollbar_drag_ended();
-            }
         }
     }
 }
@@ -174,7 +172,6 @@ pub fn scrollbar(id: impl Into<ElementId>, source: impl Into<Source>, theme: The
                 let rel = ev.position.y - bounds.top();
                 // On the thumb: keep the grab point; on the track: center the thumb there.
                 let grab = if rel >= y && rel <= y + thumb_h { rel - y } else { thumb_h / 2. };
-                s2.drag(true);
                 s2.set_top(top_for(ev.position.y, grab));
                 st.update(cx, |s, _| s.grab = Some(grab));
                 cx.stop_propagation();
@@ -210,13 +207,11 @@ pub fn scrollbar(id: impl Into<ElementId>, source: impl Into<Source>, theme: The
                     window.refresh();
                 }
             });
-            let s2 = src.clone();
             window.on_mouse_event(move |ev: &MouseUpEvent, phase, window, cx| {
                 if phase != DispatchPhase::Bubble || ev.button != MouseButton::Left {
                     return;
                 }
                 if state.read(cx).grab.is_some() {
-                    s2.drag(false);
                     state.update(cx, |s, _| {
                         s.grab = None;
                         s.shown_at = Some(Instant::now());

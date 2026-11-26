@@ -15,6 +15,7 @@ prereleases. The `flowie` Homebrew cask follows the newest version, including ca
 ### Changed
 
 - **Markdown export**: code rows are exported (and copied) as fenced code blocks, so they come back as code when the Markdown is imported again, and plain-text export keeps code exactly as written.
+- **Database**: the outline's database moves to a new format that records what syncing bullets between devices will need: when each field of a bullet was last changed, the bullet a moved one came from, and room for fields written by newer versions. Opening an outline upgrades it once and keeps a backup beside it (`flowie.sqlite.backup-v5-<timestamp>`). Flowie 1.0.x can't open the upgraded database.
 
 ### Fixed
 

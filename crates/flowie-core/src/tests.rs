@@ -1175,3 +1175,41 @@ fn undoing_a_creation_with_its_edits_and_redoing_it() {
     assert_eq!(t.node(e).text, "edited");
     assert_eq!(t.parent(e), a);
 }
+
+#[test]
+fn local_writes_stamp_only_the_fields_they_change() {
+    use crate::hlc::Reg;
+    let (mut t, [a, b, c, d]) = sample();
+    t.set_actor(42);
+    let e = t.create_at(b, 0, "e");
+    let created = t.node(e).sync.clocks.created;
+    assert_eq!(created.actor, 42);
+    assert!(Reg::ALL.iter().all(|r| t.node(e).sync.clocks.get(*r) == created), "a new node writes every field");
+    assert_eq!(t.node(e).sync.moved_from, b);
+
+    let before = t.node(a).sync.clocks;
+    t.set_text(a, "A");
+    let after = t.node(a).sync.clocks;
+    assert!(after.get(Reg::Text) > before.get(Reg::Text));
+    assert!(Reg::ALL.iter().filter(|r| **r != Reg::Text).all(|r| after.get(*r) == before.get(*r)));
+
+    // A move stamps the position and remembers where it came from.
+    t.move_to(c, d, 0);
+    assert!(t.node(c).sync.clocks.get(Reg::Position) > after.get(Reg::Text), "later writes sort later");
+    assert_eq!(t.node(c).sync.moved_from, ROOT);
+
+    // Stars are outside undo but still synced.
+    let star = t.node(d).sync.clocks.get(Reg::Star);
+    t.star_at(d, 0);
+    assert!(t.node(d).sync.clocks.get(Reg::Star) > star);
+
+    // Undoing is a new write of the fields it puts back.
+    let mut h = History::new();
+    t.take_journal();
+    t.set_text(b, "B");
+    h.commit(&mut t, HistoryKind::Structure, None, None);
+    let typed = t.node(b).sync.clocks.get(Reg::Text);
+    h.undo(&mut t);
+    assert_eq!(t.node(b).text, "b");
+    assert!(t.node(b).sync.clocks.get(Reg::Text) > typed);
+}

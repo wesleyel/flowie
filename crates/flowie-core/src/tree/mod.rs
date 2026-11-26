@@ -31,9 +31,11 @@ mod ops;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use crate::hlc::{Clocks, HlcClock, Reg};
+
 pub use change::{Change, Edit, Field, Value};
 pub use id::{virtual_id, NodeId, ROOT};
-pub use node::{now_millis, set_clock, system_millis, BlockKind, Clock, Node};
+pub use node::{now_millis, set_clock, system_millis, BlockKind, Clock, Node, NodeSync};
 
 /// How long a deleted subtree stays in the Trash before it is deleted for good.
 pub const TRASH_DAYS: i64 = 30;
@@ -52,6 +54,8 @@ pub struct Tree {
     revision: u64,
     /// Virtual row id -> real node id (rows inside mirrors).
     virtuals: HashMap<NodeId, NodeId>,
+    /// Stamps every local write (`Node::sync`); see `Tree::set_actor`.
+    clock: HlcClock,
 }
 
 /// What is derived from the records: kept in sync by every mutation so lookups never scan
@@ -116,6 +120,8 @@ impl Tree {
                 tree.nodes.insert(n.id, n);
             }
         }
+        let latest = tree.nodes.values().map(|n| n.sync.clocks.max()).max().unwrap_or_default();
+        tree.clock.observe(latest);
         tree.reindex();
         if tree.repair_ranks() {
             tree.reindex();
@@ -125,6 +131,39 @@ impl Tree {
             tree.index(n, true);
         }
         tree
+    }
+
+    /// Who writes through this tree: its process's actor id (per-node-sync.md §3.1), stamped
+    /// in the clock of every field it writes. 0 (the default) is for trees that never sync.
+    pub fn set_actor(&mut self, actor: u64) {
+        self.clock.set_actor(actor);
+    }
+
+    /// Stamp a local write that takes a record from `before` (None: new) to `node`: the
+    /// fields it changes get a new clock, and a move remembers the parent it left.
+    fn stamp(&mut self, before: Option<&Node>, node: &mut Node) {
+        let regs = match before {
+            None => Reg::ALL.to_vec(),
+            Some(b) => change::changed_regs(b, node),
+        };
+        if regs.is_empty() {
+            return;
+        }
+        let at = self.clock.tick(now_millis());
+        match before {
+            None => {
+                node.sync.clocks = Clocks::new(at);
+                node.sync.moved_from = node.parent;
+            }
+            Some(b) => {
+                for reg in regs {
+                    node.sync.clocks.set(reg, at);
+                }
+                if b.parent != node.parent {
+                    node.sync.moved_from = b.parent;
+                }
+            }
+        }
     }
 
     /// Where the view shows `node`: under its parent, unless that closes a cycle.
@@ -677,6 +716,7 @@ impl Tree {
                 node.modified = now_millis();
             }
         }
+        self.stamp(before.as_ref(), &mut node);
         if self.needs_reindex(before.as_ref(), &node) {
             self.sync_index(before.as_ref(), Some(&node));
             let id = node.id;
@@ -860,13 +900,23 @@ impl Tree {
                     self.nodes.remove(&id);
                     Edit::Remove(now)
                 }),
-                Edit::Remove(node) => old.is_none().then(|| {
+                Edit::Remove(node) if old.is_none() => {
+                    // Bringing a record back is a new write of all its fields.
+                    let mut node = node.clone();
+                    let at = self.clock.tick(now_millis());
+                    for reg in Reg::ALL {
+                        node.sync.clocks.set(reg, at);
+                    }
                     self.nodes.insert(id, node.clone());
-                    Edit::Create(node.clone())
-                }),
-                Edit::Set { before, after } => match self.nodes.get_mut(&id) {
-                    Some(node) if Value::of(node, after.field()) == *after => {
-                        before.apply(node);
+                    Some(Edit::Create(node))
+                }
+                Edit::Remove(_) => None,
+                Edit::Set { before, after } => match &old {
+                    Some(current) if Value::of(current, after.field()) == *after => {
+                        let mut node = current.clone();
+                        before.apply(&mut node);
+                        self.stamp(Some(current), &mut node);
+                        self.nodes.insert(id, node);
                         Some(Edit::Set { before: after.clone(), after: before.clone() })
                     }
                     _ => None,

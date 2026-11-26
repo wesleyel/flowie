@@ -60,6 +60,13 @@ impl Workspace {
             image_dir: Some(images),
             prefs: prefs.into_iter().collect(),
         };
+        let actor = meta.iter().find(|(k, _)| k == "actor.app").and_then(|(_, v)| v.parse::<u64>().ok()).filter(|a| *a != 0);
+        let actor = actor.unwrap_or_else(|| {
+            let actor = new_actor();
+            ws.set_meta("actor.app", &actor.to_string());
+            actor
+        });
+        ws.tree.set_actor(actor);
         ws.purge_expired();
         Ok((ws, meta))
     }
@@ -216,10 +223,17 @@ fn collect_images(db: &Path) {
         .ok();
 }
 
+/// A new actor id for this process's writes (per-node-sync.md §3.1): random, never 0, which
+/// stands for clocks derived from data saved before Flowie kept them.
+fn new_actor() -> u64 {
+    let bytes = flowie_core::NodeId::random().to_bytes();
+    u64::from_le_bytes(bytes[..8].try_into().expect("16 bytes")).max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flowie_core::ROOT;
+    use flowie_core::{Node, ROOT};
 
     #[test]
     fn commit_saves_and_undo_reverts() {
@@ -268,7 +282,7 @@ mod tests {
         let (mut ws, meta) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
         assert_eq!(ws.tree.starred().collect::<Vec<_>>(), vec![b, a]);
         assert_eq!(ws.pref("saved_searches"), Some("is:todo"));
-        assert!(meta.is_empty());
+        assert!(meta.iter().all(|(key, _)| key == "actor.app"), "only this process's actor id");
         ws.set_starred(b, false);
         ws.flush().unwrap();
         drop(ws);
@@ -300,19 +314,21 @@ mod tests {
         ws.commit_with_imports(None, None, None);
         ws.set_starred(c, true);
         let whole = outline(&ws.tree);
+        // The records' content; undo and redo are new writes, so their clocks move on.
         let records = |ws: &Workspace| {
-            let mut all: Vec<_> = ws.tree.records().cloned().collect();
+            let mut all: Vec<_> = ws.tree.records().map(|n| Node { sync: Default::default(), ..n.clone() }).collect();
             all.sort_by_key(|n| n.id);
             all
         };
         let before = records(&ws);
+        let c_before = ws.tree.node(c).clone();
 
         // Deleting marks only the subtree's root; the nodes below keep their records.
         ws.tree.trash(a);
         ws.commit_with_imports(None, None, None);
         assert_eq!(outline(&ws.tree), "d\n");
         assert!(!ws.tree.contains(b) && !ws.tree.contains(c));
-        assert_eq!(ws.tree.node(c), &before.iter().find(|n| n.id == c).unwrap().clone());
+        assert_eq!(ws.tree.node(c), &c_before, "clocks and all");
         assert!(ws.tree.node(a).deleted_at.is_some() && ws.tree.node(b).deleted_at.is_none());
         assert_eq!(ws.tree.trashed(), [a]);
         assert_eq!(ws.tree.trashed_subtree(a), [a, b, c]);
@@ -326,10 +342,15 @@ mod tests {
         assert!(ws.redo().is_some());
         assert_eq!(outline(&ws.tree), "d\n");
 
-        // The Trash survives a restart.
+        // The Trash survives a restart, and so does what sync keeps.
+        let mut saved: Vec<Node> = ws.tree.records().cloned().collect();
+        saved.sort_by_key(|n| n.id);
         ws.flush().unwrap();
         drop(ws);
         let (mut ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
+        let mut loaded: Vec<Node> = ws.tree.records().cloned().collect();
+        loaded.sort_by_key(|n| n.id);
+        assert_eq!(loaded, saved);
         assert_eq!(outline(&ws.tree), "d\n");
         assert_eq!(ws.tree.trashed(), [a]);
         assert_eq!(ws.tree.records().count(), 4);

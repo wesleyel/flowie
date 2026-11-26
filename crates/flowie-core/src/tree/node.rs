@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use web_time::{SystemTime, UNIX_EPOCH};
 
 use super::{NodeId, ROOT};
+use crate::hlc::Clocks;
 
 /// How a node is displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
@@ -116,6 +117,28 @@ pub struct Node {
     /// keep theirs, and are hidden because their parent is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deleted_at: Option<i64>,
+    /// Sync bookkeeping, kept up to date by `Tree`. Not part of share packages or MCP.
+    #[serde(skip)]
+    pub sync: NodeSync,
+}
+
+/// What sync needs to know about a node besides its fields (per-node-sync.md §3.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeSync {
+    /// When the node was created and each synced field last written.
+    pub clocks: Clocks,
+    /// The parent the node had before its last move: where the view puts it back when that
+    /// move closes a cycle (§3.4).
+    pub moved_from: NodeId,
+    /// Fields written by a newer Flowie that this one doesn't know, as a JSON object (or
+    /// empty), kept so writing the node back doesn't drop them (§4.1).
+    pub extra: String,
+}
+
+impl Default for NodeSync {
+    fn default() -> Self {
+        NodeSync { clocks: Clocks::default(), moved_from: ROOT, extra: String::new() }
+    }
 }
 
 impl Node {
@@ -136,6 +159,7 @@ impl Node {
             image: String::new(),
             star: String::new(),
             deleted_at: None,
+            sync: NodeSync { moved_from: parent, ..NodeSync::default() },
         }
     }
 }

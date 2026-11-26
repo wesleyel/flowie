@@ -11,6 +11,7 @@
 
 pub mod flatten;
 pub mod history;
+pub mod hlc;
 pub mod images;
 pub mod imports;
 pub mod io;

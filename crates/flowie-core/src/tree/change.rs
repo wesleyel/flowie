@@ -8,6 +8,7 @@
 //! §1 #6, P0.6).
 
 use super::{BlockKind, Node, NodeId};
+use crate::hlc::Reg;
 
 /// The fields a patch can set. Position is one field (parent and rank together), so a move
 /// is undone whole or not at all. Stars aren't here: they are not part of undo.
@@ -26,6 +27,21 @@ pub enum Field {
 }
 
 impl Field {
+    /// The synced register this field is part of (none for collapsed state and edit time).
+    pub fn reg(self) -> Option<Reg> {
+        match self {
+            Field::Position => Some(Reg::Position),
+            Field::Text => Some(Reg::Text),
+            Field::Note => Some(Reg::Note),
+            Field::Completed => Some(Reg::Completed),
+            Field::Kind => Some(Reg::Kind),
+            Field::Mirror => Some(Reg::Mirror),
+            Field::Image => Some(Reg::Image),
+            Field::Deleted => Some(Reg::Deleted),
+            Field::Collapsed | Field::Modified => None,
+        }
+    }
+
     pub const ALL: [Field; 10] = [
         Field::Position,
         Field::Text,
@@ -113,6 +129,17 @@ impl Value {
             _ => None,
         }
     }
+}
+
+/// The synced registers that differ between two states of a record (its star included,
+/// which undo leaves out).
+pub fn changed_regs(before: &Node, after: &Node) -> Vec<Reg> {
+    let mut regs: Vec<Reg> =
+        Field::ALL.into_iter().filter(|f| Value::of(before, *f) != Value::of(after, *f)).filter_map(Field::reg).collect();
+    if before.star != after.star {
+        regs.push(Reg::Star);
+    }
+    regs
 }
 
 /// What happened to a record.

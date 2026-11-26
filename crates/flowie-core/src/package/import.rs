@@ -162,6 +162,7 @@ impl Package {
                     image: n.image.clone().unwrap_or_default(),
                     star: String::new(),
                     deleted_at: None,
+                    sync: Default::default(),
                 });
                 if under == parent {
                     roots.push(new_id);

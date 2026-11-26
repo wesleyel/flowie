@@ -133,6 +133,7 @@ impl Package {
                     image: n.image.clone().unwrap_or_default(),
                     star: String::new(),
                     deleted_at: None,
+                    sync: Default::default(),
                 });
                 touched.push(id);
             } else if take.contains(&id) && tree.contains(id) {

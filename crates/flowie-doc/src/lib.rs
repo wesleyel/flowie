@@ -13,6 +13,7 @@ pub use sync::{LostCopy, SyncState};
 
 #[cfg(feature = "native")]
 mod driver;
+pub mod keys;
 mod sync;
 
 /// An open outline and what saving it needs.

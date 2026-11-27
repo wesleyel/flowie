@@ -203,33 +203,13 @@ impl Outline {
             self.replace_edit_text(start..caret, "", false, cx);
             return;
         }
-        // At the very start: merge into the row above.
+        // At the very start: merge into the row above (shared with the native apps,
+        // `flowie_doc::keys`).
         if let Some(Target::Text(id)) = self.edit_target() {
-            if id == self.zoom {
-                return;
-            }
             let before = self.caret();
-            let Some(prev) = self.neighbor(id, -1) else { return };
-            let real = self.ws.tree.resolve(id);
-            let node = self.ws.tree.node(real);
-            // Only a plain row with nothing in it goes away; notes, images and mirrors are preserved.
-            if node.mirror == ROOT
-                && node.text.is_empty()
-                && node.note.is_empty()
-                && node.image.is_empty()
-                && !self.ws.tree.has_children(real)
-            {
-                self.ws.tree.delete(real);
-                let len = self.ws.tree.node(self.ws.tree.source(prev)).text.len();
-                self.edit = Some(Edit::new(Target::Text(prev), len));
-                self.commit_structure(before, cx);
-                return;
-            }
-            if self.ws.tree.has_children(id) && (prev == self.ws.tree.parent(id) || self.ws.tree.has_children(prev)) {
-                return;
-            }
-            if let Some(off) = self.ws.tree.merge_into(id, prev) {
-                self.edit = Some(Edit::new(Target::Text(prev), off));
+            let prev = self.neighbor(id, -1);
+            if let Some(caret) = flowie_doc::keys::backspace_at_start(&mut self.ws.tree, id, prev, self.zoom) {
+                self.edit = Some(Edit::new(Target::Text(caret.node), caret.offset));
                 self.commit_structure(before, cx);
             }
         } else if let Some(Target::Note(id)) = self.edit_target() {

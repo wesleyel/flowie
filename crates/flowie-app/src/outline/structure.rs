@@ -31,32 +31,10 @@ impl Outline {
         }
         match self.edit.as_ref().map(|e| (e.target, e.sel.clone())) {
             Some((Target::Text(id), sel)) => {
-                if id == self.zoom {
-                    // Enter in the title adds a first child.
-                    let before = self.caret();
-                    let first = self.ws.tree.children(id).first().map(|&c| self.ws.tree.node(c).kind);
-                    let child = self.ws.tree.create_at(id, 0, "");
-                    if let Some(kind) = first {
-                        self.ws.tree.set_kind(child, kind.list_kind());
-                    }
-                    self.edit = Some(Edit::new(Target::Text(child), 0));
-                    self.commit_structure(before, cx);
-                    return;
-                }
+                // What Return does is shared with the native apps (`flowie_doc::keys`).
                 let before = self.caret();
-                if self.ws.tree.node(id).mirror != ROOT {
-                    // Enter on a mirror adds a plain sibling after it.
-                    let n = self.ws.tree.create_after(id, "");
-                    self.edit = Some(Edit::new(Target::Text(n), 0));
-                    self.commit_structure(before, cx);
-                    return;
-                }
-                if !sel.is_empty() {
-                    let text = self.edit_text().to_string();
-                    self.ws.tree.set_text(id, &format!("{}{}", &text[..sel.start], &text[sel.end..]));
-                }
-                let (focus, off) = self.ws.tree.split(id, sel.start);
-                self.edit = Some(Edit::new(Target::Text(focus), off));
+                let caret = flowie_doc::keys::enter(&mut self.ws.tree, id, sel, self.zoom);
+                self.edit = Some(Edit::new(Target::Text(caret.node), caret.offset));
                 self.commit_structure(before, cx);
             }
             Some((Target::Note(_), sel)) => self.replace_edit_text(sel, "\n", false, cx),

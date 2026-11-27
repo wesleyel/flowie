@@ -26,7 +26,8 @@ wildcards = "allow"
 # on these *directly*. A crate that reaches one through another workspace crate isn't caught here.
 deny = [
     { crate = "gpui-kit", wrappers = ["flowie-app", "flowie-math"], reason = "the UI stays out of the model crates" },
-    { crate = "rusqlite", wrappers = ["flowie-core", "flowie-server"], reason = "SQL lives in flowie-core's store and the sync server" },
+    # flowie-ffi: a dev-dependency only, to forge a too-new database in a test.
+    { crate = "rusqlite", wrappers = ["flowie-core", "flowie-server", "flowie-ffi"], reason = "SQL lives in flowie-core's store and the sync server" },
     { crate = "uniffi", wrappers = ["flowie-ffi"], reason = "native apps reach Flowie through flowie-ffi only" },
 ]
 

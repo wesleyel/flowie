@@ -274,11 +274,11 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         }
         syncEngine.state.remove(pendingRecordZoneChanges: stale)
         guard !saves.isEmpty else { return nil }
+        let zone = self.zone
         let changes: [CKSyncEngine.PendingRecordZoneChange] = saves.map { .saveRecord(CKRecord.ID(recordName: $0.id, zoneID: zone)) }
         syncEngine.state.add(pendingRecordZoneChanges: changes)
         let byID = Dictionary(saves.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let gone = lock.withLock { self.gone }
-        let zone = self.zone
         let batch = await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: changes) { id in
             byID[id.recordName].map { CloudRecordCodec.record(for: $0, zone: zone, fresh: gone.contains($0.id)) }
         }

@@ -33,8 +33,13 @@ impl Outline {
         } else {
             div().text_color(theme.text).child(text).into_any_element()
         };
+        // The editor wraps (a token is 64 characters), so the field grows with
+        // it instead of keeping the search field's fixed height.
         crate::ui::controls::search_field(theme, id, editing)
             .w(px(340.))
+            .h_auto()
+            .min_h(px(28.))
+            .py(px(4.))
             .child(div().flex_1().min_w_0().overflow_hidden().child(inner))
             .on_mouse_down(
                 MouseButton::Left,

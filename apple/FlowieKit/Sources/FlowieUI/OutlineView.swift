@@ -76,7 +76,7 @@ struct RowLine: View {
                 .strikethrough(row.completed)
                 .foregroundStyle(row.completed ? .secondary : .primary)
                 .focused($focused)
-                .onSubmit { store.setText(row, text.value) }
+                .onSubmit { focused = false }
             if row.hasChildren {
                 Button {
                     store.open(row)
@@ -92,6 +92,16 @@ struct RowLine: View {
         .onChange(of: row.text) { _, new in
             if !focused { text.value = new }
         }
+        .onChange(of: text.value) { _, new in
+            // Return ends editing (a bullet's text is one line); typing is saved as it goes,
+            // one undo step per bullet.
+            if new.contains("\n") {
+                text.value = new.replacingOccurrences(of: "\n", with: "")
+                focused = false
+            } else if focused {
+                store.setText(row, new)
+            }
+        }
         .onChange(of: focused) { _, now in
             if now {
                 store.editing(row)
@@ -100,12 +110,18 @@ struct RowLine: View {
                 store.editing(nil)
             }
         }
+        .swipeActions(edge: .leading) {
+            Button("Indent", systemImage: "increase.indent") { store.indent(row) }
+            Button("Outdent", systemImage: "decrease.indent") { store.outdent(row) }
+        }
         .swipeActions {
             Button("Delete", systemImage: "trash", role: .destructive) { store.delete(row) }
         }
         .contextMenu {
-            Button("Open as a Page") { store.open(row) }
-            Button("Delete", role: .destructive) { store.delete(row) }
+            Button("Open as a Page", systemImage: "arrow.right.circle") { store.open(row) }
+            Button("Indent", systemImage: "increase.indent") { store.indent(row) }
+            Button("Outdent", systemImage: "decrease.indent") { store.outdent(row) }
+            Button("Delete", systemImage: "trash", role: .destructive) { store.delete(row) }
         }
     }
 }

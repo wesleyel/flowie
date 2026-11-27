@@ -79,6 +79,16 @@ public final class OutlineStore: ObservableObject {
         edit { try outline.setCompleted(id: row.id, completed: !row.completed) }
     }
 
+    /// Make a bullet the last child of the one above it.
+    public func indent(_ row: RowView) {
+        edit { _ = try outline.indent(id: row.id) }
+    }
+
+    /// Move a bullet out to follow its parent, staying on the page shown.
+    public func outdent(_ row: RowView) {
+        edit { _ = try outline.outdent(id: row.id, root: root) }
+    }
+
     /// Move a bullet and what is under it to the Trash.
     public func delete(_ row: RowView) {
         edit { try outline.delete(id: row.id) }

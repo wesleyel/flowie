@@ -210,6 +210,32 @@ impl Outline {
         })
     }
 
+    /// Make a bullet the last child of the one above it; false if there is none. An undo step.
+    pub fn indent(&self, id: String) -> Result<bool, FlowieError> {
+        let mut done = false;
+        self.edit_row(&id, |ws, id| {
+            done = ws.tree.indent(id);
+            if done {
+                ws.commit_with_imports(None, None, None);
+            }
+        })?;
+        Ok(done)
+    }
+
+    /// Move a bullet out to follow its parent, but not out of the page at `root` (none: Home);
+    /// false if it can't go further. An undo step.
+    pub fn outdent(&self, id: String, root: Option<String>) -> Result<bool, FlowieError> {
+        let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
+        let mut done = false;
+        self.edit_row(&id, |ws, id| {
+            done = ws.tree.outdent(id, root);
+            if done {
+                ws.commit_with_imports(None, None, None);
+            }
+        })?;
+        Ok(done)
+    }
+
     /// Move a bullet and what is under it to the Trash. An undo step.
     pub fn delete(&self, id: String) -> Result<(), FlowieError> {
         self.edit(&id, |ws, id| {
@@ -355,13 +381,21 @@ impl Outline {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Change a bullet's content: a mirror's row changes its source.
     fn edit(&self, id: &str, f: impl FnOnce(&mut Workspace, NodeId)) -> Result<(), FlowieError> {
+        self.edit_row(id, |ws, id| {
+            let id = ws.tree.source(id);
+            f(ws, id)
+        })
+    }
+
+    /// Change a bullet's place: the row itself moves, a mirror included.
+    fn edit_row(&self, id: &str, f: impl FnOnce(&mut Workspace, NodeId)) -> Result<(), FlowieError> {
         let mut state = self.lock();
         let id = parse(id)?;
         if !state.ws.tree.contains(id) {
             return Err(FlowieError::NoSuchBullet { id: id.to_string() });
         }
-        let id = state.ws.tree.source(id);
         f(&mut state.ws, id);
         Ok(())
     }
@@ -389,6 +423,19 @@ mod tests {
         assert!(outline.undo());
         assert_eq!(outline.page(None).unwrap().len(), 2);
         assert!(matches!(outline.set_text("nope".into(), "x".into()), Err(FlowieError::NoSuchBullet { .. })));
+
+        let c = outline.create(None, 1, "second".into()).unwrap();
+        assert!(outline.indent(c.clone()).unwrap());
+        assert_eq!(
+            outline.page(None).unwrap().iter().map(|r| (r.text.as_str(), r.depth)).collect::<Vec<_>>(),
+            [("first", 0), ("child", 1), ("second", 1)]
+        );
+        assert!(!outline.outdent(c.clone(), Some(a.clone())).unwrap(), "not out of the page shown");
+        assert!(outline.outdent(c.clone(), None).unwrap());
+        assert_eq!(outline.page(None).unwrap()[2].depth, 0);
+        assert!(!outline.outdent(c.clone(), None).unwrap());
+        assert!(outline.undo());
+        assert_eq!(outline.page(None).unwrap()[2].depth, 1);
         assert_eq!(outline.sync_status(), SyncStatus::Off);
     }
 

@@ -36,6 +36,13 @@ func run() throws {
     check(store.rows.count == 2, "undo brings it back")
     store.back()
     check(store.root == nil && store.rows.map(\.text) == ["groceries", "milk", "rye bread"], "back to Home: \(store.rows.map(\.text))")
+    store.indent(store.rows[2])
+    check(store.rows.map(\.depth) == [0, 1, 2], "indented under milk")
+    store.outdent(store.rows[2])
+    store.outdent(store.rows[2])
+    check(store.rows.map(\.depth) == [0, 1, 0], "outdented to Home")
+    store.undo()
+    check(store.rows.map(\.depth) == [0, 1, 1], "undo outdents one step back")
 
     store.startSync(server: "http://127.0.0.1:9", token: "t")
     let deadline = Date().addingTimeInterval(10)

@@ -18,20 +18,36 @@ public struct OutlinePage: UIViewControllerRepresentable {
     let open: (String, String?) -> Void
     /// Search for this (a tapped tag or date), as the desktop does.
     let search: (String) -> Void
+    /// The row that opened the page in the pane to the right, pointed out (wiki: Sliding-Panes §1).
+    var highlight: String?
+    /// Whether the page's pane has the keyboard focus (the key commands act on it).
+    var focused = true
+    /// Told when a row of the page starts being typed in: its pane takes the focus.
+    var onFocus: () -> Void = {}
 
-    public init(page: PageModel, open: @escaping (String, String?) -> Void, search: @escaping (String) -> Void = { _ in }) {
+    public init(page: PageModel, open: @escaping (String, String?) -> Void, search: @escaping (String) -> Void = { _ in },
+                highlight: String? = nil, focused: Bool = true, onFocus: @escaping () -> Void = {}) {
         self.page = page
         self.open = open
         self.search = search
+        self.highlight = highlight
+        self.focused = focused
+        self.onFocus = onFocus
     }
 
     public func makeUIViewController(context: Context) -> OutlinePageController {
-        OutlinePageController(page: page, open: open, search: search)
+        let controller = OutlinePageController(page: page, open: open, search: search)
+        controller.highlight = highlight
+        controller.focused = focused
+        return controller
     }
 
     public func updateUIViewController(_ controller: OutlinePageController, context: Context) {
         controller.open = open
         controller.search = search
+        controller.onFocus = onFocus
+        controller.highlight = highlight
+        controller.focused = focused
     }
 }
 
@@ -150,6 +166,33 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     let page: PageModel
     var open: (String, String?) -> Void
     var search: (String) -> Void
+    var onFocus: () -> Void = {}
+    /// The row that opened the page in the pane to the right: marked, and kept on screen.
+    var highlight: String? {
+        didSet {
+            guard highlight != oldValue, isViewLoaded, dataSource != nil else { return }
+            var snapshot = dataSource.snapshot()
+            let ids = [oldValue, highlight].compactMap { $0 }.filter { snapshot.indexOfItem($0) != nil }
+            guard !ids.isEmpty else { return }
+            snapshot.reconfigureItems(ids)
+            placing = true
+            dataSource.apply(snapshot, animatingDifferences: false)
+            placing = false
+            showHighlight()
+        }
+    }
+    /// Whether the page's pane has the focus: given it (⌃⌘← ⌃⌘→), the page takes the key
+    /// commands; losing it, typing ends.
+    var focused = true {
+        didSet {
+            guard focused != oldValue, isViewLoaded, view.window != nil else { return }
+            if focused {
+                if editingID == nil { becomeFirstResponder() }
+            } else if editingID != nil {
+                view.endEditing(true)
+            }
+        }
+    }
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var rowsByID: [String: RowView] = [:]
@@ -304,7 +347,21 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             }
         }
         revealIfAsked()
+        showHighlight()
         takeCapture()
+    }
+
+    public override var canBecomeFirstResponder: Bool { true }
+
+    /// Scroll the row that opened the right pane into view, if it is off screen.
+    private func showHighlight() {
+        guard view.window != nil, let id = highlight, let index = indexByID[id] else { return }
+        let path = IndexPath(item: index, section: 0)
+        collectionView.layoutIfNeeded()
+        guard let frame = collectionView.layoutAttributesForItem(at: path)?.frame, !frame.intersects(visibleRect) else { return }
+        placing = true
+        collectionView.scrollToItem(at: path, at: .centeredVertically, animated: true)
+        placing = false
     }
 
     public override func viewDidDisappear(_ animated: Bool) {
@@ -600,6 +657,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             self?.presentImage(path)
         }
         cell.configure(row: row, metrics: metrics, strong: strong[row.id] ?? 0, iCloud: iCloud)
+        cell.setMarked(row.id == highlight)
     }
 
     // MARK: Guide lines
@@ -1183,6 +1241,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         editingID = row.id
         page.editing(row)
         refreshGuides()
+        onFocus()
         // The row stops being one element while edited: VoiceOver goes to its text.
         if UIAccessibility.isVoiceOverRunning {
             UIAccessibility.post(notification: .layoutChanged, argument: textView)
@@ -1245,6 +1304,8 @@ final class RowCell: UICollectionViewCell {
         didSet { textView.accessibilityActions = accessibilityActions }
     }
     private let textTap = UITapGestureRecognizer()
+    /// An accent bar at the left of the row that opened the right pane.
+    private let marker = UIView()
     private var metrics: RowMetrics?
     private var row: RowView?
     private var depth = 0
@@ -1318,6 +1379,16 @@ final class RowCell: UICollectionViewCell {
         contentView.addSubview(picture)
         contentView.addSubview(textView)
         contentView.addSubview(note)
+        marker.backgroundColor = .tintColor
+        marker.layer.cornerRadius = 1.5
+        marker.isHidden = true
+        contentView.addSubview(marker)
+    }
+
+    /// Point the row out as the one that opened the page beside (wiki: Sliding-Panes §1).
+    func setMarked(_ marked: Bool) {
+        marker.isHidden = !marked
+        contentView.backgroundColor = marked ? UIColor.tintColor.withAlphaComponent(0.08) : .clear
     }
 
     @available(*, unavailable)
@@ -1597,6 +1668,7 @@ final class RowCell: UICollectionViewCell {
             y += size.height + 4
         }
         let height = textHeight(width: width)
+        marker.frame = CGRect(x: 2, y: 2, width: 3, height: bounds.height - 4)
         slot.frame = CGRect(x: 0, y: 0, width: x, height: bounds.height)
         textView.frame = CGRect(x: x, y: y, width: width, height: height)
         note.frame = CGRect(x: x, y: y + height, width: width, height: hasNote ? metrics.noteLineHeight : 0)

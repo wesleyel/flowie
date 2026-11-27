@@ -727,6 +727,13 @@ impl Outline {
         tree.starred().map(|id| bullet_view(tree, id)).collect()
     }
 
+    /// The saved searches (the `saved_searches` pref, which syncs), in their order: the iPad
+    /// sidebar lists them, as the desktop's palette does.
+    pub fn saved_searches(&self) -> Vec<String> {
+        let state = self.lock();
+        state.ws.pref("saved_searches").unwrap_or_default().split('\n').filter(|q| !q.trim().is_empty()).map(String::from).collect()
+    }
+
     /// Star a bullet (at the end of the starred list) or unstar it. Saved, and synced, but not
     /// an undo step, as on the desktop.
     pub fn set_starred(&self, id: String, starred: bool) -> Result<(), FlowieError> {
@@ -1370,6 +1377,14 @@ mod tests {
         assert_eq!(outline.page(None).unwrap().len(), 1);
         assert!(outline.bullet(a).unwrap().starred);
         assert!(matches!(outline.set_starred("nope".into(), true), Err(FlowieError::NoSuchBullet { .. })));
+    }
+
+    #[test]
+    fn saved_searches_list_the_pref() {
+        let outline = Outline::in_memory();
+        assert!(outline.saved_searches().is_empty());
+        outline.lock().ws.set_pref("saved_searches", "is:todo\n\n#work");
+        assert_eq!(outline.saved_searches(), ["is:todo", "#work"]);
     }
 
     #[test]

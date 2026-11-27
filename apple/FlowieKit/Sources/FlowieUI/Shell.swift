@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 import FlowieFFI
 
-/// The app's tabs (wiki: iOS-Cross-Platform §4.3).
+/// The app's tabs (wiki: iOS-Cross-Platform §4.3), on iPhone and in narrow iPad windows.
 public enum AppTab: String, Hashable, CaseIterable {
     case today, home, stars, search
 
@@ -16,34 +16,104 @@ public enum AppTab: String, Hashable, CaseIterable {
         case .search: return .search("")
         }
     }
+
+    /// The tab a page belongs in, when a wide window's history moves into the tabs.
+    init(for page: PageRef) {
+        switch page {
+        case .day: self = .today
+        case .stars: self = .stars
+        case .search: self = .search
+        case .home, .bullet: self = .home
+        }
+    }
 }
 
-/// Which tab shows, and each tab's history (wiki: Sliding-Panes §1): a browser's Back and
-/// Forward, as the desktop's.
+/// Whose history: a tab's (iPhone, narrow iPad windows), or the window's (an iPad window wide
+/// enough for the sidebar, where there are no tabs).
+enum HistoryKey: Hashable {
+    case tab(AppTab)
+    case window
+}
+
+/// Where the shell is (wiki: Sliding-Panes): each history (a browser's Back and Forward, as the
+/// desktop's), which tab shows, whether the window is wide (the sidebar instead of tabs), shows
+/// two panes, and which pane has the focus.
 @MainActor
 final class Navigation: ObservableObject {
     @Published var tab: AppTab = .home
-    @Published private(set) var histories: [AppTab: PageHistory] = Dictionary(uniqueKeysWithValues: AppTab.allCases.map { ($0, PageHistory($0.root)) })
+    @Published private(set) var histories: [HistoryKey: PageHistory] = Dictionary(uniqueKeysWithValues: AppTab.allCases.map { (.tab($0), PageHistory($0.root)) })
+    /// An iPad window of regular width: one history, the sidebar drawer instead of tabs.
+    @Published private(set) var wide = false
+    /// The sidebar drawer is out (wide windows).
+    @Published var sidebar = false
+    /// The window could show two panes (landscape, wide enough), and does unless the "…" menu
+    /// turned them off.
+    @Published var canSplit = false
+    @Published var singlePane = false
+    /// The pane with the focus (its entry); nil: the current page's.
+    @Published var focused: UUID?
     weak var store: OutlineStore?
 
-    func history(_ tab: AppTab) -> PageHistory {
-        histories[tab] ?? PageHistory(tab.root)
+    /// The history the window navigates now.
+    var key: HistoryKey { wide ? .window : .tab(tab) }
+
+    /// Whether two panes show now.
+    var twoPanes: Bool { wide && canSplit && !singlePane }
+
+    func history(_ key: HistoryKey) -> PageHistory {
+        if let history = histories[key] { return history }
+        if case .tab(let tab) = key { return PageHistory(tab.root) }
+        return PageHistory(.home)
     }
 
-    private func change(_ tab: AppTab, _ body: (inout PageHistory) -> Void) {
-        var history = history(tab)
+    private func change(_ key: HistoryKey, _ body: (inout PageHistory) -> Void) {
+        var history = history(key)
         body(&history)
-        histories[tab] = history
+        histories[key] = history
     }
 
-    /// Open a page from the one at `position` of a tab's history.
-    func open(_ entry: PageEntry, from position: Int, in tab: AppTab) {
-        change(tab) { $0.open(entry, from: position) }
+    /// The window became wide or narrow (Split View, Stage Manager): its history moves between
+    /// the tab it is in and the window, so the pages shown stay.
+    func setWide(_ wide: Bool) {
+        guard wide != self.wide else { return }
+        if wide {
+            histories[.window] = history(.tab(tab))
+        } else {
+            let history = history(.window)
+            tab = AppTab(for: history.current.page)
+            histories[.tab(tab)] = history
+            sidebar = false
+        }
+        self.wide = wide
+        focused = nil
     }
 
-    /// Show another page in an entry without a new one (the journal's days).
-    func replace(at position: Int, with page: PageRef, in tab: AppTab) {
-        change(tab) { $0.replace(at: position, with: page) }
+    /// The first page on screen: the left pane's when two show.
+    func firstShown(_ key: HistoryKey) -> Int {
+        let history = history(key)
+        return key == .window && twoPanes ? max(0, history.index - 1) : history.index
+    }
+
+    /// The page with the focus, by its place in the history.
+    func focusedPosition(_ key: HistoryKey) -> Int {
+        let history = history(key)
+        if let focused, let position = history.position(of: focused), position >= firstShown(key), position <= history.index {
+            return position
+        }
+        return history.index
+    }
+
+    /// Open a page from the one at `position` of a history (wiki: Sliding-Panes §1).
+    func open(_ entry: PageEntry, from position: Int, in key: HistoryKey) {
+        withAnimation(.snappy) {
+            change(key) { $0.open(entry, from: position) }
+            focused = nil
+        }
+    }
+
+    /// Show another page in an entry without a new one (the journal's days, a search typed).
+    func replace(at position: Int, with page: PageRef, in key: HistoryKey) {
+        change(key) { $0.replace(at: position, with: page) }
     }
 
     /// Pages whose bullet is gone are left out first, as the desktop's Back skips them.
@@ -55,37 +125,65 @@ final class Navigation: ObservableObject {
         }
     }
 
-    var canGoBack: Bool { history(tab).canGoBack }
-    var canGoForward: Bool { history(tab).canGoForward }
+    var canGoBack: Bool { history(key).canGoBack }
+    var canGoForward: Bool { history(key).canGoForward }
 
     func back() {
-        change(tab) { history in
-            prune(&history)
-            history.goBack()
+        withAnimation(.snappy) {
+            change(key) { history in
+                prune(&history)
+                history.goBack()
+            }
+            focused = nil
         }
     }
 
     func forward() {
-        change(tab) { history in
-            prune(&history)
-            history.goForward()
+        withAnimation(.snappy) {
+            change(key) { history in
+                prune(&history)
+                history.goForward()
+            }
+            focused = nil
         }
     }
 
     /// Go to a page of the history, from the back or forward button's menu.
     func go(to position: Int) {
-        change(tab) { history in
-            let id = history.entries[min(position, history.entries.count - 1)].id
-            prune(&history)
-            history.go(to: history.position(of: id) ?? history.index)
+        withAnimation(.snappy) {
+            change(key) { history in
+                let id = history.entries[min(position, history.entries.count - 1)].id
+                prune(&history)
+                history.go(to: history.position(of: id) ?? history.index)
+            }
+            focused = nil
         }
     }
 
-    /// The page above the current one (⌘[, the desktop's Zoom Out), its row pointed out.
+    /// The page above the focused one (⌘[, the desktop's Zoom Out), its row pointed out.
     func zoomOut() {
-        let history = history(tab)
-        guard case .bullet(let id) = history.current.page, let bullet = store?.bullet(id) else { return }
-        open(PageEntry(bullet.path.last.map { .bullet($0.id) } ?? .home, opener: id), from: history.index, in: tab)
+        let key = key
+        let position = focusedPosition(key)
+        guard case .bullet(let id) = history(key).entries[position].page, let bullet = store?.bullet(id) else { return }
+        open(PageEntry(bullet.path.last.map { .bullet($0.id) } ?? .home, opener: id), from: position, in: key)
+    }
+
+    /// Give the focus to the left or the right pane (⌃⌘← ⌃⌘→).
+    func focusPane(left: Bool) {
+        guard twoPanes else { return }
+        let history = history(.window)
+        guard history.index > 0 else { return }
+        focused = history.entries[left ? history.index - 1 : history.index].id
+    }
+
+    /// Open a page from the sidebar: in the right pane, as a new page.
+    func openFromSidebar(_ page: PageRef) {
+        sidebar = false
+        let history = history(.window)
+        if history.current.page == page {
+            return
+        }
+        open(PageEntry(page), from: history.index, in: .window)
     }
 
     /// What a page of the history is called, in the back and forward buttons' menus.
@@ -100,41 +198,38 @@ final class Navigation: ObservableObject {
         }
     }
 
-    /// The navigation stack of a tab: the pages after its first, up to the current one. Popping
-    /// it (not done by the stack itself: its back button is ours) goes back.
-    func path(_ tab: AppTab) -> [UUID] {
-        let history = history(tab)
-        return history.index == 0 ? [] : history.entries[1...history.index].map(\.id)
+    /// Search for `query` (a tapped tag or date, as on the desktop): in the Search tab, or in a
+    /// wide window from the pane it was tapped in.
+    func showSearch(_ query: String, from position: Int? = nil) {
+        if wide {
+            open(PageEntry(.search(query)), from: position ?? history(.window).index, in: .window)
+        } else {
+            histories[.tab(.search)] = PageHistory(.search(query))
+            tab = .search
+        }
     }
 
-    func binding(_ tab: AppTab) -> Binding<[UUID]> {
-        Binding(get: { self.path(tab) }, set: { path in
-            if path.count < self.path(tab).count {
-                self.change(tab) { $0.go(to: path.count) }
-            }
-        })
-    }
-
-    /// Search for `query` in the Search tab (a tapped tag or date, as on the desktop).
-    func showSearch(_ query: String) {
-        histories[.search] = PageHistory(.search(query))
-        tab = .search
-    }
-
-    /// A day of the journal, at the top of the Today tab.
+    /// A day of the journal: at the top of the Today tab, or opened in a wide window.
     func showDay(_ day: String) {
-        histories[.today] = PageHistory(.day(day))
-        tab = .today
+        if wide {
+            let history = history(.window)
+            if history.current.page != .day(day) {
+                open(PageEntry(.day(day)), from: history.index, in: .window)
+            }
+        } else {
+            histories[.tab(.today)] = PageHistory(.day(day))
+            tab = .today
+        }
     }
 
-    /// Today's journal, at the top of the Today tab.
+    /// Today's journal.
     func showToday() {
         showDay(LaunchMemory.today)
     }
 
     /// Where the app is, to remember: the tab and the pages after its first ("" for Home).
     var place: LaunchMemory.Place {
-        let history = history(tab)
+        let history = history(key)
         let path = history.entries[...history.index].dropFirst().compactMap { entry -> String? in
             switch entry.page {
             case .home: return ""
@@ -142,7 +237,7 @@ final class Navigation: ObservableObject {
             default: return nil
             }
         }
-        return LaunchMemory.Place(tab: tab.rawValue, path: Array(path))
+        return LaunchMemory.Place(tab: AppTab(for: history.entries[0].page).rawValue, path: Array(path))
     }
 
     /// Open what the launch rule says (§4.3), the outline checked for pages since gone.
@@ -150,8 +245,10 @@ final class Navigation: ObservableObject {
         switch start {
         case .new:
             tab = .home
+            histories[.window] = PageHistory(.home)
         case .today:
-            showToday()
+            tab = .today
+            histories[.window] = PageHistory(.day(LaunchMemory.today))
         case .place(let place):
             let tab = AppTab(rawValue: place.tab) ?? .home
             // Pages deleted since are left off (and what was opened after them).
@@ -165,16 +262,19 @@ final class Navigation: ObservableObject {
                     break
                 }
             }
-            histories[tab] = history
+            histories[.tab(tab)] = history
+            histories[.window] = history
             self.tab = tab
             LaunchMemory.armScroll()
         }
     }
 }
 
-/// The app's shell: Today, Home and Stars tabs, and Search at the right (§4.3); settings in a
-/// sheet from Home. `showsSelfHosted`: debug and TestFlight builds, which keep the self-hosted
-/// sync settings (App Store builds sync only through iCloud).
+/// The app's shell. On iPhone and in narrow iPad windows: Today, Home and Stars tabs, and
+/// Search at the right (§4.3), each a history of pages; settings in a sheet from Home. In wide
+/// iPad windows: one history in panes, two side by side in landscape (wiki: Sliding-Panes), and
+/// a sidebar drawer with settings at its foot. `showsSelfHosted`: debug and TestFlight builds,
+/// which keep the self-hosted sync settings (App Store builds sync only through iCloud).
 public struct FlowieShell: View {
     @ObservedObject var store: OutlineStore
     let showsSelfHosted: Bool
@@ -182,6 +282,7 @@ public struct FlowieShell: View {
     @StateObject private var settings = Local(false)
     @StateObject private var started = Local(false)
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @AppStorage("appearance") private var appearance = "system"
 
     public init(store: OutlineStore, showsSelfHosted: Bool) {
@@ -189,26 +290,42 @@ public struct FlowieShell: View {
         self.showsSelfHosted = showsSelfHosted
     }
 
+    /// Wide enough for the sidebar: an iPad window of regular width (not an iPhone in landscape).
+    private var wide: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && sizeClass == .regular
+    }
+
     public var body: some View {
-        TabView(selection: $nav.tab) {
-            Tab("Today", systemImage: "sun.max", value: AppTab.today) { stack(.today) }
-            Tab("Home", systemImage: "house", value: AppTab.home) { stack(.home) }
-            Tab("Stars", systemImage: "star", value: AppTab.stars) { stack(.stars) }
-            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { stack(.search) }
+        Group {
+            if nav.wide {
+                ZStack(alignment: .leading) {
+                    PagesView(store: store, nav: nav, key: .window, onSettings: nil)
+                    Sidebar(store: store, nav: nav) { settings.value = true }
+                }
+            } else {
+                TabView(selection: $nav.tab) {
+                    Tab("Today", systemImage: "sun.max", value: AppTab.today) { tab(.today) }
+                    Tab("Home", systemImage: "house", value: AppTab.home) { tab(.home) }
+                    Tab("Stars", systemImage: "star", value: AppTab.stars) { tab(.stars) }
+                    Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { tab(.search) }
+                }
+                .tabBarMinimizeBehavior(.onScrollDown)
+            }
         }
-        .tabViewStyle(.sidebarAdaptable)
-        .tabBarMinimizeBehavior(.onScrollDown)
         .sheet(isPresented: $settings.value) {
             SettingsView(store: store, showsSelfHosted: showsSelfHosted) { settings.value = false }
                 .preferredColorScheme(scheme)
         }
         .preferredColorScheme(scheme)
-        // Back, Forward and Zoom Out in the menu bar and with their keys (FlowieCommands).
+        // Back, Forward, Zoom Out, the panes and the sidebar in the menu bar and with their
+        // keys (FlowieCommands).
         .focusedSceneObject(nav)
+        .onChange(of: wide) { _, wide in nav.setWide(wide) }
         .onAppear {
             guard !started.value else { return }
             started.value = true
             nav.store = store
+            nav.setWide(wide)
             nav.start(LaunchMemory.start(), store: store)
             #if DEBUG
             ScreenshotArguments.apply(to: nav, store: store)
@@ -231,11 +348,11 @@ public struct FlowieShell: View {
         }
     }
 
-    /// A capture was asked for (§5): its day at the top of the Today tab, where the page puts
-    /// the caret on its row.
+    /// A capture was asked for (§5): its day, where the page puts the caret on its row.
     private func showCapture() {
         guard started.value, let capture = store.capture else { return }
         settings.value = false
+        nav.sidebar = false
         nav.showDay(capture.day)
     }
 
@@ -247,49 +364,127 @@ public struct FlowieShell: View {
         }
     }
 
-    private func stack(_ tab: AppTab) -> some View {
-        NavigationStack(path: nav.binding(tab)) {
-            pane(tab, at: 0)
-                .navigationDestination(for: UUID.self) { id in
-                    if let position = nav.history(tab).position(of: id) {
-                        pane(tab, at: position)
-                    }
-                }
-        }
-    }
-
-    private func pane(_ tab: AppTab, at position: Int) -> some View {
-        let history = nav.history(tab)
-        let entry = history.entries[min(position, history.entries.count - 1)]
-        return PaneContent(store: store, nav: nav, tab: tab, position: position, entry: entry,
-                           onSettings: tab == .home && position == 0 ? { settings.value = true } : nil)
+    private func tab(_ tab: AppTab) -> some View {
+        PagesView(store: store, nav: nav, key: .tab(tab), onSettings: tab == .home ? { settings.value = true } : nil)
     }
 }
 
-/// The page of an entry of a tab's history, with the history's back and forward buttons.
+/// A history's pages side by side (wiki: Sliding-Panes §3): the current page, and the one before
+/// it on the left when the window is wide, landscape and at least 1000pt across. A history of
+/// one page shows it alone, centered. Pages on either side of those on screen are kept ready
+/// (off screen), so Back and Forward slide them in.
+struct PagesView: View {
+    @ObservedObject var store: OutlineStore
+    @ObservedObject var nav: Navigation
+    let key: HistoryKey
+    /// Home's settings button, in the tabs.
+    let onSettings: (() -> Void)?
+
+    /// How wide a page alone in a wide window is at most, to keep its lines readable.
+    static let readable: CGFloat = 700
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            let history = nav.history(key)
+            let two = key == .window && nav.twoPanes && history.index > 0
+            let first = two ? history.index - 1 : history.index
+            let width = two ? size.width / 2 : size.width
+            let range = max(0, first - 1)...min(history.entries.count - 1, history.index + 1)
+            ZStack(alignment: .topLeading) {
+                ForEach(history.entries[range]) { entry in
+                    let position = history.position(of: entry.id) ?? 0
+                    let shown = position >= first && position <= history.index
+                    let left = two && position == first
+                    PaneContent(
+                        store: store, nav: nav,
+                        slot: PaneSlot(
+                            key: key, position: position, leading: position == first,
+                            highlight: left ? history.entries[position + 1].opener : nil,
+                            focused: shown && nav.focusedPosition(key) == position,
+                            onSettings: onSettings),
+                        entry: entry
+                    )
+                    .frame(maxWidth: key == .window && !two && nav.canSplit ? Self.readable : .infinity)
+                    .frame(width: width, height: size.height)
+                    .background(Color(uiColor: .systemBackground))
+                    .overlay(alignment: .leading) {
+                        if two && position == history.index {
+                            Rectangle().fill(Color(uiColor: .separator)).frame(width: 1 / UIScreen.main.scale).ignoresSafeArea()
+                        }
+                    }
+                    .offset(x: CGFloat(position - first) * width)
+                    .allowsHitTesting(shown)
+                    .accessibilityHidden(!shown)
+                    .transition(.asymmetric(insertion: .offset(x: width), removal: .opacity))
+                }
+            }
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .clipped()
+            .onAppear { updateSplit(size) }
+            .onChange(of: size) { _, size in updateSplit(size) }
+        }
+        .ignoresSafeArea(.keyboard)
+    }
+
+    /// Two panes only in iPad landscape: wider than tall and at least 1000pt (§3).
+    private func updateSplit(_ size: CGSize) {
+        guard key == .window else { return }
+        let can = size.width > size.height && size.width >= 1000
+        if nav.canSplit != can {
+            nav.canSplit = can
+        }
+    }
+}
+
+/// Where a pane is: its history, the place of its page in it, and what it shows besides.
+struct PaneSlot {
+    let key: HistoryKey
+    let position: Int
+    /// The first pane on screen: it has the sidebar, Back and Forward buttons.
+    let leading: Bool
+    /// The row of this page that opened the right pane.
+    let highlight: String?
+    /// It has the focus: the keyboard's commands act on it.
+    let focused: Bool
+    let onSettings: (() -> Void)?
+}
+
+/// The page of an entry of a history in its own navigation bar, with the sidebar, Back and
+/// Forward buttons in the first pane.
 struct PaneContent: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var nav: Navigation
-    let tab: AppTab
-    let position: Int
+    let slot: PaneSlot
     let entry: PageEntry
-    let onSettings: (() -> Void)?
 
     var body: some View {
-        Group {
-            switch entry.page {
-            case .home, .bullet, .day:
-                PageScreen(store: store, entry: entry, nav: nav, tab: tab, position: position, top: position == 0, onSettings: onSettings)
-            case .stars:
-                StarsScreen(store: store, nav: nav, tab: tab, position: position)
-            case .search(let query):
-                SearchScreen(store: store, nav: nav, tab: tab, position: position, query: query)
+        NavigationStack {
+            Group {
+                switch entry.page {
+                case .home, .bullet, .day:
+                    PageScreen(store: store, entry: entry, nav: nav, slot: slot)
+                case .stars:
+                    StarsScreen(store: store, nav: nav, slot: slot)
+                case .search(let query):
+                    SearchScreen(store: store, nav: nav, slot: slot, query: query)
+                }
+            }
+            // Another day of the journal is another page; a search stays one while it is typed.
+            .id(entry.page.identity)
+            .toolbar {
+                if slot.leading {
+                    if nav.wide {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button(NSLocalizedString("Show Sidebar", comment: "Opens the sidebar drawer"), systemImage: "sidebar.leading") {
+                                withAnimation(.snappy) { nav.sidebar = true }
+                            }
+                        }
+                    }
+                    HistoryButtons(nav: nav, history: nav.history(slot.key))
+                }
             }
         }
-        // Another day of the journal is another page; a search stays one while it is typed.
-        .id("\(entry.id) \(entry.page.identity)")
-        .navigationBarBackButtonHidden(true)
-        .toolbar { HistoryButtons(nav: nav, history: nav.history(tab)) }
     }
 }
 
@@ -342,8 +537,93 @@ struct HistoryButtons: ToolbarContent {
     }
 }
 
+/// The sidebar drawer of wide windows (wiki: Sliding-Panes §3): Today, Home, Search, each
+/// starred page and the saved searches, opened as a new page; settings at its foot. It slides
+/// in over the pages from the left, which dim; a tap on them puts it away.
+struct Sidebar: View {
+    @ObservedObject var store: OutlineStore
+    @ObservedObject var nav: Navigation
+    let onSettings: () -> Void
+
+    static let width: CGFloat = 320
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            if nav.sidebar {
+                Color.black.opacity(0.2)
+                    .ignoresSafeArea()
+                    .onTapGesture { withAnimation(.snappy) { nav.sidebar = false } }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel(NSLocalizedString("Hide Sidebar", comment: "Puts the sidebar drawer away"))
+                    .transition(.opacity)
+                list
+                    .frame(width: Self.width)
+                    .background(Color(uiColor: .systemBackground))
+                    .shadow(color: .black.opacity(0.15), radius: 12)
+                    .transition(.move(edge: .leading))
+            }
+        }
+    }
+
+    private var list: some View {
+        // Read again as stars and saved searches change.
+        let _ = store.revision
+        let stars = store.starred()
+        let searches = store.savedSearches()
+        return NavigationStack {
+            List {
+                Section {
+                    row(NSLocalizedString("Today", comment: "Title of today's journal page"), "sun.max", .day(LaunchMemory.today))
+                    row(NSLocalizedString("Home", comment: "Title of the outline's top page"), "house", .home)
+                    row(NSLocalizedString("Search", comment: "Title of the Search tab"), "magnifyingglass", .search(""))
+                }
+                if !stars.isEmpty {
+                    Section(NSLocalizedString("Stars", comment: "Title of the Stars tab")) {
+                        ForEach(stars, id: \.id) { bullet in
+                            row(bullet.title, "star", .bullet(bullet.id))
+                        }
+                    }
+                }
+                if !searches.isEmpty {
+                    Section(NSLocalizedString("Saved Searches", comment: "Sidebar section: the searches saved on the desktop")) {
+                        ForEach(searches, id: \.self) { query in
+                            row(query, "magnifyingglass", .search(query))
+                        }
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+            .navigationTitle("Flowie")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(NSLocalizedString("Hide Sidebar", comment: "Puts the sidebar drawer away"), systemImage: "sidebar.leading") {
+                        withAnimation(.snappy) { nav.sidebar = false }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(NSLocalizedString("Settings", comment: "Opens the settings sheet"), systemImage: "gearshape") {
+                        nav.sidebar = false
+                        onSettings()
+                    }
+                }
+            }
+        }
+    }
+
+    private func row(_ title: String, _ symbol: String, _ page: PageRef) -> some View {
+        Button {
+            withAnimation(.snappy) { nav.openFromSidebar(page) }
+        } label: {
+            Label(title, systemImage: symbol)
+        }
+        .foregroundStyle(.primary)
+    }
+}
+
 /// The history's keys, as on the desktop (`keymap.rs`), in the iPad menu bar and the list shown
-/// while ⌘ is held: ⌥⌘← Back, ⌥⌘→ Forward, ⌘[ Zoom Out (⌘] Zoom In is the edited row's).
+/// while ⌘ is held: ⌥⌘← Back, ⌥⌘→ Forward, ⌘[ Zoom Out (⌘] Zoom In is the edited row's); and
+/// the panes' own: ⌃⌘← ⌃⌘→ the focus to the left or right pane, ⌘\ the sidebar.
 public struct FlowieCommands: Commands {
     @FocusedObject private var nav: Navigation?
 
@@ -359,6 +639,20 @@ public struct FlowieCommands: Commands {
                 .disabled(!(nav?.canGoForward ?? false))
             Button(NSLocalizedString("Zoom Out", comment: "Opens the page above the current one")) { nav?.zoomOut() }
                 .keyboardShortcut("[", modifiers: .command)
+            Divider()
+            Button(NSLocalizedString("Focus Left Pane", comment: "Menu bar item: the keyboard acts on the left pane")) { nav?.focusPane(left: true) }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .control])
+                .disabled(!(nav?.twoPanes ?? false))
+            Button(NSLocalizedString("Focus Right Pane", comment: "Menu bar item: the keyboard acts on the right pane")) { nav?.focusPane(left: false) }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .control])
+                .disabled(!(nav?.twoPanes ?? false))
+            Button(nav?.sidebar == true
+                   ? NSLocalizedString("Hide Sidebar", comment: "Puts the sidebar drawer away")
+                   : NSLocalizedString("Show Sidebar", comment: "Opens the sidebar drawer")) {
+                if let nav { withAnimation(.snappy) { nav.sidebar.toggle() } }
+            }
+            .keyboardShortcut("\\", modifiers: .command)
+            .disabled(!(nav?.wide ?? false))
         }
     }
 }
@@ -366,20 +660,16 @@ public struct FlowieCommands: Commands {
 // MARK: Pages
 
 /// A page of the outline with its title, the path to it, and its "…" menu (§4.3, §4.4). Top
-/// pages (Today, Home) have large titles; pages zoomed into have a small one, the bullet's text,
-/// with the path to it below, cut in the middle.
+/// pages of the tabs (Today, Home) have large titles; others a small one, the bullet's text,
+/// with the path to it below, cut in the middle: a menu of the pages above it, each opened in
+/// this pane when chosen (the breadcrumbs).
 struct PageScreen: View {
     @ObservedObject var store: OutlineStore
     @StateObject private var page: PageModel
     @ObservedObject var nav: Navigation
-    let tab: AppTab
-    /// Where its entry is in the tab's history.
-    let position: Int
-    /// Whether this is a top page of its tab (not opened from another).
-    let top: Bool
-    let onSettings: (() -> Void)?
+    let slot: PaneSlot
 
-    init(store: OutlineStore, entry: PageEntry, nav: Navigation, tab: AppTab, position: Int, top: Bool = false, onSettings: (() -> Void)? = nil) {
+    init(store: OutlineStore, entry: PageEntry, nav: Navigation, slot: PaneSlot) {
         self.store = store
         _page = StateObject(wrappedValue: {
             let page = store.page(entry.page.kind ?? .home)
@@ -387,10 +677,13 @@ struct PageScreen: View {
             return page
         }())
         self.nav = nav
-        self.tab = tab
-        self.position = position
-        self.top = top
-        self.onSettings = onSettings
+        self.slot = slot
+    }
+
+    /// The first page of a tab: a large title, and on Home the settings button.
+    private var top: Bool {
+        if case .tab = slot.key { return slot.position == 0 }
+        return false
     }
 
     private var title: String {
@@ -404,15 +697,27 @@ struct PageScreen: View {
     private var subtitle: String? {
         switch page.kind {
         case .home: return nil
-        case .bullet: return top ? nil : page.info?.pathLine(limit: 40)
+        case .bullet: return page.info?.pathLine(limit: 40)
         case .day(let day): return DayNames.subtitle(day)
         }
     }
 
+    private func open(_ page: PageRef, opener: String? = nil) {
+        nav.open(PageEntry(page, opener: opener), from: slot.position, in: slot.key)
+    }
+
     var body: some View {
-        OutlinePage(page: page, open: { id, opener in
-            nav.open(PageEntry(.bullet(id), opener: opener), from: position, in: tab)
-        }, search: { query in nav.showSearch(query) })
+        OutlinePage(
+            page: page,
+            open: { id, opener in open(.bullet(id), opener: opener) },
+            search: { query in nav.showSearch(query, from: slot.position) },
+            highlight: slot.highlight,
+            focused: slot.focused,
+            onFocus: { [nav, slot] in
+                let id = nav.history(slot.key).entries[min(slot.position, nav.history(slot.key).entries.count - 1)].id
+                if nav.focused != id { nav.focused = id }
+            }
+        )
             // The page keeps its rows above the keyboard itself (an inset), and
             // its list scrolls under the tab bar.
             .ignoresSafeArea(.keyboard)
@@ -420,6 +725,7 @@ struct PageScreen: View {
             .navigationTitle(title)
             .modifier(Subtitle(text: subtitle))
             .navigationBarTitleDisplayMode(top ? .large : .inline)
+            .modifier(Breadcrumbs(info: page.kind == .home ? nil : page.info) { page, opener in open(page, opener: opener) })
             // While typing, the keyboard bar takes the bottom: with a hardware keyboard it
             // would sit on the tab bar.
             .toolbar(page.isEditing ? .hidden : .automatic, for: .tabBar)
@@ -427,10 +733,10 @@ struct PageScreen: View {
                 if case .day(let day) = page.kind {
                     ToolbarItemGroup(placement: .topBarLeading) {
                         Button(NSLocalizedString("Previous Day", comment: "Journal toolbar button"), systemImage: "chevron.left") {
-                            nav.replace(at: position, with: .day(LaunchMemory.day(day, offset: -1)), in: tab)
+                            nav.replace(at: slot.position, with: .day(LaunchMemory.day(day, offset: -1)), in: slot.key)
                         }
                         Button(NSLocalizedString("Next Day", comment: "Journal toolbar button"), systemImage: "chevron.right") {
-                            nav.replace(at: position, with: .day(LaunchMemory.day(day, offset: 1)), in: tab)
+                            nav.replace(at: slot.position, with: .day(LaunchMemory.day(day, offset: 1)), in: slot.key)
                         }
                     }
                 }
@@ -443,11 +749,11 @@ struct PageScreen: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    PageMenu(store: store, page: page) { day in
-                        nav.replace(at: position, with: .day(day), in: tab)
+                    PageMenu(store: store, page: page, nav: nav) { day in
+                        nav.replace(at: slot.position, with: .day(day), in: slot.key)
                     }
                 }
-                if let onSettings {
+                if top, case .home = page.kind, let onSettings = slot.onSettings {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(NSLocalizedString("Settings", comment: "Opens the settings sheet"), systemImage: "gearshape", action: onSettings)
                     }
@@ -456,7 +762,7 @@ struct PageScreen: View {
             .safeAreaInset(edge: .top) {
                 if let problem = store.problem {
                     Text(problem).font(.footnote).foregroundStyle(.red).padding(8)
-                } else if top && store.fetchingFirst {
+                } else if store.fetchingFirst && (top || page.kind == .home) {
                     // A new install of someone with a Mac: their outline is on its way (§4.3).
                     HStack(spacing: 8) {
                         ProgressView()
@@ -467,6 +773,30 @@ struct PageScreen: View {
                     .padding(8)
                 }
             }
+    }
+}
+
+/// The breadcrumbs of a bullet's page: its title is a menu of the pages above it, each opened
+/// in the same pane when chosen (wiki: Sliding-Panes §3), its row there pointed out.
+private struct Breadcrumbs: ViewModifier {
+    let info: BulletView?
+    let open: (PageRef, String) -> Void
+
+    func body(content: Content) -> some View {
+        if let info {
+            content.toolbarTitleMenu {
+                Button(NSLocalizedString("Home", comment: "Title of the outline's top page"), systemImage: "house") {
+                    open(.home, info.path.first?.id ?? info.id)
+                }
+                ForEach(Array(info.path.enumerated()), id: \.element.id) { index, crumb in
+                    Button(crumb.text.isEmpty ? NSLocalizedString("Untitled", comment: "Title of a page whose bullet has no text") : crumb.text, systemImage: "circle.fill") {
+                        open(.bullet(crumb.id), index + 1 < info.path.count ? info.path[index + 1].id : info.id)
+                    }
+                }
+            }
+        } else {
+            content
+        }
     }
 }
 
@@ -484,10 +814,12 @@ private struct Subtitle: ViewModifier {
 }
 
 /// A page's "…" menu, the only button at its top right (§4.4): star, show or hide completed,
-/// reading mode, fold the page to a level, copy link. `showDay`: show another day in its place.
+/// reading mode, fold the page to a level, copy link, and in iPad landscape one pane or two.
+/// `showDay`: show another day in its place.
 struct PageMenu: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var page: PageModel
+    @ObservedObject var nav: Navigation
     let showDay: (String) -> Void
 
     var body: some View {
@@ -508,6 +840,12 @@ struct PageMenu: View {
             }
             Toggle(isOn: Binding(get: { store.readingMode }, set: { store.setReadingMode($0) })) {
                 Label(NSLocalizedString("Reading Mode", comment: "Page menu toggle: nothing can be edited while on"), systemImage: "book")
+            }
+            if nav.wide && nav.canSplit {
+                // Landscape only: portrait has one pane anyway (wiki: Sliding-Panes §3).
+                Toggle(isOn: Binding(get: { !nav.singlePane }, set: { two in withAnimation(.snappy) { nav.singlePane = !two } })) {
+                    Label(NSLocalizedString("Two Panes", comment: "Page menu toggle: the page before shows beside the current one (iPad landscape)"), systemImage: "rectangle.split.2x1")
+                }
             }
             if page.rows.contains(where: \.hasChildren) {
                 Section {
@@ -577,8 +915,7 @@ struct BulletLine: View {
 struct StarsScreen: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var nav: Navigation
-    let tab: AppTab
-    let position: Int
+    let slot: PaneSlot
 
     var body: some View {
         let stars = store.starred()
@@ -593,11 +930,13 @@ struct StarsScreen: View {
                 List {
                     ForEach(stars, id: \.id) { bullet in
                         Button {
-                            nav.open(PageEntry(.bullet(bullet.id), opener: bullet.id), from: position, in: tab)
+                            nav.open(PageEntry(.bullet(bullet.id), opener: bullet.id), from: slot.position, in: slot.key)
                         } label: {
                             BulletLine(bullet: bullet)
                         }
                         .foregroundStyle(.primary)
+                        // The left pane: the star that opened the right one.
+                        .listRowBackground(slot.highlight == bullet.id ? Color.accentColor.opacity(0.15) : nil)
                         .swipeActions {
                             Button(NSLocalizedString("Unstar", comment: "Menu item"), systemImage: "star.slash", role: .destructive) {
                                 store.setStarred(bullet.id, false)
@@ -618,15 +957,13 @@ struct StarsScreen: View {
 struct SearchScreen: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var nav: Navigation
-    let tab: AppTab
-    let position: Int
+    let slot: PaneSlot
     @StateObject private var query: Local<String>
 
-    init(store: OutlineStore, nav: Navigation, tab: AppTab, position: Int, query: String) {
+    init(store: OutlineStore, nav: Navigation, slot: PaneSlot, query: String) {
         self.store = store
         self.nav = nav
-        self.tab = tab
-        self.position = position
+        self.slot = slot
         _query = StateObject(wrappedValue: Local(query))
     }
 
@@ -660,11 +997,12 @@ struct SearchScreen: View {
                 ForEach(hits, id: \.id) { bullet in
                     Button {
                         // The page it is on, pointing it out.
-                        nav.open(PageEntry(bullet.path.last.map { .bullet($0.id) } ?? .home, opener: bullet.id, reveal: bullet.id), from: position, in: tab)
+                        nav.open(PageEntry(bullet.path.last.map { .bullet($0.id) } ?? .home, opener: bullet.id, reveal: bullet.id), from: slot.position, in: slot.key)
                     } label: {
                         BulletLine(bullet: bullet)
                     }
                     .foregroundStyle(.primary)
+                    .listRowBackground(slot.highlight == bullet.id ? Color.accentColor.opacity(0.15) : nil)
                 }
             }
         }
@@ -682,7 +1020,7 @@ struct SearchScreen: View {
         .textInputAutocapitalization(.never)
         // The history keeps what was searched for, to come back to.
         .onChange(of: query.value) { _, value in
-            nav.replace(at: position, with: .search(value), in: tab)
+            nav.replace(at: slot.position, with: .search(value), in: slot.key)
         }
     }
 }

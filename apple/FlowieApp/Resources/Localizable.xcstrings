@@ -661,6 +661,38 @@
         }
       }
     },
+    "Focus Left Pane": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Left Pane"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦左栏"
+          }
+        }
+      }
+    },
+    "Focus Right Pane": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Right Pane"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦右栏"
+          }
+        }
+      }
+    },
     "Forward": {
       "localizations": {
         "en": {
@@ -737,6 +769,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "收起键盘"
+          }
+        }
+      }
+    },
+    "Hide Sidebar": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Sidebar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏侧栏"
           }
         }
       }
@@ -1221,6 +1269,22 @@
         }
       }
     },
+    "Saved Searches": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved Searches"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已存搜索"
+          }
+        }
+      }
+    },
     "Search": {
       "localizations": {
         "en": {
@@ -1329,6 +1393,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "显示已完成"
+          }
+        }
+      }
+    },
+    "Show Sidebar": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示侧栏"
           }
         }
       }
@@ -1649,6 +1729,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "关闭阅读模式"
+          }
+        }
+      }
+    },
+    "Two Panes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two Panes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双栏"
           }
         }
       }

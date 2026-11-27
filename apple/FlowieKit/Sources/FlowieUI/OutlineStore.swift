@@ -172,6 +172,11 @@ public final class OutlineStore: ObservableObject {
         outline.starred()
     }
 
+    /// The searches saved on the desktop (they sync), for the iPad sidebar.
+    public func savedSearches() -> [String] {
+        outline.savedSearches()
+    }
+
     /// Star a bullet or unstar it (not an undo step, as on the desktop).
     public func setStarred(_ id: String, _ starred: Bool) {
         try? outline.setStarred(id: id, starred: starred)

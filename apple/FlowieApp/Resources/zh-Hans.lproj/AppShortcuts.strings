@@ -2,3 +2,7 @@
 "Add to my ${applicationName} journal" = "记到${applicationName}日记";
 "Write in today’s journal in ${applicationName}" = "在${applicationName}写今天的日记";
 "Open today’s journal in ${applicationName}" = "在${applicationName}打开今天的日记";
+"Open ${target} in ${applicationName}" = "在${applicationName}打开${target}";
+"Open a page in ${applicationName}" = "在${applicationName}打开页面";
+"Search ${applicationName}" = "搜索${applicationName}";
+"Search in ${applicationName}" = "在${applicationName}中搜索";

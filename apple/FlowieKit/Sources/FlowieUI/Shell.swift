@@ -253,6 +253,24 @@ final class Navigation: ObservableObject {
         showDay(LaunchMemory.today)
     }
 
+    /// A page asked for from outside the window (an intent, Spotlight, Handoff): a search in
+    /// the Search tab, a day in Today, another page opened in the tab it belongs in, or in a
+    /// wide window's history; nothing new when it shows already.
+    func show(_ page: PageRef) {
+        switch page {
+        case .search(let query):
+            showSearch(query)
+        case .day(let day):
+            showDay(day)
+        case .home, .bullet, .stars:
+            if !wide { tab = AppTab(for: page) }
+            let history = history(key)
+            if history.current.page != page {
+                open(PageEntry(page), from: history.index, in: key)
+            }
+        }
+    }
+
     /// How each page was left (scrolled, the caret), by entry: kept aside so scrolling doesn't
     /// redraw the shell, and put into the history when it is saved or a page comes back.
     private var memories: [UUID: PageMemory] = [:]
@@ -371,8 +389,10 @@ public struct FlowieShell: View {
             ScreenshotArguments.apply(to: nav, store: store)
             #endif
             showCapture()
+            showOpening()
         }
         .onChange(of: store.capture) { _, _ in showCapture() }
+        .onChange(of: store.opening) { _, _ in showOpening() }
         .onChange(of: scenePhase) { old, phase in
             switch phase {
             case .background:
@@ -394,6 +414,14 @@ public struct FlowieShell: View {
         settings.value = false
         nav.sidebar = false
         nav.showDay(capture.day)
+    }
+
+    /// A page asked for from outside (§5): shown once.
+    private func showOpening() {
+        guard started.value, let page = store.takeOpening() else { return }
+        settings.value = false
+        nav.sidebar = false
+        nav.show(page)
     }
 
     private var scheme: ColorScheme? {

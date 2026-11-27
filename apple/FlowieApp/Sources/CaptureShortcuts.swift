@@ -39,6 +39,16 @@ struct CaptureShortcuts: AppShortcutsProvider {
             phrases: ["Write in today’s journal in \(.applicationName)", "Open today’s journal in \(.applicationName)"],
             shortTitle: "Write in Today’s Journal", systemImageName: "square.and.pencil"
         )
+        AppShortcut(
+            intent: OpenPage(),
+            phrases: ["Open \(\.$target) in \(.applicationName)", "Open a page in \(.applicationName)"],
+            shortTitle: "Open Page", systemImageName: "list.bullet.indent"
+        )
+        AppShortcut(
+            intent: SearchFlowie(),
+            phrases: ["Search \(.applicationName)", "Search in \(.applicationName)"],
+            shortTitle: "Search Flowie", systemImageName: "magnifyingglass"
+        )
     }
 }
 

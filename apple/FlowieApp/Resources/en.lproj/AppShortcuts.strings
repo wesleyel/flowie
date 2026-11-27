@@ -2,3 +2,7 @@
 "Add to my ${applicationName} journal" = "Add to my ${applicationName} journal";
 "Write in today’s journal in ${applicationName}" = "Write in today’s journal in ${applicationName}";
 "Open today’s journal in ${applicationName}" = "Open today’s journal in ${applicationName}";
+"Open ${target} in ${applicationName}" = "Open ${target} in ${applicationName}";
+"Open a page in ${applicationName}" = "Open a page in ${applicationName}";
+"Search ${applicationName}" = "Search ${applicationName}";
+"Search in ${applicationName}" = "Search in ${applicationName}";

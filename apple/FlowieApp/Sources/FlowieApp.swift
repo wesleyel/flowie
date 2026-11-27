@@ -68,6 +68,8 @@ final class Launch: ObservableObject {
         // iCloud sync starts at launch, and runs while an account is signed in (wiki:
         // Per-Node-Sync §5.2). CKSyncEngine keeps its place beside the database.
         store?.startICloud(stateURL: database.deletingLastPathComponent().appendingPathComponent("icloud-sync-state.json"))
+        // Siri's "Open <page> in Flowie" learns the starred pages' names.
+        CaptureShortcuts.updateAppShortcutParameters()
         #if DEBUG
         testing = true
         #else

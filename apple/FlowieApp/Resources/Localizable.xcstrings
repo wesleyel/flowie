@@ -1237,6 +1237,54 @@
         }
       }
     },
+    "Open ${target}": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open ${target}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开${target}"
+          }
+        }
+      }
+    },
+    "Open Page": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Page"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开页面"
+          }
+        }
+      }
+    },
+    "Opens a page of your outline in Flowie.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens a page of your outline in Flowie."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Flowie 中打开大纲里的一个页面。"
+          }
+        }
+      }
+    },
     "Opens its page": {
       "localizations": {
         "en": {
@@ -1297,6 +1345,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "反缩进"
+          }
+        }
+      }
+    },
+    "Page": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "页面"
           }
         }
       }
@@ -1445,6 +1509,54 @@
         }
       }
     },
+    "Search Flowie": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Flowie"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索 Flowie"
+          }
+        }
+      }
+    },
+    "Search Flowie for ${query}": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Flowie for ${query}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Flowie 中搜索${query}"
+          }
+        }
+      }
+    },
+    "Search For": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search For"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索内容"
+          }
+        }
+      }
+    },
     "Search or filter": {
       "localizations": {
         "en": {
@@ -1457,6 +1569,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "搜索或过滤"
+          }
+        }
+      }
+    },
+    "Searches your outline in Flowie, with the same filters as the Search tab.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searches your outline in Flowie, with the same filters as the Search tab."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Flowie 中搜索大纲，筛选写法与“搜索”标签页相同。"
           }
         }
       }
@@ -1781,6 +1909,22 @@
         }
       }
     },
+    "That page is no longer in your outline.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That page is no longer in your outline."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个页面已不在大纲里。"
+          }
+        }
+      }
+    },
     "The copy taken before the update": {
       "localizations": {
         "en": {
@@ -2081,6 +2225,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "要记些什么？"
+          }
+        }
+      }
+    },
+    "What do you want to search for?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What do you want to search for?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要搜索什么？"
+          }
+        }
+      }
+    },
+    "Which page?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Which page?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开哪个页面？"
           }
         }
       }

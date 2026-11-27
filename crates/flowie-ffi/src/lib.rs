@@ -454,6 +454,16 @@ fn bullet_view(tree: &Tree, id: NodeId) -> BulletView {
     }
 }
 
+/// The date of a journal page: a bullet under the journal titled with a date.
+fn journal_date(tree: &Tree, id: NodeId) -> Option<String> {
+    let journal = journal::find_journal(tree)?;
+    if !tree.contains(id) || tree.parent(id) != journal {
+        return None;
+    }
+    let text = &tree.node(id).text;
+    journal::is_date(text).then(|| text.clone())
+}
+
 /// A date from outside, checked: journal ids are derived from it.
 fn day(date: &str) -> Result<&str, FlowieError> {
     if journal::is_date(date) {
@@ -907,6 +917,13 @@ impl Outline {
     pub fn journal_day(&self, date: String) -> Result<Option<String>, FlowieError> {
         let date = day(&date)?;
         Ok(journal::find_day(&self.lock().ws.tree, date).map(|id| id.to_string()))
+    }
+
+    /// The date (YYYY-MM-DD) bullet `id` is the journal page of, if it is one: a page under the
+    /// journal titled with a date. The app opens it as that day, not as a plain bullet page.
+    pub fn journal_date(&self, id: String) -> Option<String> {
+        let node = parse(&id).ok()?;
+        journal_date(&self.lock().ws.tree, node)
     }
 
     /// Open the journal page for `date` (YYYY-MM-DD) to write in, as the desktop does: a
@@ -1417,6 +1434,9 @@ mod tests {
         let journal = journal::journal_root_id().to_string();
         let days: Vec<String> = outline.page(Some(journal)).unwrap().into_iter().filter(|r| r.depth == 0).map(|r| r.text).collect();
         assert_eq!(days, ["2026-11-28", "2026-11-27"]);
+        assert_eq!(outline.journal_date(day.clone()).as_deref(), Some("2026-11-27"), "a day opens as its day");
+        assert_eq!(outline.journal_date(rows[0].id.clone()), None);
+        assert_eq!(outline.journal_date(journal::journal_root_id().to_string()), None);
         assert!(matches!(outline.open_day("2026-11-27; drop".into()), Err(FlowieError::NotADate { .. })));
         assert!(matches!(outline.journal_day("tomorrow".into()), Err(FlowieError::NotADate { .. })));
     }

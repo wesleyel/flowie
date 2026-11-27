@@ -34,6 +34,10 @@ public final class OutlineStore: ObservableObject {
     /// the page showing it puts the caret there once (`takeCapture`).
     @Published public private(set) var capture: JournalCapture?
     private var captureTaken = true
+    /// The last page asked for from outside the window (the Open Page and Search intents,
+    /// Spotlight, Handoff): the shell shows it.
+    @Published public private(set) var opening: OpenRequest?
+    private var openingTaken = true
 
     public init(outline: Outline) {
         self.outline = outline
@@ -143,6 +147,27 @@ public final class OutlineStore: ObservableObject {
         }
         captureTaken = true
         return Focus(id: capture.row, start: capture.caret, end: capture.caret)
+    }
+
+    // MARK: Opening from outside
+
+    /// Show `page` in the window, as a new page of its history (the Open Page and Search
+    /// intents, Spotlight, Handoff).
+    public func show(_ page: PageRef) {
+        openingTaken = false
+        opening = OpenRequest(page: page, serial: (opening?.serial ?? 0) + 1)
+    }
+
+    /// The page asked for and not yet shown; taking it clears it.
+    func takeOpening() -> PageRef? {
+        guard !openingTaken, let opening else { return nil }
+        openingTaken = true
+        return opening.page
+    }
+
+    /// The page of bullet `id`: a journal page opens as its day.
+    public func pageRef(bullet id: String) -> PageRef {
+        outline.journalDate(id: id).map { .day($0) } ?? .bullet(id)
     }
 
     // MARK: Settings and lists
@@ -590,6 +615,12 @@ public struct Focus: Equatable {
     init(_ focus: FocusView) {
         self.init(id: focus.id, start: Int(focus.start), end: Int(focus.end))
     }
+}
+
+/// A page asked for from outside the window; `serial` tells two asks for one page apart.
+public struct OpenRequest: Equatable, Sendable {
+    public let page: PageRef
+    let serial: Int
 }
 
 /// Sync's threads say when there is something to take; the store takes it on the main actor.

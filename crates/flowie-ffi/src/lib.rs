@@ -11,9 +11,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use flowie_core::images::ImageDir;
 use flowie_core::search::Query;
 use flowie_core::{flatten_mapped, journal, markup, BlockKind, Caret, NodeId, Row, Tree, ViewOptions, ROOT};
-use flowie_doc::{find, utf16, Outcome, SyncDriver, SyncPhase, Workspace};
+use flowie_doc::{find, utf16, NativeSaved, NativeSync, Outcome, SyncDriver, SyncPhase, Wire, Workspace};
 use flowie_sync::http::HttpBackend;
-use flowie_sync::{ChangeBatch, Engine, Envelope, RecordStore, SaveResult};
 
 uniffi::setup_scaffolding!();
 
@@ -292,15 +291,26 @@ pub enum SaveOutcome {
     },
 }
 
-fn to_envelope(record: &WireRecord) -> Option<Envelope> {
-    let mut envelope: Envelope = serde_json::from_str(&record.envelope).ok()?;
-    envelope.etag = record.etag.clone();
-    Some(envelope)
+impl From<Wire> for WireRecord {
+    fn from(wire: Wire) -> Self {
+        WireRecord { id: wire.id, etag: wire.etag, envelope: wire.envelope }
+    }
 }
 
-fn to_wire(mut envelope: Envelope) -> WireRecord {
-    let etag = envelope.etag.take();
-    WireRecord { id: envelope.id.clone(), etag, envelope: serde_json::to_string(&envelope).expect("an envelope is plain data") }
+impl From<WireRecord> for Wire {
+    fn from(record: WireRecord) -> Self {
+        Wire { id: record.id, etag: record.etag, envelope: record.envelope }
+    }
+}
+
+impl From<SaveOutcome> for NativeSaved {
+    fn from(outcome: SaveOutcome) -> Self {
+        match outcome {
+            SaveOutcome::Saved { id, etag } => NativeSaved::Saved { id, etag },
+            SaveOutcome::Conflict { server } => NativeSaved::Conflict { server: server.into() },
+            SaveOutcome::Failed { id, error } => NativeSaved::Failed { id, error },
+        }
+    }
 }
 
 struct State {
@@ -308,7 +318,7 @@ struct State {
     sync: Option<SyncDriver>,
     /// The engine a native sync engine drives (CloudKit), between `begin_native_sync` and
     /// `end_native_sync`.
-    native: Option<Engine>,
+    native: Option<NativeSync>,
     /// Completed rows are left off pages (this device's setting, as on the desktop).
     hide_completed: bool,
 }
@@ -824,7 +834,7 @@ impl Outline {
         let mut state = self.lock();
         state.sync = None;
         let server = server.trim().trim_end_matches('/').to_string();
-        state.ws.set_sync_remote(&format!("{server}#outline"));
+        state.ws.use_remote(&format!("{server}#outline"));
         let token = token.trim().to_string();
         let driver = SyncDriver::start(&state.ws, move || Box::new(HttpBackend::new(&server, "outline", &token)), move || observer.wake());
         state.sync = Some(driver);
@@ -848,49 +858,46 @@ impl Outline {
 
     /// Let a native sync engine (CloudKit's CKSyncEngine) drive sync from now on, keeping its
     /// place under `remote` (for example `icloud`). It schedules the calls below itself.
-    pub fn begin_native_sync(&self, remote: String) {
+    /// Returns whether this is a fresh start with that backend (`Workspace::use_remote`):
+    /// everything here waits to be sent, and the native engine should drop the place it kept
+    /// in the backend's changes and fetch from the beginning.
+    pub fn begin_native_sync(&self, remote: String) -> bool {
         let mut state = self.lock();
         state.sync = None;
-        state.ws.set_sync_remote(&remote);
-        state.native = Some(Engine::new());
+        let fresh = state.ws.use_remote(&remote);
+        state.native = Some(NativeSync::new());
+        fresh
     }
 
     pub fn end_native_sync(&self) {
         self.lock().native = None;
     }
 
+    /// Send every record again: the backend lost them (the user deleted the app's iCloud data,
+    /// or another account signed in).
+    pub fn resend_all(&self) {
+        self.lock().ws.resend_all();
+    }
+
     /// Ids with something to send, for the native engine's list of pending saves.
     pub fn unsent_ids(&self, limit: u32) -> Vec<String> {
-        let state = self.lock();
-        let mut ids: Vec<String> = state.ws.unsent(limit as usize).into_iter().map(|id| id.to_string()).collect();
-        if state.ws.prefs_unsent() && ids.len() < limit as usize {
-            ids.push(flowie_sync::PREFS_ID.to_string());
-        }
-        ids
+        NativeSync::unsent_ids(&self.lock().ws, limit as usize)
     }
 
     /// The next records to save, at most `limit`, each from the version last seen.
     pub fn next_saves(&self, limit: u32) -> Vec<WireRecord> {
         let mut state = self.lock();
         let State { ws, native, .. } = &mut *state;
-        let Some(engine) = native else { return Vec::new() };
-        engine.next_saves(ws, limit as usize).into_iter().map(to_wire).collect()
+        let Some(native) = native else { return Vec::new() };
+        native.next_saves(ws, limit as usize).into_iter().map(WireRecord::from).collect()
     }
 
     /// The native engine answered saves.
     pub fn on_saved(&self, outcomes: Vec<SaveOutcome>) {
         let mut state = self.lock();
         let State { ws, native, .. } = &mut *state;
-        let Some(engine) = native else { return };
-        let results = outcomes
-            .into_iter()
-            .filter_map(|outcome| match outcome {
-                SaveOutcome::Saved { id, etag } => Some(SaveResult::Saved { id, etag }),
-                SaveOutcome::Conflict { server } => to_envelope(&server).map(|server| SaveResult::Conflict { server }),
-                SaveOutcome::Failed { id, error } => Some(SaveResult::Failed { id, error }),
-            })
-            .collect();
-        engine.on_saved(ws, results);
+        let Some(native) = native else { return };
+        native.on_saved(ws, outcomes.into_iter().map(NativeSaved::from).collect());
     }
 
     /// Records the native engine fetched, and where it is now (CloudKit keeps its own change
@@ -899,11 +906,15 @@ impl Outline {
     pub fn on_fetched(&self, records: Vec<WireRecord>, cursor: String) -> bool {
         let mut state = self.lock();
         let State { ws, native, .. } = &mut *state;
-        let Some(engine) = native else { return false };
-        let revision = ws.tree.revision();
-        let records = records.iter().filter_map(to_envelope).collect();
-        engine.on_fetched(ws, ChangeBatch { records, cursor, more: false });
-        ws.tree.revision() != revision
+        let Some(native) = native else { return false };
+        let records: Vec<Wire> = records.into_iter().map(Wire::from).collect();
+        native.on_fetched(ws, &records, &cursor)
+    }
+
+    /// Whether the outline has nothing in it yet: no bullets at the top level (Trash aside).
+    /// A new device shows that it is fetching the outline while it is.
+    pub fn is_empty(&self) -> bool {
+        self.lock().ws.tree.children(ROOT).is_empty()
     }
 
     pub fn sync_status(&self) -> SyncStatus {
@@ -1030,20 +1041,20 @@ mod tests {
             if saves.is_empty() {
                 break;
             }
-            let results = server.modify(saves.iter().filter_map(to_envelope).collect());
+            let results = server.modify(saves.iter().filter_map(|w| Wire::from(w.clone()).to_envelope()).collect());
             let outcomes = results
                 .into_iter()
                 .map(|r| match r {
-                    SaveResult::Saved { id, etag } => SaveOutcome::Saved { id, etag },
-                    SaveResult::Conflict { server } => SaveOutcome::Conflict { server: to_wire(server) },
-                    SaveResult::Failed { id, error } => SaveOutcome::Failed { id, error },
+                    flowie_sync::SaveResult::Saved { id, etag } => SaveOutcome::Saved { id, etag },
+                    flowie_sync::SaveResult::Conflict { server } => SaveOutcome::Conflict { server: Wire::from_envelope(server).into() },
+                    flowie_sync::SaveResult::Failed { id, error } => SaveOutcome::Failed { id, error },
                 })
                 .collect();
             outline.on_saved(outcomes);
         }
         let batch = server.changes(cursor.as_deref(), 500);
         *cursor = Some(batch.cursor.clone());
-        outline.on_fetched(batch.records.into_iter().map(to_wire).collect(), batch.cursor);
+        outline.on_fetched(batch.records.into_iter().map(|e| Wire::from_envelope(e).into()).collect(), batch.cursor);
     }
 
     #[test]

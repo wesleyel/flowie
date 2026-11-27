@@ -86,6 +86,7 @@ pub const LOCAL_META: &[&str] = &[
     "sync.held",
     "sync.prefs",
     "sync.prefs_base",
+    "sync.remote",
     "tutorial",
     "window",
     "zoom",
@@ -275,6 +276,10 @@ pub enum SyncWrite {
     Lost { id: NodeId, field: String, value: String, at: i64 },
     /// A conflict copy dealt with: restored or dismissed.
     Unlost { id: NodeId, field: String, value: String, at: i64 },
+    /// Records to send whole: every record, for a backend this outline hasn't synced with.
+    Unsent(Vec<NodeId>),
+    /// Pull from a backend from its beginning next time.
+    ForgetCursor(String),
 }
 
 pub fn write_sync(conn: &Connection, write: &SyncWrite) -> rusqlite::Result<()> {
@@ -295,6 +300,16 @@ pub fn write_sync(conn: &Connection, write: &SyncWrite) -> rusqlite::Result<()> 
             "INSERT INTO sync_state (remote, cursor) VALUES (?1, ?2) ON CONFLICT(remote) DO UPDATE SET cursor = ?2",
             params![remote, cursor.as_bytes()],
         ),
+        SyncWrite::Unsent(ids) => {
+            let mut stmt = conn.prepare_cached(
+                "INSERT INTO outbox (id, dirty_mask) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET dirty_mask = dirty_mask | ?2",
+            )?;
+            for id in ids {
+                stmt.execute(params![id, crate::hlc::ALL_REGS as i64])?;
+            }
+            Ok(ids.len())
+        }
+        SyncWrite::ForgetCursor(remote) => conn.execute("UPDATE sync_state SET cursor = NULL WHERE remote = ?1", params![remote]),
     }
     .map(drop)
 }

@@ -116,7 +116,8 @@ impl Outline {
         if !config.ready() || self.ws.writer.is_none() {
             return;
         }
-        self.ws.set_sync_remote(&config.remote());
+        // Another server than last time gets the whole outline (`use_remote`).
+        self.ws.use_remote(&config.remote());
         let first = self.ws.cursor().is_none();
         if first {
             // Never synced with this server: keep the outline as it was before merging.

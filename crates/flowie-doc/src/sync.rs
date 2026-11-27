@@ -17,6 +17,8 @@ const HELD_META: &str = "sync.held";
 /// version last seen (`{"etag", "record"}`).
 const PREFS_META: &str = "sync.prefs";
 const PREFS_BASE_META: &str = "sync.prefs_base";
+/// The `meta` key naming the backend this outline synced with last (`Workspace::use_remote`).
+const REMOTE_META: &str = "sync.remote";
 
 /// Text that lost a concurrent edit to another device's (a conflict copy), kept until it is
 /// restored or dismissed.
@@ -42,6 +44,8 @@ pub struct SyncState {
     cursors: HashMap<String, String>,
     /// The backend syncing now (`Workspace::set_sync_remote`).
     remote: String,
+    /// The backend this outline synced with last, if it is known (`Workspace::use_remote`).
+    last_remote: Option<String>,
     /// The record whose text is being edited (`Workspace::begin_edit`).
     editing: Option<NodeId>,
     /// What came in for it meanwhile, merged, to apply when editing ends.
@@ -86,6 +90,7 @@ impl SyncState {
     pub(crate) fn load_meta(&mut self, meta: &[(String, String)]) {
         let get = |key: &str| meta.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
         self.prefs_unsent = get(PREFS_META) == Some("1");
+        self.last_remote = get(REMOTE_META).filter(|r| !r.is_empty()).map(str::to_string);
         self.prefs_base =
             get(PREFS_BASE_META).and_then(|v| serde_json::from_str::<SavedPrefsBase>(v).ok()).map(|saved| (saved.etag, saved.record));
     }
@@ -106,6 +111,47 @@ impl Workspace {
     /// left off on that backend.
     pub fn set_sync_remote(&mut self, remote: &str) {
         self.sync.remote = remote.to_string();
+    }
+
+    /// Sync with the backend called `remote` from now on, as [`set_sync_remote`] does, and say
+    /// whether it is a fresh start: a backend this outline didn't sync with last (another
+    /// server, iCloud after a server, or the first backend of an outline from before sync).
+    /// Such a backend has none of what was sent elsewhere, so everything here is sent to it
+    /// ([`resend_all`]), and pulling starts from its beginning. Going back to a backend synced
+    /// with before is a fresh start too: what changed meanwhile went only to the other one.
+    ///
+    /// [`set_sync_remote`]: Self::set_sync_remote
+    /// [`resend_all`]: Self::resend_all
+    pub fn use_remote(&mut self, remote: &str) -> bool {
+        self.set_sync_remote(remote);
+        let same = match &self.sync.last_remote {
+            Some(last) => last == remote,
+            // Synced before this was kept: the backend with a cursor is the one.
+            None => self.sync.cursors.contains_key(remote),
+        };
+        if !same {
+            self.resend_all();
+            if self.sync.cursors.remove(remote).is_some() {
+                self.save_sync(SyncWrite::ForgetCursor(remote.to_string()));
+            }
+        }
+        if self.sync.last_remote.as_deref() != Some(remote) {
+            self.sync.last_remote = Some(remote.to_string());
+            self.set_meta(REMOTE_META, remote);
+        }
+        !same
+    }
+
+    /// Send every record again, tombstones and the synced preferences too: for a backend that
+    /// may not have them (a new one, or iCloud data the user deleted).
+    pub fn resend_all(&mut self) {
+        let mut ids: Vec<NodeId> = self.tree.records().map(|n| n.id).collect();
+        ids.extend(self.tree.purged().map(|(id, _)| id));
+        self.sync.outbox.extend(ids.iter().copied());
+        self.save_sync(SyncWrite::Unsent(ids));
+        if !self.prefs.is_empty() {
+            self.note_prefs_unsent();
+        }
     }
 
     /// The record `id` (a mirror's source, not the mirror) is being edited. What another

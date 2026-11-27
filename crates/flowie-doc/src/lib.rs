@@ -9,6 +9,7 @@ pub use driver::{SyncDriver, SyncPhase};
 use flowie_core::images::{BlobInfo, ImageDir};
 use flowie_core::store::{self, ImportRecord, ImportState, Writer};
 use flowie_core::{Caret, History, HistoryKind, NodeId, Tree};
+pub use native::{NativeSaved, NativeSync, Wire};
 pub use outcome::Outcome;
 pub use sync::{LostCopy, SyncState};
 
@@ -17,6 +18,7 @@ pub mod capture;
 mod driver;
 pub mod find;
 pub mod keys;
+pub mod native;
 mod outcome;
 mod sync;
 pub mod utf16;

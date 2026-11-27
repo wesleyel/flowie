@@ -631,6 +631,16 @@ impl Outline {
         self.track(|ws| ws.redo().flatten())
     }
 
+    /// Whether there is a step to undo (the system's Undo shows enabled then).
+    pub fn can_undo(&self) -> bool {
+        self.lock().ws.history.can_undo()
+    }
+
+    /// Whether there is an undone step to redo.
+    pub fn can_redo(&self) -> bool {
+        self.lock().ws.history.can_redo()
+    }
+
     /// Fold or unfold a bullet with children, as the desktop's fold toggle: its children leave
     /// or join the page. Nothing changes for a bullet without children. An undo step; folding
     /// doesn't sync (each device keeps its own).

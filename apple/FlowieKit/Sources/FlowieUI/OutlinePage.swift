@@ -115,6 +115,9 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     /// While a snapshot is applied or the caret placed, rows leaving the screen keep the caret.
     private var placing = false
     private lazy var bar = KeyboardBar(controller: self)
+    /// The undo manager the rows' text views and the system (⌘Z, shake, three-finger swipe,
+    /// the shortcuts bar) use: it undoes the outline's steps, not the text view's own.
+    private lazy var pageUndo = PageUndoManager(page: page)
     /// A grey line below the rows: how to open a bullet (new users, on Home), or how to start a
     /// day of the journal.
     private let hint = UILabel()
@@ -138,7 +141,13 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         var config = UICollectionLayoutListConfiguration(appearance: .plain)
         config.showsSeparators = false
         config.backgroundColor = .systemBackground
-        let layout = UICollectionViewCompositionalLayout.list(using: config)
+        // Room below the last row to tap for a new one: part of the content, not an inset, so
+        // UIKit's own scrolling to the caret doesn't count it as covered.
+        let layout = UICollectionViewCompositionalLayout { _, environment in
+            let section = NSCollectionLayoutSection.list(using: config, layoutEnvironment: environment)
+            section.contentInsets.bottom = Self.roomBelow
+            return section
+        }
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
         collectionView.backgroundColor = .systemBackground
         collectionView.keyboardDismissMode = .interactive
@@ -147,8 +156,6 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         collectionView.alwaysBounceVertical = true
         collectionView.delegate = self
         collectionView.translatesAutoresizingMaskIntoConstraints = false
-        // Room below the last row to tap for a new one.
-        collectionView.contentInset.bottom = Self.roomBelow
         view.backgroundColor = .systemBackground
         view.addSubview(collectionView)
         NSLayoutConstraint.activate([
@@ -173,7 +180,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
         // The rows stay above the keyboard by an inset as tall as the part of the page it covers.
         // (The keyboard layout guide sat at the top of the page inside the tab view.)
+        // (Without an animation, as when the app starts with the caret in a row, only the
+        // "did" notifications come.)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoved), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoved), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoved), name: UIResponder.keyboardWillHideNotification, object: nil)
         // A capture asked for while the app was away takes the caret once the app is back.
         NotificationCenter.default.addObserver(self, selector: #selector(takeCapture), name: UIApplication.didBecomeActiveNotification, object: nil)
@@ -229,20 +239,36 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         layoutHint()
     }
 
-    /// Room below the last row: to tap for a new one, and for the keyboard over the page.
+    /// Room below the last row, to tap for a new one.
     private static let roomBelow: CGFloat = 120
 
+    /// Where the rows end, in the content (the room below them follows).
+    private var rowsBottom: CGFloat {
+        order.isEmpty ? 0 : max(0, collectionView.collectionViewLayout.collectionViewContentSize.height - Self.roomBelow)
+    }
+
+    /// The keyboard covers the page only when it is docked: on the window's bottom edge and as
+    /// wide as the window. A floating, split or undocked keyboard covers nothing (§4.4); the
+    /// page scrolls under it. The frame comes in the screen's coordinates, which aren't the
+    /// window's under Stage Manager or Split View.
     @objc private func keyboardMoved(_ note: Notification) {
         guard let window = view.window else { return }
         var covered: CGFloat = 0
         if note.name != UIResponder.keyboardWillHideNotification,
-           let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
-            let keyboard = view.convert(window.convert(end, from: nil), from: window)
-            covered = max(0, view.bounds.maxY - keyboard.minY)
-            // The safe area at the bottom (tab bar, home indicator) is under the keyboard too.
-            covered = max(0, covered - view.safeAreaInsets.bottom)
+           let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue,
+           !end.isEmpty {
+            let space = window.windowScene?.screen.coordinateSpace ?? window.coordinateSpace
+            let keyboard = window.convert(end, from: space)
+            let bounds = window.bounds
+            let docked = keyboard.maxY >= bounds.maxY - 1 && keyboard.minX <= bounds.minX + 1 && keyboard.maxX >= bounds.maxX - 1
+            if docked {
+                let inView = view.convert(keyboard, from: window)
+                covered = max(0, view.bounds.maxY - inView.minY)
+                // The safe area at the bottom (tab bar, home indicator) is under the keyboard too.
+                covered = max(0, covered - view.safeAreaInsets.bottom)
+            }
         }
-        collectionView.contentInset.bottom = Self.roomBelow + covered
+        collectionView.contentInset.bottom = covered
         collectionView.verticalScrollIndicatorInsets.bottom = covered
     }
 
@@ -330,6 +356,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         if let focus {
             place(focus)
         }
+        // The shortcuts bar's Undo and Redo show whether there is something to undo.
+        NotificationCenter.default.post(name: .NSUndoManagerCheckpoint, object: pageUndo)
         revealIfAsked()
         layoutHint()
     }
@@ -339,15 +367,26 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         return collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? RowCell
     }
 
-    /// Put the caret where an edit said, scrolling its row into view.
+    /// Put the caret where an edit said, scrolling its row into view: not at all when it is in
+    /// view already, as little as needed when it is near (a new row under the keyboard),
+    /// centered when it was far off screen.
     private func place(_ focus: Focus) {
         guard let index = indexByID[focus.id] else { return }
         let path = IndexPath(item: index, section: 0)
         placing = true
         defer { placing = false }
         collectionView.layoutIfNeeded()
+        // A row near the screen (one Return made under the keyboard) comes up just enough; a
+        // text view off screen wouldn't take the caret.
+        if let frame = collectionView.layoutAttributesForItem(at: path)?.frame {
+            let visible = visibleRect
+            if frame.intersects(visible.insetBy(dx: 0, dy: -visible.height)) {
+                scrollToShow(frame)
+                collectionView.layoutIfNeeded()
+            }
+        }
         var target = collectionView.cellForItem(at: path) as? RowCell
-        if target == nil {
+        if target == nil || !(target!.frame.intersects(visibleRect)) {
             collectionView.scrollToItem(at: path, at: .centeredVertically, animated: false)
             collectionView.layoutIfNeeded()
             target = collectionView.cellForItem(at: path) as? RowCell
@@ -360,15 +399,47 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         let length = (textView.text as NSString).length
         let start = min(focus.start, length)
         textView.selectedRange = NSRange(location: start, length: min(max(0, focus.end - focus.start), length - start))
-        let frame = collectionView.convert(target.bounds, from: target)
-        collectionView.scrollRectToVisible(frame.insetBy(dx: 0, dy: -8), animated: false)
+        scrollToShow(collectionView.convert(target.bounds, from: target))
+    }
+
+    /// The part of the content not under the bars or the keyboard.
+    private var visibleRect: CGRect {
+        collectionView.bounds.inset(by: collectionView.adjustedContentInset)
+    }
+
+    /// Scroll as little as needed to show `frame` (with a little air), not at all if it shows.
+    private func scrollToShow(_ frame: CGRect) {
+        let visible = visibleRect
+        let wanted = frame.insetBy(dx: 0, dy: -8)
+        var dy: CGFloat = 0
+        if wanted.minY < visible.minY {
+            dy = wanted.minY - visible.minY
+        } else if wanted.maxY > visible.maxY {
+            // Never so far that the row's top goes under the top bar.
+            dy = min(wanted.maxY - visible.maxY, max(0, wanted.minY - visible.minY))
+        }
+        guard abs(dy) > 0.5 else { return }
+        let inset = collectionView.adjustedContentInset
+        let lowest = -inset.top
+        let highest = max(lowest, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
+        let y = min(max(collectionView.contentOffset.y + dy, lowest), highest)
+        collectionView.setContentOffset(CGPoint(x: collectionView.contentOffset.x, y: y), animated: false)
     }
 
     private func configure(_ cell: RowCell, _ row: RowView) {
         let textView = cell.textView
         if textView.delegate == nil {
             textView.delegate = self
-            textView.inputAccessoryView = bar
+            textView.pageUndo = pageUndo
+            if traitCollection.userInterfaceIdiom == .pad {
+                // iPad: the commands sit in the shortcuts bar, above the docked keyboard and at
+                // the bottom with a hardware keyboard. An accessory view would be pinned to the
+                // screen's bottom under the floating keyboard; there the menus and key commands
+                // have them.
+                addShortcuts(to: textView.inputAssistantItem)
+            } else {
+                textView.inputAccessoryView = bar
+            }
             textView.onBackspaceAtStart = { [weak self, weak textView] in
                 guard let self, let id = textView?.rowID, let row = rowsByID[id] else { return }
                 page.backspaceAtStart(row)
@@ -546,7 +617,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         let x = metrics.textX(0)
         let width = collectionView.bounds.width - x - metrics.trailing
         let size = hint.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        let y = order.isEmpty ? metrics.pad + 4 : collectionView.collectionViewLayout.collectionViewContentSize.height + 8
+        let y = order.isEmpty ? metrics.pad + 4 : rowsBottom + 8
         hint.frame = CGRect(x: x, y: y, width: width, height: size.height)
     }
 
@@ -651,21 +722,89 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     public func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         let point = touch.location(in: collectionView)
-        return point.y > collectionView.collectionViewLayout.collectionViewContentSize.height
+        return point.y > rowsBottom
     }
 
     var editingRow: RowView? {
         editingID.flatMap { rowsByID[$0] }
     }
 
-    func outdent() { if let row = editingRow { page.outdent(row) } }
-    func indent() { if let row = editingRow { page.indent(row) } }
-    func moveUp() { if let row = editingRow { page.moveUp(row) } }
-    func moveDown() { if let row = editingRow { page.moveDown(row) } }
-    func complete() { if let row = editingRow { page.toggle(row) } }
-    func undo() { page.undo() }
-    func redo() { page.redo() }
-    func dismissKeyboard() { view.endEditing(true) }
+    @objc func outdent() { if let row = editingRow { page.outdent(row) } }
+    @objc func indent() { if let row = editingRow { page.indent(row) } }
+    @objc func moveUp() { if let row = editingRow { page.moveUp(row) } }
+    @objc func moveDown() { if let row = editingRow { page.moveDown(row) } }
+    @objc func complete() { if let row = editingRow { page.toggle(row) } }
+    @objc func collapse() { if let row = editingRow, row.hasChildren, !row.collapsed { page.toggleFold(row) } }
+    @objc func expand() { if let row = editingRow, row.collapsed { page.toggleFold(row) } }
+    @objc func zoomIntoEdited() { if let row = editingRow { zoom(into: row) } }
+    @objc func deleteEdited() { if let row = editingRow { page.delete(row) } }
+    @objc func moveToFromKeyboard() { moveTo() }
+    func undo() { pageUndo.undo() }
+    func redo() { pageUndo.redo() }
+    @objc func dismissKeyboard() { view.endEditing(true) }
+
+    public override var undoManager: UndoManager? { pageUndo }
+
+    // MARK: Hardware keyboard (§4.4)
+
+    /// The desktop's keys for the row being edited (docs/usage.md), listed in the ⌘ overlay and
+    /// the iPad menu bar. ⌘Z and ⇧⌘Z come from the system's Edit menu, through `pageUndo`.
+    private lazy var rowKeyCommands: [UIKeyCommand] = {
+        func key(_ title: String, _ input: String, _ flags: UIKeyModifierFlags, _ action: Selector) -> UIKeyCommand {
+            let command = UIKeyCommand(title: title, action: action, input: input, modifierFlags: flags)
+            command.discoverabilityTitle = title
+            // Tab, Return and the arrows are the text view's otherwise.
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
+        return [
+            key(NSLocalizedString("Indent", comment: "Keyboard bar button"), "\t", [], #selector(indent)),
+            key(NSLocalizedString("Outdent", comment: "Keyboard bar button"), "\t", .shift, #selector(outdent)),
+            key(NSLocalizedString("Complete", comment: "Keyboard bar button"), "\r", .command, #selector(complete)),
+            key(NSLocalizedString("Move Up", comment: "Keyboard bar button"), UIKeyCommand.inputUpArrow, [.command, .shift], #selector(moveUp)),
+            key(NSLocalizedString("Move Down", comment: "Keyboard bar button"), UIKeyCommand.inputDownArrow, [.command, .shift], #selector(moveDown)),
+            key(NSLocalizedString("Collapse", comment: "Menu item: hide a bullet's children"), UIKeyCommand.inputUpArrow, .command, #selector(collapse)),
+            key(NSLocalizedString("Expand", comment: "Menu item: show a bullet's children"), UIKeyCommand.inputDownArrow, .command, #selector(expand)),
+            key(NSLocalizedString("Move To…", comment: "Keyboard bar button"), "m", [.command, .shift], #selector(moveToFromKeyboard)),
+            key(NSLocalizedString("Zoom In", comment: "Opens a bullet as the page, for VoiceOver"), "]", .command, #selector(zoomIntoEdited)),
+            key(NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), UIKeyCommand.inputDelete, [.command, .shift], #selector(deleteEdited)),
+        ]
+    }()
+
+    public override var keyCommands: [UIKeyCommand]? {
+        editingID == nil ? super.keyCommands : rowKeyCommands
+    }
+
+    /// iPad: the keyboard bar's commands in the shortcuts bar, after the system's own items.
+    /// When the bar is narrow, each group folds into one button with a menu.
+    private func addShortcuts(to item: UITextInputAssistantItem) {
+        func button(_ symbol: String, _ title: String, _ action: Selector) -> UIBarButtonItem {
+            let button = UIBarButtonItem(image: UIImage(systemName: symbol), style: .plain, target: self, action: action)
+            button.title = title
+            button.accessibilityLabel = title
+            return button
+        }
+        func group(_ symbol: String, _ items: [UIBarButtonItem]) -> UIBarButtonItemGroup {
+            let menu = UIMenu(children: items.map { item in
+                UIAction(title: item.title ?? "", image: item.image) { [weak self] _ in
+                    if let action = item.action { self?.perform(action) }
+                }
+            })
+            return UIBarButtonItemGroup(barButtonItems: items, representativeItem: UIBarButtonItem(image: UIImage(systemName: symbol), menu: menu))
+        }
+        let levels = group("increase.indent", [
+            button("decrease.indent", NSLocalizedString("Outdent", comment: "Keyboard bar button"), #selector(outdent)),
+            button("increase.indent", NSLocalizedString("Indent", comment: "Keyboard bar button"), #selector(indent)),
+        ])
+        let rows = group("ellipsis.circle", [
+            button("arrow.up", NSLocalizedString("Move Up", comment: "Keyboard bar button"), #selector(moveUp)),
+            button("arrow.down", NSLocalizedString("Move Down", comment: "Keyboard bar button"), #selector(moveDown)),
+            button("checkmark.circle", NSLocalizedString("Complete", comment: "Keyboard bar button"), #selector(complete)),
+            button("arrow.turn.down.right", NSLocalizedString("Move To…", comment: "Keyboard bar button"), #selector(moveToFromKeyboard)),
+        ])
+        item.leadingBarButtonGroups += [levels]
+        item.trailingBarButtonGroups = [rows]
+    }
 
     // MARK: Scrolling
 
@@ -709,12 +848,17 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         // While composing, the keyboard owns Return (it confirms the composition).
-        guard text.contains("\n"), textView.markedTextRange == nil, let row = row(of: textView) else { return true }
+        guard (text.contains("\n") || text.contains("\t")), textView.markedTextRange == nil, let row = row(of: textView) else { return true }
         if text == "\n" {
             page.enter(row, from: range.location, to: range.location + range.length)
+        } else if text == "\t" {
+            // A Tab the key commands didn't take indents, as on the desktop; it is never text.
+            page.indent(row)
         } else {
-            // A bullet's text is one line: pasted newlines become spaces, as on the desktop.
-            textView.textStorage.replaceCharacters(in: range, with: text.replacingOccurrences(of: "\n", with: " "))
+            // A bullet's text is one line: pasted newlines and tabs become spaces, as on the desktop.
+            let line = text.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\t", with: " ")
+            textView.textStorage.replaceCharacters(in: range, with: line)
+            textView.selectedRange = NSRange(location: range.location + (line as NSString).length, length: 0)
             textViewDidChange(textView)
         }
         return false
@@ -794,6 +938,8 @@ final class RowCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         textView.isScrollEnabled = false
+        // Tapping the status bar scrolls the page, not a row's text view.
+        textView.scrollsToTop = false
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
@@ -1181,6 +1327,10 @@ final class BulletTextView: UITextView {
     var willEdit: (() -> Void)?
     /// VoiceOver activated the row while it wasn't edited.
     var onActivate: (() -> Void)?
+    /// The page's undo manager: ⌘Z, shake and the shortcuts bar undo outline steps.
+    weak var pageUndo: UndoManager?
+
+    override var undoManager: UndoManager? { pageUndo ?? super.undoManager }
 
     @discardableResult override func becomeFirstResponder() -> Bool {
         if !isFirstResponder {
@@ -1206,15 +1356,17 @@ final class BulletTextView: UITextView {
 
 /// The bar above the keyboard, one for all rows (§4.4): 44pt high, 44pt cells: outdent,
 /// indent, move up, move down, complete, move to…, undo (hold: redo), and dismiss the keyboard
-/// at the right.
+/// at the right. With a hardware keyboard the bar alone sits at the bottom of the screen: it
+/// grows by the safe area there, its buttons above the Home indicator.
 final class KeyboardBar: UIInputView {
     private weak var controller: OutlinePageController?
 
     init(controller: OutlinePageController) {
         self.controller = controller
         super.init(frame: CGRect(x: 0, y: 0, width: 390, height: 44), inputViewStyle: .keyboard)
-        autoresizingMask = .flexibleWidth
-        allowsSelfSizing = false
+        // A flexible height: the keyboard sizes the bar by its intrinsic size, not its frame.
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        allowsSelfSizing = true
         let items: [(String, String, Selector)] = [
             ("decrease.indent", NSLocalizedString("Outdent", comment: "Keyboard bar button"), #selector(outdent)),
             ("increase.indent", NSLocalizedString("Indent", comment: "Keyboard bar button"), #selector(indent)),
@@ -1247,7 +1399,27 @@ final class KeyboardBar: UIInputView {
     }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: 44)
+        CGSize(width: UIView.noIntrinsicMetric, height: 44 + bottomPad)
+    }
+
+    /// Room below the buttons: the bottom safe area when the bar sits at the bottom of the
+    /// screen (a hardware keyboard), none above an on-screen keyboard.
+    private var bottomPad: CGFloat = 0 {
+        didSet {
+            if bottomPad != oldValue {
+                invalidateIntrinsicContentSize()
+            }
+        }
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        bottomPad = safeAreaInsets.bottom
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        bottomPad = safeAreaInsets.bottom
     }
 
     private func makeButton(_ symbol: String, _ label: String, _ action: Selector) -> UIButton {
@@ -1273,5 +1445,36 @@ final class KeyboardBar: UIInputView {
             controller?.redo()
         }
     }
+}
+
+/// Undo for the rows' text views and the system's undo gestures: steps are the outline's
+/// (`PageModel.undo`, coalesced in Rust: typing in a bullet is one step), so the text view's
+/// own undo stack is never used. What UIKit registers here stays unused (one group at most).
+final class PageUndoManager: UndoManager {
+    private weak var page: PageModel?
+
+    init(page: PageModel) {
+        self.page = page
+        super.init()
+        levelsOfUndo = 1
+    }
+
+    override var canUndo: Bool { MainActor.assumeIsolated { page?.store.outline.canUndo() ?? false } }
+    override var canRedo: Bool { MainActor.assumeIsolated { page?.store.outline.canRedo() ?? false } }
+    override var undoActionName: String { "" }
+    override var redoActionName: String { "" }
+    override var undoMenuItemTitle: String { NSLocalizedString("Undo", comment: "Keyboard bar button; hold to redo") }
+
+    override func undo() {
+        MainActor.assumeIsolated { page?.undo() }
+        NotificationCenter.default.post(name: .NSUndoManagerDidUndoChange, object: self)
+    }
+
+    override func redo() {
+        MainActor.assumeIsolated { page?.redo() }
+        NotificationCenter.default.post(name: .NSUndoManagerDidRedoChange, object: self)
+    }
+
+    override func undoNestedGroup() { undo() }
 }
 #endif

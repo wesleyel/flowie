@@ -140,34 +140,7 @@ impl Outline {
 
     /// Bullets matching `query` (every word must appear), best matches first.
     pub fn search_nodes(&self, query: &str, limit: usize, exclude: &[NodeId]) -> Vec<NodeId> {
-        let words: Vec<String> = query.split_whitespace().map(|w| w.to_lowercase()).collect();
-        let mut scored: Vec<(i64, NodeId)> = Vec::new();
-        for n in self.ws.tree.nodes() {
-            if n.mirror != ROOT || exclude.iter().any(|e| *e == n.id || self.ws.tree.is_ancestor(*e, n.id)) {
-                continue;
-            }
-            if n.text.is_empty() {
-                continue;
-            }
-            let text = n.text.to_lowercase();
-            if !words.iter().all(|w| text.contains(w.as_str())) {
-                continue;
-            }
-            let mut score = 0i64;
-            if !n.star.is_empty() {
-                score -= 1_000_000;
-            }
-            if let Some(first) = words.first() {
-                if text.starts_with(first.as_str()) {
-                    score -= 10_000;
-                }
-            }
-            score += n.text.len() as i64 + self.ws.tree.ancestors(n.id).len() as i64 * 8;
-            score -= (n.modified / 3_600_000) % 1000; // mild recency bias
-            scored.push((score, n.id));
-        }
-        scored.sort_unstable();
-        scored.into_iter().take(limit).map(|(_, id)| id).collect()
+        flowie_doc::find::quick_find(&self.ws.tree, query, limit, exclude)
     }
 
     pub fn open_palette(&mut self, mode: Mode, cx: &mut Context<Self>) {

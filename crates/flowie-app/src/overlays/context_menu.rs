@@ -167,14 +167,7 @@ impl Outline {
                 self.toast(t!("toast.copied", count = ids.len()));
             }
             Item::CopyLink => {
-                let links: Vec<String> = ids
-                    .iter()
-                    .map(|&id| {
-                        let src = self.ws.tree.source(id);
-                        let label: String = node_label(self, src).replace(['[', ']'], "").chars().take(48).collect();
-                        format!("[{label}](flowie:{src})")
-                    })
-                    .collect();
+                let links: Vec<String> = ids.iter().map(|&id| flowie_doc::find::link(&self.ws.tree, id, t!("common.untitled"))).collect();
                 cx.write_to_clipboard(ClipboardItem::new_string(links.join("\n")));
                 self.toast(t!("toast.link_copied", count = ids.len()));
             }

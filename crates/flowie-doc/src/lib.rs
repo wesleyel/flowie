@@ -14,6 +14,7 @@ pub use sync::{LostCopy, SyncState};
 
 #[cfg(feature = "native")]
 mod driver;
+pub mod find;
 pub mod keys;
 mod outcome;
 mod sync;

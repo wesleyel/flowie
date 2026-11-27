@@ -242,8 +242,7 @@ impl Outline {
         if query.is_empty() {
             return Err("empty query".into());
         }
-        let mut hits: Vec<NodeId> = self.ws.tree.nodes().filter(|n| n.mirror == ROOT && query.matches(n)).map(|n| n.id).collect();
-        hits.sort_by_key(|id| std::cmp::Reverse(self.ws.tree.node(*id).modified));
+        let hits = flowie_doc::find::search(&self.ws.tree, &query);
         let total = hits.len();
         let mut out = format!(
             "{total} match{} for {q:?}{}\n",

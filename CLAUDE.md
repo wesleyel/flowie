@@ -41,7 +41,7 @@ cargo check -p flowie-core -p flowie-sync --no-default-features --target wasm32-
 scripts/bundle-macos.sh target/release/flowie Flowie flowie.spokey.cn   # local .app
 ```
 
-CI (`.github/workflows/ci.yml`) runs fmt, both changelog checks, cargo-deny, the wasm check above,
+CI (`.github/workflows/ci.yml`) runs fmt, both changelog checks, `scripts/check-formats.sh`, cargo-deny, the wasm check above,
 and a clippy/test matrix on pull requests and pushes to `main`. Run Desktop Packages manually to get
 temporary test artifacts; push a `vX.Y.Z` or `vX.Y.Z-rc.N` tag to publish all three platforms from the
 same pipeline after package smoke checks pass. Homebrew tracks the newest release, RCs included. The Website
@@ -52,7 +52,7 @@ workflow checks Pages on pull requests and deploys it from `main`. Other env var
 
 - **Commit on `main`**, without feature branches. Push only when asked. One change is one commit.
 - **Before every commit**: for user-visible changes, add an `## [Unreleased]` entry in **both** changelogs, in the style of the existing entries: `CHANGELOG.md` (Added/Changed/Fixed) and the matching Chinese entry in `CHANGELOG.zh-CN.md` (新增/变更/修复), which What's New shows in the Chinese UI. Then run fmt and clippy as above.
-- **Maintain database compatibility**: 1.0 freezes SQLite `BASELINE` at 5. Update `SCHEMA` and append an ordered `MIGRATIONS` step for each new database format; never change the baseline or reorder released steps. Test opening an old database and compare its upgraded schema against a fresh one. RC and development formats below 5 are kept aside, not migrated.
+- **Maintain database compatibility**: follow [docs/versioning.md](docs/versioning.md) — keep `BASELINE = 5`, add a new `crates/flowie-core/src/store/formats/v<N>.sql` snapshot and append a `Migration` (marking `additive` accurately; never edit released snapshots or earlier steps), use column-preserving upserts (`ON CONFLICT … DO UPDATE`), and pass `scripts/check-formats.sh`.
 - **UI text** goes through `t!(…)`, with keys in `crates/flowie-app/locales/en.json` and `zh-CN.json`. `cargo test -p flowie-app i18n` checks both files. New features also get a lesson in the tutorial (`crates/flowie-app/tutorial/<locale>.md`).
 - **Docs scope**: the README, website, `llms.txt` and the App Store text cover core features only. Never add UX polish there. A big change in one area goes only in that area's doc (e.g. `docs/mcp.md`). Do fix wording that a change has made wrong.
 - **Feature requests**: when the user describes a feature, clarify it and record it in the backlog (the wiki, see below). Don't implement it unless they ask you to build it.
@@ -70,4 +70,4 @@ keep `_Sidebar.md` in step. Code comments cite pages as `wiki: Page-Name §n`. L
 - **Per-node sync**: an LWW-per-field engine (`flowie-sync`) with CloudKit and self-hosted backends. The format it needs (fractional-index ranks, soft deletes, deterministic journal IDs, per-field clocks, outbox and tombstones) is in place since database format 6.
 - **iOS and cross-platform**: a native iOS app (SwiftUI + UIKit, a reduced feature set) over the Rust core through UniFFI (`flowie-ffi` over `flowie-doc`); the desktop stays on GPUI; the browser comes last as a TypeScript UI over a wasm core. See the wiki's `Release-Plan` for the order.
 
-More docs: `docs/building.md` (platforms, data paths), `docs/usage.md`, `docs/mcp.md`, `docs/sync.md` (the self-hosted sync server), `docs/translations.md`, `CONTRIBUTING.md`.
+More docs: `docs/building.md` (platforms, data paths), `docs/usage.md`, `docs/mcp.md`, `docs/sync.md` (the self-hosted sync server), `docs/versioning.md` (versions and compatibility), `docs/translations.md`, `CONTRIBUTING.md`.

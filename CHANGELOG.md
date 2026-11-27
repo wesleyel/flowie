@@ -4,7 +4,9 @@ All notable changes to Flowie are documented in this file.
 
 Each version's section becomes its [GitHub release](https://github.com/wesleyel/flowie/releases)
 notes (`scripts/release-notes.sh`). Release candidates (`X.Y.Z-rc.N`) are GitHub
-prereleases. The `flowie` Homebrew cask follows the newest version, including candidates.
+prereleases. Each release candidate lists only what changed since the previous
+candidate; the final release summarizes all changes from its candidates. The `flowie`
+Homebrew cask follows the newest version, including candidates.
 
 ## [Unreleased]
 

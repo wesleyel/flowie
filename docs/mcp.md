@@ -13,3 +13,7 @@ Tools: `current` (the page, active search filter, and focused or selected bullet
 For a copy built from source, use the path of your bundle, e.g. `build/Flowie.app/Contents/MacOS/Flowie mcp`.
 The Mac App Store build is sandboxed; `Flowie mcp` started from a terminal still finds its
 container and talks to the running app.
+
+## Stability and deprecation
+
+Tool names, required parameters, and response shapes stay backward-compatible across minor releases within a major version; new tools and optional parameters may be added in minor releases. When a tool or parameter needs to be retired or replaced, it is first marked **Deprecated** (in its tool description and in this document, noting the replacement) and removed no earlier than the next minor release. See [docs/versioning.md](versioning.md).

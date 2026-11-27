@@ -21,8 +21,30 @@ uniffi::setup_scaffolding!();
 pub enum FlowieError {
     /// The database couldn't be opened or saved.
     Storage { message: String },
+    /// A newer Flowie wrote the database (its format is `found`; this build reads up to
+    /// `current`). Nothing was changed.
+    TooNew { found: i64, current: i64 },
+    /// Upgrading the database failed and was rolled back: it is as it was, and `backup` holds
+    /// the copy taken before.
+    UpgradeFailed { backup: String, message: String },
+    /// The copy taken before upgrading couldn't be saved, so the upgrade didn't start.
+    BackupFailed { message: String },
     /// No bullet has this id.
     NoSuchBullet { id: String },
+}
+
+impl From<flowie_core::store::OpenError> for FlowieError {
+    fn from(error: flowie_core::store::OpenError) -> Self {
+        use flowie_core::store::OpenError;
+        match error {
+            OpenError::TooNew { found, current } => FlowieError::TooNew { found, current },
+            OpenError::Migration { ref backup, .. } => {
+                FlowieError::UpgradeFailed { backup: backup.display().to_string(), message: error.to_string() }
+            }
+            OpenError::Backup { .. } => FlowieError::BackupFailed { message: error.to_string() },
+            other => FlowieError::Storage { message: other.to_string() },
+        }
+    }
 }
 
 impl std::error::Error for FlowieError {}
@@ -30,7 +52,12 @@ impl std::error::Error for FlowieError {}
 impl std::fmt::Display for FlowieError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FlowieError::Storage { message } => write!(f, "{message}"),
+            FlowieError::Storage { message } | FlowieError::BackupFailed { message } | FlowieError::UpgradeFailed { message, .. } => {
+                write!(f, "{message}")
+            }
+            FlowieError::TooNew { found, current } => {
+                write!(f, "the database has format {found}, from a newer Flowie (this one reads up to {current})")
+            }
             FlowieError::NoSuchBullet { id } => write!(f, "no bullet {id}"),
         }
     }
@@ -150,7 +177,8 @@ impl Outline {
     #[uniffi::constructor]
     pub fn open(db: String) -> Result<Arc<Self>, FlowieError> {
         let db = PathBuf::from(db);
-        let (ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).map_err(|e| FlowieError::Storage { message: e.to_string() })?;
+        // On an error the database file is left as it was (`store::open`).
+        let (ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {})?;
         Ok(Arc::new(Outline { state: Mutex::new(State { ws, sync: None, native: None }) }))
     }
 
@@ -560,6 +588,30 @@ mod tests {
         let c = outline.create(None, 0, "日记".into()).unwrap();
         outline.enter(c, 4, 4, None).unwrap();
         assert_eq!(texts(&outline)[..2], [("日".to_string(), 0), ("记".to_string(), 0)]);
+    }
+
+    #[test]
+    fn a_database_from_a_newer_flowie_is_refused_and_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("outline.sqlite");
+        let db = path.to_string_lossy().into_owned();
+        let outline = Outline::open(db.clone()).unwrap();
+        outline.create(None, 0, "kept".into()).unwrap();
+        outline.flush().unwrap();
+        drop(outline);
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA user_version = 999; UPDATE meta SET value = '999' WHERE key = 'min_reader';",
+        )
+        .unwrap();
+        drop(conn);
+        let bytes = std::fs::read(&path).unwrap();
+        match Outline::open(db) {
+            Err(FlowieError::TooNew { found: 999, .. }) => {}
+            Err(other) => panic!("{other}"),
+            Ok(_) => panic!("opened"),
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), bytes, "the file is untouched");
     }
 
     #[test]

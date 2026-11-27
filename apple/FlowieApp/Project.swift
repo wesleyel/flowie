@@ -24,6 +24,8 @@ let project = Project(
                 "ITSAppUsesNonExemptEncryption": false,
             ]),
             sources: ["Sources/**"],
+            // The app's own strings, in English and Simplified Chinese.
+            resources: ["Resources/**"],
             dependencies: [
                 .package(product: "FlowieUI"),
                 // flowie-ffi's static library, from scripts/build-ios-ffi.sh.

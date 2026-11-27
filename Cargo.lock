@@ -1743,6 +1743,7 @@ dependencies = [
  "flowie-core",
  "flowie-doc",
  "flowie-sync",
+ "rusqlite",
  "serde_json",
  "tempfile",
  "uniffi",

@@ -1,0 +1,134 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Before updating your outline to this version’s format, Flowie saves a copy of it, and that failed. Nothing was changed. Make sure this device has free space, then open Flowie again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before updating your outline to this version’s format, Flowie saves a copy of it, and that failed. Nothing was changed. Make sure this device has free space, then open Flowie again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把大纲升级到这个版本的格式之前，Flowie 要先保存一份副本，但保存失败了。大纲没有任何改动。请确认设备有可用空间，然后重新打开 Flowie。"
+          }
+        }
+      }
+    },
+    "Details": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "详细信息"
+          }
+        }
+      }
+    },
+    "Flowie can’t open your outline": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flowie can’t open your outline"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flowie 无法打开你的大纲"
+          }
+        }
+      }
+    },
+    "Flowie couldn’t read your outline’s database.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flowie couldn’t read your outline’s database."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flowie 无法读取大纲的数据库。"
+          }
+        }
+      }
+    },
+    "Flowie couldn’t update your outline to this version’s format. Your outline is as it was, and a copy taken before the update is kept beside it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flowie couldn’t update your outline to this version’s format. Your outline is as it was, and a copy taken before the update is kept beside it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flowie 没能把你的大纲升级到这个版本的格式。大纲保持原样，升级前做的副本保存在它旁边。"
+          }
+        }
+      }
+    },
+    "Flowie hasn’t deleted, moved or replaced your outline.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flowie hasn’t deleted, moved or replaced your outline."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flowie 没有删除、移动或替换你的大纲。"
+          }
+        }
+      }
+    },
+    "The copy taken before the update": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The copy taken before the update"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级前做的副本"
+          }
+        }
+      }
+    },
+    "Your outline was saved by a newer version of Flowie. Update Flowie to open it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your outline was saved by a newer version of Flowie. Update Flowie to open it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的大纲由更新版本的 Flowie 保存，请更新 Flowie 后再打开。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

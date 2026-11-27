@@ -63,11 +63,15 @@ workflow checks Pages on pull requests and deploys it from `main`. Other env var
 
 The backlog and design notes live in the **GitHub wiki** (<https://github.com/wesleyel/flowie/wiki>), the
 only source of truth for them. `docs/roadmap/` is a local clone of the wiki (branch `master`, hidden from this
-repo through `.git/info/exclude`): edit, commit and push there, never add it here. Pushing the wiki runs no CI and
-leaves no commits in this repo. One page per item, written in Chinese, named in English Title-Case
-(`Per-Node-Sync.md`; the name is the page's URL, so don't rename pages); link pages as `[text](Page-Name)`
-without `.md`. `Home.md` holds each item's status as its Now/Next/Later/Done group (进行中 / 待办 / 长期 / 已完成);
-keep `_Sidebar.md` in step. Code comments cite pages as `wiki: Page-Name §n`. Long-term designs:
+repo through `.git/info/exclude` along with local `.to`): edit, commit and push there, never add it here. Pushing the
+wiki runs no CI and leaves no commits in this repo.
+
+The wiki is sharded into nested domain directories (`release/`, `sync/`, `ios/`, `web/`, `desktop/`, `archive/`)
+and managed via the `to` CLI (with local `.to` pointing to `docs/roadmap`, or pass `-C docs/roadmap`):
+- Inspect tasks: `to open` (hide done), `to ls --scope ios --json`, `to show <ref>`, `to scopes`, `to next`.
+- Mutate tasks: `to add "title" --scope <scope> --section <sec> --priority <p> --label <l> --note "..."` (or `--note -` for stdin), `to edit <ref> ...`, `to mv <ref> ...`, `to done <ref> [--archive]`, `to archive`.
+- Every write via `to` automatically updates `Home.md` and `_Sidebar.md` (or run `to home` manually).
+- Design pages stay in English Title-Case (`Per-Node-Sync.md`; basename is the wiki URL, so never rename pages); link pages as `[text](Page-Name)` without `.md`. Code comments cite pages as `wiki: Page-Name §n`. `_private/` stays local-only and is never pushed. Long-term designs:
 - **Per-node sync**: an LWW-per-field engine (`flowie-sync`) with CloudKit and self-hosted backends. The format it needs (fractional-index ranks, soft deletes, deterministic journal IDs, per-field clocks, outbox and tombstones) is in place since database format 6.
 - **iOS and cross-platform**: a native iOS app (SwiftUI + UIKit, a reduced feature set) over the Rust core through UniFFI (`flowie-ffi` over `flowie-doc`); the desktop stays on GPUI; the browser comes last as a TypeScript UI over a wasm core. See the wiki's `Release-Plan` for the order.
 

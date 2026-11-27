@@ -14,4 +14,4 @@ pub use engine::{sync_once, Backend, ChangeBatch, Engine, RecordStore, SaveResul
 pub use memory::MemoryServer;
 pub use merge::{merge, merge_prefs};
 pub use store::MemoryStore;
-pub use wire::{Envelope, Kind, NodeRecord, Position, PrefsRecord, Reg, PREFS_ID, VERSION};
+pub use wire::{blob_name, Envelope, Kind, NodeRecord, Position, PrefsRecord, Reg, PREFS_ID, VERSION};

@@ -194,8 +194,10 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
             }
         case .fetchedRecordZoneChanges(let changes):
             // Deletions are never passed on, whatever their type: Flowie removes a bullet with
-            // a removal inside its record and never deletes a CKRecord, so a deletion here is a
-            // later version's record (a `Blob`) or one this version doesn't keep.
+            // a removal inside its record and never deletes a CKRecord (nor a `Blob`: image
+            // files aren't collected), so a deletion here is one this version doesn't make.
+            // A `Blob`'s file is read while the host takes it (CKSyncEngine may remove its
+            // download afterwards).
             let records = CloudRecordCodec.wires(from: changes.modifications.map(\.record))
             if !records.isEmpty {
                 await host.onFetched(records)
@@ -208,6 +210,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
             for failure in sent.failedRecordSaves {
                 let id = failure.record.recordID.recordName
                 switch failure.error.code {
+                case .serverRecordChanged where failure.record.recordType == CloudRecordCodec.blobType:
+                    // An image file is named after its contents: the one in iCloud is this one.
+                    outcomes.append(.saved(id: id, etag: ""))
                 case .serverRecordChanged:
                     if let server = failure.error.serverRecord, let wire = CloudRecordCodec.wire(from: server) {
                         outcomes.append(.conflict(server: wire))

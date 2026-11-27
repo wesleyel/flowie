@@ -131,11 +131,18 @@ impl CloudDriver {
     }
 
     /// Answer what CloudKit asked and take what it brought; then tell it what changed here.
-    /// Call it when woken and after saving edits. Returns whether the outline changed.
+    /// Call it when woken and after saving edits. Returns whether the outline changed (or an
+    /// image file came that a row shows).
     pub fn pump(&mut self, ws: &mut Workspace) -> bool {
         let revision = ws.tree.revision();
+        let mut images = false;
         while let Ok(message) = self.inbox.try_recv() {
             let answer = match serde_json::from_str::<Incoming>(&message.json) {
+                Ok(Incoming::Fetched { records }) => {
+                    self.received += records.iter().filter(|r| r.file.is_none()).count();
+                    images |= self.native.on_fetched(ws, &records, REMOTE);
+                    "null".to_string()
+                }
                 Ok(incoming) => self.take(ws, incoming),
                 Err(_) => "null".to_string(),
             };
@@ -144,7 +151,7 @@ impl CloudDriver {
             }
         }
         if !self.holding {
-            let ids = NativeSync::unsent_ids(ws, 10_000);
+            let ids = self.native.to_send(ws, 10_000);
             if ids != self.queued {
                 let fresh: Vec<&String> = ids.iter().filter(|id| !self.queued.contains(id)).collect();
                 if !fresh.is_empty() {
@@ -157,12 +164,12 @@ impl CloudDriver {
             self.fetched_at = Instant::now();
             bridge::fetch(self.handle);
         }
-        ws.tree.revision() != revision
+        images || ws.tree.revision() != revision
     }
 
     fn take(&mut self, ws: &mut Workspace, incoming: Incoming) -> String {
         match incoming {
-            Incoming::Unsent => serde_json::to_string(&NativeSync::unsent_ids(ws, 10_000)).expect("ids"),
+            Incoming::Unsent => serde_json::to_string(&self.native.to_send(ws, 10_000)).expect("ids"),
             Incoming::NextSaves { limit } if !self.holding => serde_json::to_string(&self.native.next_saves(ws, limit)).expect("wires"),
             Incoming::NextSaves { .. } => "[]".into(),
             Incoming::Saved { outcomes } => {
@@ -171,13 +178,10 @@ impl CloudDriver {
                 self.queued.clear();
                 "null".into()
             }
-            Incoming::Fetched { records } => {
-                self.received += records.len();
-                self.native.on_fetched(ws, &records, REMOTE);
-                "null".into()
-            }
+            // Taken in `pump`, which notes whether an image file came.
+            Incoming::Fetched { .. } => "null".into(),
             Incoming::ResendAll => {
-                ws.resend_all();
+                self.native.resend_all(ws);
                 self.queued.clear();
                 "null".into()
             }
@@ -381,5 +385,14 @@ mod tests {
         assert!(matches!(serde_json::from_str(r#"{"type":"access","access":"no_account"}"#), Ok(Incoming::Access { .. })));
         assert!(matches!(serde_json::from_str(r#"{"type":"next_saves","limit":400}"#), Ok(Incoming::NextSaves { limit: 400 })));
         assert!(matches!(serde_json::from_str(r#"{"type":"fetched_all"}"#), Ok(Incoming::FetchedAll)));
+        // A `Blob` record: its file where CKSyncEngine downloaded it, and no envelope.
+        let fetched: Incoming = serde_json::from_str(
+            r#"{"type":"fetched","records":[{"id":"n","etag":"e","envelope":"{}"},{"id":"ab.png","file":{"path":"/tmp/asset","width":3,"height":2,"mime":"image/png"}}]}"#,
+        )
+        .unwrap();
+        let Incoming::Fetched { records } = fetched else { panic!("fetched") };
+        assert!(records[0].file.is_none());
+        assert_eq!(records[1].file.as_ref().map(|f| (f.path.as_str(), f.width, f.height)), Some(("/tmp/asset", 3, 2)));
+        assert_eq!(records[1].envelope, "");
     }
 }

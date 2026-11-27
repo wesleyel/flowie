@@ -16,7 +16,8 @@ public enum ICloudStatus: Equatable, Sendable {
     case failed(String)
 
     /// Whether the outline syncs through iCloud (not a self-hosted server, and iCloud can be
-    /// used): image files don't come with it yet (wiki: Per-Node-Sync §3.5).
+    /// used). Image files come through iCloud as records of their own, which may come after
+    /// the rows that show them (a server's sync fetches them first).
     public var isOn: Bool {
         switch self {
         case .off, .unavailable: return false
@@ -42,7 +43,17 @@ public final class OutlineCloudHost: CloudSyncHost, @unchecked Sendable {
     }
 
     public func nextSaves(limit: Int) async -> [CloudWire] {
-        outline.nextSaves(limit: UInt32(limit)).map { CloudWire(id: $0.id, etag: $0.etag, envelope: $0.envelope) }
+        outline.nextSaves(limit: UInt32(limit)).map(OutlineCloudHost.cloudWire)
+    }
+
+    static func cloudWire(_ record: WireRecord) -> CloudWire {
+        let file = record.file.map { CloudFile(path: $0.path, width: $0.width, height: $0.height, mime: $0.mime) }
+        return CloudWire(id: record.id, etag: record.etag, envelope: record.envelope, file: file)
+    }
+
+    static func wireRecord(_ wire: CloudWire) -> WireRecord {
+        let file = wire.file.map { WireFileRecord(path: $0.path, width: $0.width, height: $0.height, mime: $0.mime) }
+        return WireRecord(id: wire.id, etag: wire.etag, envelope: wire.envelope, file: file)
     }
 
     public func onSaved(_ outcomes: [CloudSaved]) async {
@@ -53,7 +64,7 @@ public final class OutlineCloudHost: CloudSyncHost, @unchecked Sendable {
                 return .saved(id: id, etag: etag)
             case .conflict(let server):
                 merged = true
-                return .conflict(server: WireRecord(id: server.id, etag: server.etag, envelope: server.envelope))
+                return .conflict(server: OutlineCloudHost.wireRecord(server))
             case .failed(let id, let error):
                 return .failed(id: id, error: error)
             }
@@ -63,9 +74,10 @@ public final class OutlineCloudHost: CloudSyncHost, @unchecked Sendable {
         }
     }
 
+    /// Records fetched, image files among them: a row whose file came is shown again, at the
+    /// file's size.
     public func onFetched(_ records: [CloudWire]) async {
-        let wires = records.map { WireRecord(id: $0.id, etag: $0.etag, envelope: $0.envelope) }
-        if outline.onFetched(records: wires, cursor: "icloud") {
+        if outline.onFetched(records: records.map(OutlineCloudHost.wireRecord), cursor: "icloud") {
             await changed()
         }
     }

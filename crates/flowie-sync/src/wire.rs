@@ -64,6 +64,12 @@ impl Envelope {
         (self.kind == Kind::Node && self.enc.is_none()).then(|| serde_json::from_value(self.payload.clone()).ok()).flatten()
     }
 
+    /// The image file the record shows, if it is a bullet with one (`<sha256>.<ext>`).
+    pub fn image(&self) -> Option<String> {
+        let name = self.node_record()?.image?.v;
+        flowie_core::images::is_name(&name).then_some(name)
+    }
+
     pub fn prefs(record: &PrefsRecord, etag: Option<String>) -> Envelope {
         Envelope {
             v: VERSION,
@@ -83,6 +89,13 @@ impl Envelope {
 
 /// The id of the one preferences record.
 pub const PREFS_ID: &str = "prefs";
+
+/// The name a backend keeps the image file `image` under (wiki: Per-Node-Sync §3.5): the
+/// file's own name for now, its sha256 and extension (with end-to-end encryption it becomes a
+/// keyed hash). A file that arrives is checked against it before it is kept.
+pub fn blob_name(image: &str) -> String {
+    image.to_string()
+}
 
 /// The synced preferences, by key, each a register of its own.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

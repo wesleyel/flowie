@@ -53,7 +53,21 @@ final class RustHost: CloudSyncHost, @unchecked Sendable {
         if let etag = wire.etag {
             object["etag"] = etag
         }
+        if let file = wire.file {
+            object["file"] = ["path": file.path, "width": file.width, "height": file.height, "mime": file.mime]
+        }
         return object
+    }
+
+    static func wire(from object: [String: Any]) -> CloudWire? {
+        guard let id = object["id"] as? String else { return nil }
+        let file = (object["file"] as? [String: Any]).flatMap { file -> CloudFile? in
+            guard let path = file["path"] as? String else { return nil }
+            let size = { (key: String) in (file[key] as? NSNumber)?.uint32Value ?? 0 }
+            return CloudFile(path: path, width: size("width"), height: size("height"), mime: file["mime"] as? String ?? "")
+        }
+        guard let envelope = object["envelope"] as? String ?? (file == nil ? nil : "") else { return nil }
+        return CloudWire(id: id, etag: object["etag"] as? String, envelope: envelope, file: file)
     }
 
     func unsentIDs() async -> [String] {
@@ -62,10 +76,7 @@ final class RustHost: CloudSyncHost, @unchecked Sendable {
 
     func nextSaves(limit: Int) async -> [CloudWire] {
         let answer = await ask(["type": "next_saves", "limit": limit]) as? [[String: Any]] ?? []
-        return answer.compactMap { object in
-            guard let id = object["id"] as? String, let envelope = object["envelope"] as? String else { return nil }
-            return CloudWire(id: id, etag: object["etag"] as? String, envelope: envelope)
-        }
+        return answer.compactMap(RustHost.wire(from:))
     }
 
     func onSaved(_ outcomes: [CloudSaved]) async {

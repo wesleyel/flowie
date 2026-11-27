@@ -1,8 +1,9 @@
 // Checks what can be checked without iCloud: a Flowie record makes a CKRecord and comes back
-// the same, the system fields of a saved one restore its id, the outline answers CloudKit's
+// the same, so does an image file as a `Blob`, the system fields of a saved one restore its id, the outline answers CloudKit's
 // saves and conflicts through its host, and a build without the iCloud entitlements says so
 // instead of touching CloudKit. Run by scripts/apple-package-check.sh.
 import CloudKit
+import CryptoKit
 import FlowieCloudKit
 import FlowieFFI
 import FlowieUI
@@ -42,6 +43,48 @@ check(CloudRecordCodec.wire(from: blob) == nil, "a Blob is no Flowie record")
 check(CloudRecordCodec.wire(from: CKRecord(recordType: CloudRecordCodec.recordType, recordID: record.recordID)) == nil,
       "a Record without an envelope is none either")
 check(CloudRecordCodec.wires(from: [blob, record]) == [back], "only the Record is passed on")
+let later = CKRecord(recordType: "Attachment", recordID: CKRecord.ID(recordName: "x", zoneID: zone))
+check(CloudRecordCodec.wires(from: [later]).isEmpty, "nor a record type this version doesn't know")
+
+// An image file is a `Blob` named after it: its file an asset, its size and type beside it.
+let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("flowie-cloudkit-check-\(UUID().uuidString)")
+try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: scratch) }
+let gif = Data([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 6, 0, 4, 0, 1])
+let gifName = SHA256.hash(data: gif).map { String(format: "%02x", $0) }.joined() + ".gif"
+let asset = scratch.appendingPathComponent("asset")
+try gif.write(to: asset)
+let fileWire = CloudWire(id: gifName, etag: nil, envelope: "", file: CloudFile(path: asset.path, width: 6, height: 4, mime: "image/gif"))
+let blobRecord = CloudRecordCodec.record(for: fileWire, zone: zone, fresh: false)
+check(blobRecord.recordType == CloudRecordCodec.blobType && blobRecord.recordID.recordName == gifName, "a Blob named after the file")
+check((blobRecord[CloudRecordCodec.blobFile] as? CKAsset)?.fileURL == asset, "with the file as its asset")
+check((blobRecord[CloudRecordCodec.blobWidth] as? NSNumber)?.int64Value == 6 && (blobRecord[CloudRecordCodec.blobHeight] as? NSNumber)?.int64Value == 4
+      && blobRecord[CloudRecordCodec.blobMime] as? String == "image/gif", "and its size and type in plain fields")
+check(blobRecord.encryptedValues[CloudRecordCodec.field] == nil, "and no envelope")
+check(CloudRecordCodec.wire(from: blobRecord) == fileWire, "it reads back as the same file")
+check(CloudRecordCodec.wires(from: [blobRecord, record]) == [fileWire, back], "both kinds are passed on")
+check(CloudRecordCodec.wire(from: CKRecord(recordType: CloudRecordCodec.blobType, recordID: blobRecord.recordID)) == nil,
+      "a Blob without its file is none")
+var stale = fileWire
+stale.etag = back.etag
+check(CloudRecordCodec.record(for: stale, zone: zone).recordChangeTag == nil, "a Blob is always saved as a new record")
+
+// The outline keeps a fetched file that matches its name, in the image folder, and drops one
+// that doesn't.
+let db = scratch.appendingPathComponent("outline.sqlite")
+let disk = try Outline.open(db: db.path)
+_ = disk.beginNativeSync(remote: "icloud")
+let diskHost = OutlineCloudHost(outline: disk, store: nil)
+let kept = URL(fileURLWithPath: db.path + ".images").appendingPathComponent(String(gifName.prefix(2))).appendingPathComponent(gifName)
+var wrong = fileWire
+wrong.id = String(repeating: "0", count: 64) + ".gif"
+await diskHost.onFetched([wrong])
+check(!FileManager.default.fileExists(atPath: URL(fileURLWithPath: db.path + ".images").appendingPathComponent("00").path),
+      "a file that isn't what its name says is dropped")
+await diskHost.onFetched([fileWire])
+check(FileManager.default.contents(atPath: kept.path) == gif, "the file is kept under its name")
+let diskRows = try disk.page(root: nil)
+check(disk.unsentIds(limit: 10).isEmpty && diskRows.isEmpty, "and is no bullet")
 
 // Saved: the system fields become the etag; the next save starts from them.
 await host.onSaved([.saved(id: id, etag: back.etag!)])

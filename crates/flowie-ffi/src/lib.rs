@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use flowie_core::images::ImageDir;
 use flowie_core::search::Query;
 use flowie_core::{flatten_mapped, journal, markup, BlockKind, Caret, NodeId, Row, Tree, ViewOptions, ROOT};
-use flowie_doc::{find, utf16, NativeSaved, NativeSync, Outcome, SyncDriver, SyncPhase, Wire, Workspace};
+use flowie_doc::{find, utf16, NativeSaved, NativeSync, Outcome, SyncDriver, SyncPhase, Wire, WireFile, Workspace};
 use flowie_sync::http::HttpBackend;
 
 uniffi::setup_scaffolding!();
@@ -269,8 +269,22 @@ pub trait SyncObserver: Send + Sync {
 pub struct WireRecord {
     pub id: String,
     pub etag: Option<String>,
-    /// The envelope as JSON (per-node-sync.md §4.1); stored in one encrypted field.
+    /// The envelope as JSON (per-node-sync.md §4.1); stored in one encrypted field. Empty for
+    /// an image file.
     pub envelope: String,
+    /// An image file (CloudKit: a `Blob` record) instead of a record; `id` is its name there.
+    pub file: Option<WireFileRecord>,
+}
+
+/// An image file as a native sync engine moves it (CloudKit: a `Blob` record's CKAsset and the
+/// fields beside it): where the file is (in the image folder, to send; the engine's download,
+/// when fetched), its size in pixels (0 when not known) and its MIME type.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct WireFileRecord {
+    pub path: String,
+    pub width: u32,
+    pub height: u32,
+    pub mime: String,
 }
 
 /// How the native engine answered one save.
@@ -293,13 +307,15 @@ pub enum SaveOutcome {
 
 impl From<Wire> for WireRecord {
     fn from(wire: Wire) -> Self {
-        WireRecord { id: wire.id, etag: wire.etag, envelope: wire.envelope }
+        let file = wire.file.map(|f| WireFileRecord { path: f.path, width: f.width, height: f.height, mime: f.mime });
+        WireRecord { id: wire.id, etag: wire.etag, envelope: wire.envelope, file }
     }
 }
 
 impl From<WireRecord> for Wire {
     fn from(record: WireRecord) -> Self {
-        Wire { id: record.id, etag: record.etag, envelope: record.envelope }
+        let file = record.file.map(|f| WireFile { path: f.path, width: f.width, height: f.height, mime: f.mime });
+        Wire { id: record.id, etag: record.etag, envelope: record.envelope, file }
     }
 }
 
@@ -902,12 +918,22 @@ impl Outline {
     /// Send every record again: the backend lost them (the user deleted the app's iCloud data,
     /// or another account signed in).
     pub fn resend_all(&self) {
-        self.lock().ws.resend_all();
+        let mut state = self.lock();
+        let State { ws, native, .. } = &mut *state;
+        match native {
+            Some(native) => native.resend_all(ws),
+            None => ws.resend_all(),
+        }
     }
 
-    /// Ids with something to send, for the native engine's list of pending saves.
+    /// Ids with something to send, for the native engine's list of pending saves (image files
+    /// whose save failed included).
     pub fn unsent_ids(&self, limit: u32) -> Vec<String> {
-        NativeSync::unsent_ids(&self.lock().ws, limit as usize)
+        let state = self.lock();
+        match &state.native {
+            Some(native) => native.to_send(&state.ws, limit as usize),
+            None => NativeSync::unsent_ids(&state.ws, limit as usize),
+        }
     }
 
     /// The next records to save, at most `limit`, each from the version last seen.
@@ -928,7 +954,7 @@ impl Outline {
 
     /// Records the native engine fetched, and where it is now (CloudKit keeps its own change
     /// token: pass anything that marks progress, or an empty string). Returns whether the
-    /// outline changed.
+    /// outline changed, or an image file came that a row shows (its `image` now has a size).
     pub fn on_fetched(&self, records: Vec<WireRecord>, cursor: String) -> bool {
         let mut state = self.lock();
         let State { ws, native, .. } = &mut *state;
@@ -1493,6 +1519,51 @@ mod tests {
         assert_eq!(web.kind, RunKind::Link { url: "https://example.com/a".into(), bullet: None });
         assert!(markup(String::new()).is_empty());
         assert_eq!(markup("[x](flowie:nope)".into())[1].kind, RunKind::Link { url: "flowie:nope".into(), bullet: None });
+    }
+
+    #[test]
+    fn an_image_file_synced_natively_gives_its_row_a_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let open = |name: &str| Outline::open(dir.path().join(name).to_string_lossy().into_owned()).unwrap();
+        let (mac, iphone) = (open("mac.sqlite"), open("iphone.sqlite"));
+        mac.begin_native_sync("icloud".into());
+        iphone.begin_native_sync("icloud".into());
+        let gif = b"GIF89a\x06\x00\x04\x00".to_vec();
+        let id = {
+            let mut state = mac.lock();
+            let ws = &mut state.ws;
+            let info = ws.image_dir.as_ref().unwrap().put(&gif).unwrap();
+            let name = info.name.clone();
+            ws.record_blob(info);
+            let id = ws.tree.create_at(ROOT, 0, "");
+            let mut node = ws.tree.node(id).clone();
+            node.kind = BlockKind::Image;
+            node.image = name;
+            ws.tree.put(node);
+            ws.commit_with_imports(None, None, None);
+            id.to_string()
+        };
+        let saves = mac.next_saves(10);
+        assert_eq!(saves.len(), 2);
+        let file = saves[0].file.clone().expect("the file goes first");
+        assert_eq!((file.width, file.height, file.mime.as_str()), (6, 4, "image/gif"));
+        assert!(saves[1].file.is_none() && saves[1].id == id);
+        mac.on_saved(saves.iter().map(|w| SaveOutcome::Saved { id: w.id.clone(), etag: "e".into() }).collect());
+        assert!(mac.unsent_ids(10).is_empty());
+
+        // CloudKit hands the file over from where it downloaded it, after the row.
+        let download = dir.path().join("asset");
+        std::fs::write(&download, &gif).unwrap();
+        let mut row = saves[1].clone();
+        row.etag = Some("e".into());
+        assert!(iphone.on_fetched(vec![row], "icloud".into()));
+        let before = iphone.page(None).unwrap()[0].image.clone().unwrap();
+        assert_eq!((before.width, before.height), (0, 0), "a placeholder until the file comes");
+        let blob = WireRecord { file: Some(WireFileRecord { path: download.to_string_lossy().into_owned(), ..file }), ..saves[0].clone() };
+        assert!(iphone.on_fetched(vec![blob], "icloud".into()), "the row is shown again");
+        let after = iphone.page(None).unwrap()[0].image.clone().unwrap();
+        assert_eq!((after.width, after.height), (6, 4));
+        assert!(std::path::Path::new(after.path.as_deref().unwrap()).is_file());
     }
 
     #[test]

@@ -109,10 +109,23 @@ added):
 | Zone | `Outline` (a custom zone; CKSyncEngine creates it, and makes it again if the user deletes Flowie's iCloud data) |
 | Record type | `Record`, one per Flowie record: a bullet (record name: its id, 32 hex digits), its tombstone once deleted for good, and the synced preferences (record name `prefs`) |
 | Field | `envelope`: String, encrypted (`encryptedValues`). The record as JSON (the envelope in `flowie-sync::wire`: version, kind, id, payload); each record's kind is inside it, so new kinds need no schema change |
+| Record type | `Blob`, one per image file (record name: `flowie_sync::blob_name`, today the file's own name, `<sha256>.<ext>`) |
+| Fields | `file`: Asset (a `CKAsset`; assets can't be encrypted fields, CloudKit encrypts them at rest anyway); `width`, `height`: Int(64), the size in pixels (0 when not known); `mime`: String. All plain fields, none indexed |
 | Indexes | none needed: CKSyncEngine fetches by zone changes, not by query. (`recordName` queryable only helps browsing records in the Dashboard; encrypted fields can't be indexed) |
 | Subscriptions | CKSyncEngine's own database subscription (silent pushes) |
 
 Records are saved with their last-seen system fields, so a save over a newer version fails with
-`serverRecordChanged` and the two versions merge field by field before the next save. Image
-files don't sync through iCloud yet (bullets with images show a placeholder on the other device);
-they would come as a second record type (`Blob`, with a `CKAsset`), added to the schema then.
+`serverRecordChanged` and the two versions merge field by field before the next save.
+
+Image files travel as `Blob` records. The engine (`NativeSync::next_saves`) puts a bullet's file
+just before the bullet the first time it is sent, unless it knows the file is in iCloud already;
+a `Blob` is always saved as a new record, so `serverRecordChanged` on one means the same file is
+there (its name is its contents). A fetched file is kept only if it is an image whose name
+matches the record's, and noted with its size; a bullet whose file comes later shows a
+placeholder (on iOS: *Image not downloaded from iCloud yet*) until it does. Nothing is ever
+deleted from the zone: Flowie ignores every record deletion it fetches, and unused files aren't
+collected yet. Versions before `Blob` ignore those records.
+
+The `Blob` type and its fields are created in the Development schema by the first save from a
+development-signed build, and must then be deployed to Production from the CloudKit Dashboard
+before a release build can save one.

@@ -10,8 +10,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::Duration;
 
-use flowie_core::images::{self, BlobInfo, ImageDir};
-use flowie_sync::{Backend, ChangeBatch, Engine, Envelope, RecordStore, SaveResult};
+use flowie_core::images::{BlobInfo, ImageDir};
+use flowie_sync::{blob_name, Backend, ChangeBatch, Engine, Envelope, RecordStore, SaveResult};
 
 use crate::Workspace;
 
@@ -43,25 +43,20 @@ enum Answer {
     Fetched(Result<(ChangeBatch, Vec<BlobInfo>), String>),
 }
 
-/// The image file a record refers to, if any.
-fn image_of(envelope: &Envelope) -> Option<String> {
-    let name = envelope.node_record()?.image?.v;
-    images::is_name(&name).then_some(name)
-}
-
 /// Upload the image files `saves` refer to that the backend doesn't have yet, before the
 /// records that refer to them (per-node-sync.md §3.5). A file missing here is left out: the
 /// record still goes, and shows a missing image elsewhere.
 fn upload_images(backend: &mut dyn Backend, images: &ImageDir, saves: &[Envelope], uploaded: &mut HashSet<String>) -> Result<(), String> {
-    for name in saves.iter().filter_map(image_of) {
-        if uploaded.contains(&name) || !images.has(&name) {
+    for name in saves.iter().filter_map(Envelope::image) {
+        let remote = blob_name(&name);
+        if uploaded.contains(&remote) || !images.has(&name) {
             continue;
         }
-        if !backend.has_blob(&name)? {
+        if !backend.has_blob(&remote)? {
             let bytes = images.read(&name).map_err(|e| e.to_string())?;
-            backend.put_blob(&name, bytes)?;
+            backend.put_blob(&remote, bytes)?;
         }
-        uploaded.insert(name);
+        uploaded.insert(remote);
     }
     Ok(())
 }
@@ -70,15 +65,13 @@ fn upload_images(backend: &mut dyn Backend, images: &ImageDir, saves: &[Envelope
 /// record shows its image as soon as it arrives. One the backend doesn't have is skipped.
 fn download_images(backend: &mut dyn Backend, images: &ImageDir, batch: &ChangeBatch) -> Result<Vec<BlobInfo>, String> {
     let mut got: Vec<BlobInfo> = Vec::new();
-    for name in batch.records.iter().filter_map(image_of) {
+    for name in batch.records.iter().filter_map(Envelope::image) {
         if images.has(&name) || got.iter().any(|b| b.name == name) {
             continue;
         }
-        let Some(bytes) = backend.get_blob(&name)? else { continue };
-        // Only a file that matches its name is kept.
-        if images::info(&bytes).is_ok_and(|info| info.name == name) {
-            got.push(images.put(&bytes).map_err(|e| e.to_string())?);
-        }
+        let remote = blob_name(&name);
+        let Some(bytes) = backend.get_blob(&remote)? else { continue };
+        got.extend(crate::keep_image(images, &bytes, &remote)?);
     }
     Ok(got)
 }

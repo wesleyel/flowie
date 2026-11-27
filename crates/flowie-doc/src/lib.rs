@@ -9,7 +9,7 @@ pub use driver::{SyncDriver, SyncPhase};
 use flowie_core::images::{BlobInfo, ImageDir};
 use flowie_core::store::{self, ImportRecord, ImportState, Writer};
 use flowie_core::{Caret, History, HistoryKind, NodeId, Tree};
-pub use native::{NativeSaved, NativeSync, Wire};
+pub use native::{NativeSaved, NativeSync, Wire, WireFile};
 pub use outcome::Outcome;
 pub use sync::{LostCopy, SyncState};
 
@@ -297,6 +297,16 @@ fn collect_images(db: &Path) {
 fn new_actor() -> u64 {
     let bytes = flowie_core::NodeId::random().to_bytes();
     u64::from_le_bytes(bytes[..8].try_into().expect("16 bytes")).max(1)
+}
+
+/// Keep an image file that came from a backend under the name `remote`
+/// ([`flowie_sync::blob_name`]) in `images`: only one that is an image and matches that name,
+/// else nothing.
+pub(crate) fn keep_image(images: &ImageDir, bytes: &[u8], remote: &str) -> Result<Option<BlobInfo>, String> {
+    match flowie_core::images::info(bytes) {
+        Ok(info) if flowie_sync::blob_name(&info.name) == remote => images.put(bytes).map(Some).map_err(|e| e.to_string()),
+        _ => Ok(None),
+    }
 }
 
 #[cfg(test)]

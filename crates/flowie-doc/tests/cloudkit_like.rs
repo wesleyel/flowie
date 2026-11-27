@@ -9,14 +9,31 @@ use std::collections::{BTreeSet, HashMap};
 use flowie_core::images::ImageDir;
 use flowie_core::journal;
 use flowie_core::{NodeId, ROOT};
-use flowie_doc::{NativeSaved, NativeSync, Wire, Workspace};
+use flowie_doc::{NativeSaved, NativeSync, Wire, WireFile, Workspace};
+
+/// What one CKRecord holds: a `Record`'s envelope, or a `Blob`'s file (its CKAsset) and the
+/// fields beside it.
+#[derive(Clone)]
+enum Stored {
+    Record(String),
+    Blob(Vec<u8>, u32, u32, String),
+}
 
 /// Records in one zone of a private database.
-#[derive(Default)]
 struct FakeCloudKit {
-    /// name -> (envelope without etag, change tag, sequence number of the save)
-    records: HashMap<String, (String, u64, u64)>,
+    /// name -> (what it holds, change tag, sequence number of the save)
+    records: HashMap<String, (Stored, u64, u64)>,
     seq: u64,
+    /// The names saved, in order.
+    log: Vec<String>,
+    /// Where fetched assets are downloaded, as CKSyncEngine does before handing a record over.
+    downloads: tempfile::TempDir,
+}
+
+impl Default for FakeCloudKit {
+    fn default() -> Self {
+        FakeCloudKit { records: HashMap::new(), seq: 0, log: Vec::new(), downloads: tempfile::tempdir().unwrap() }
+    }
 }
 
 impl FakeCloudKit {
@@ -25,33 +42,50 @@ impl FakeCloudKit {
     }
 
     fn save(&mut self, wire: Wire) -> NativeSaved {
-        let current = self.records.get(&wire.id).map(|(envelope, tag, _)| (envelope.clone(), *tag));
-        match current {
-            Some((envelope, tag)) if wire.etag.as_deref() != Some(Self::system_fields(&wire.id, tag).as_str()) => {
-                NativeSaved::Conflict { server: Wire { etag: Some(Self::system_fields(&wire.id, tag)), id: wire.id, envelope } }
-            }
-            current => {
-                let tag = current.map_or(1, |(_, tag)| tag + 1);
-                self.seq += 1;
-                self.records.insert(wire.id.clone(), (wire.envelope, tag, self.seq));
-                NativeSaved::Saved { etag: Self::system_fields(&wire.id, tag), id: wire.id }
-            }
+        let current = self.records.get(&wire.id).map(|(_, tag, _)| *tag);
+        if current.is_some_and(|tag| wire.etag.as_deref() != Some(Self::system_fields(&wire.id, tag).as_str())) {
+            return NativeSaved::Conflict { server: self.wire(&wire.id).expect("saved") };
         }
+        let stored = match &wire.file {
+            // The asset is uploaded from the file as it is now.
+            Some(file) => Stored::Blob(std::fs::read(&file.path).unwrap(), file.width, file.height, file.mime.clone()),
+            None => Stored::Record(wire.envelope),
+        };
+        let tag = current.map_or(1, |tag| tag + 1);
+        self.seq += 1;
+        self.log.push(wire.id.clone());
+        self.records.insert(wire.id.clone(), (stored, tag, self.seq));
+        NativeSaved::Saved { etag: Self::system_fields(&wire.id, tag), id: wire.id }
+    }
+
+    /// A record as FlowieCloudKit hands it over: a `Blob`'s asset downloaded to a file.
+    fn wire(&self, id: &str) -> Option<Wire> {
+        let (stored, tag, _) = self.records.get(id)?;
+        let etag = Some(Self::system_fields(id, *tag));
+        Some(match stored {
+            Stored::Record(envelope) => Wire { id: id.to_string(), etag, envelope: envelope.clone(), file: None },
+            Stored::Blob(bytes, width, height, mime) => {
+                let path = self.downloads.path().join(format!("asset-{id}"));
+                std::fs::write(&path, bytes).unwrap();
+                let file = WireFile { path: path.to_string_lossy().into_owned(), width: *width, height: *height, mime: mime.clone() };
+                Wire { id: id.to_string(), etag: None, envelope: String::new(), file: Some(file) }
+            }
+        })
     }
 
     /// The latest version of every record saved after `token`, and the token to go on from.
     fn changes(&self, token: u64) -> (Vec<Wire>, u64) {
         let mut newer: Vec<_> = self.records.iter().filter(|(_, (_, _, seq))| *seq > token).collect();
         newer.sort_by_key(|(_, (_, _, seq))| *seq);
-        let wires = newer
-            .iter()
-            .map(|(id, (envelope, tag, _))| Wire {
-                id: id.to_string(),
-                etag: Some(Self::system_fields(id, *tag)),
-                envelope: envelope.clone(),
-            })
-            .collect();
+        let wires = newer.iter().filter_map(|(id, _)| self.wire(id)).collect();
         (wires, self.seq)
+    }
+
+    fn envelope(&self, id: &str) -> String {
+        match &self.records[id].0 {
+            Stored::Record(envelope) => envelope.clone(),
+            Stored::Blob(..) => panic!("{id} is a Blob"),
+        }
     }
 }
 
@@ -62,22 +96,24 @@ struct Device {
     native: NativeSync,
     pending: BTreeSet<String>,
     token: u64,
+    /// Records per batch (FlowieCloudKit sends at most 400).
+    batch: usize,
 }
 
 impl Device {
     fn open(db: &std::path::Path) -> Device {
         let (mut ws, _) = Workspace::open(db, ImageDir::beside(db), |_| {}).unwrap();
         assert!(ws.use_remote("icloud"), "a new outline starts fresh with iCloud");
-        Device { ws, native: NativeSync::new(), pending: BTreeSet::new(), token: 0 }
+        Device { ws, native: NativeSync::new(), pending: BTreeSet::new(), token: 0, batch: 400 }
     }
 
     /// What CKSyncEngine does in one go: send what is pending, in batches of at most 400
     /// (FlowieCloudKit's `nextRecordZoneChangeBatch`), then fetch.
     fn sync(&mut self, cloud: &mut FakeCloudKit) {
         self.ws.persist();
-        self.pending.extend(NativeSync::unsent_ids(&self.ws, 10_000));
+        self.pending.extend(self.native.to_send(&self.ws, 10_000));
         while !self.pending.is_empty() {
-            let saves = self.native.next_saves(&mut self.ws, 400);
+            let saves = self.native.next_saves(&mut self.ws, self.batch);
             if saves.is_empty() {
                 self.pending.clear();
                 break;
@@ -89,7 +125,7 @@ impl Device {
                 }
             }
             self.native.on_saved(&mut self.ws, outcomes);
-            self.pending.extend(NativeSync::unsent_ids(&self.ws, 10_000));
+            self.pending.extend(self.native.to_send(&self.ws, 10_000));
         }
         let (records, token) = cloud.changes(self.token);
         self.token = token;
@@ -170,7 +206,7 @@ fn a_device_with_an_outline_sends_all_of_it_when_it_starts_with_icloud() {
     }
     let (ws, _) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
     assert!(!ws.sync.has_unsent());
-    let mut mac = Device { ws, native: NativeSync::new(), pending: BTreeSet::new(), token: 0 };
+    let mut mac = Device { ws, native: NativeSync::new(), pending: BTreeSet::new(), token: 0, batch: 400 };
     assert!(mac.ws.use_remote("icloud"), "iCloud after a server is a fresh start");
     mac.sync(&mut cloud);
     assert_eq!(cloud.records.len(), 450, "the whole outline goes up, in batches of 400");
@@ -200,7 +236,7 @@ fn a_record_this_version_cant_read_never_touches_a_bullet() {
     mac.ws.commit_with_imports(None, None, None);
     mac.sync(&mut cloud);
     let name = id.to_string();
-    let (sent, _, _) = cloud.records[&name].clone();
+    let sent = cloud.envelope(&name);
 
     // The bullet's own record, changed the way a later version might: another kind (with a
     // removal in it), encrypted, or not JSON at all.
@@ -214,7 +250,7 @@ fn a_record_this_version_cant_read_never_touches_a_bullet() {
     let wires: Vec<Wire> = unreadable
         .iter()
         .enumerate()
-        .map(|(i, envelope)| Wire { id: name.clone(), etag: Some(format!("later:{i}")), envelope: envelope.clone() })
+        .map(|(i, envelope)| Wire { id: name.clone(), etag: Some(format!("later:{i}")), envelope: envelope.clone(), file: None })
         .collect();
 
     assert!(!mac.native.on_fetched(&mut mac.ws, &wires, ""), "nothing changes");
@@ -234,7 +270,175 @@ fn a_record_this_version_cant_read_never_touches_a_bullet() {
 
     // The same removal as a bullet's record does remove it: the ones above were ignored for
     // what they are, not for what they carry.
-    let removal = Wire { id: name, etag: Some("now".into()), envelope: envelope.to_string() };
+    let removal = Wire { id: name, etag: Some("now".into()), envelope: envelope.to_string(), file: None };
     assert!(mac.native.on_fetched(&mut mac.ws, &[removal], ""));
     assert!(mac.ws.tree.children(ROOT).is_empty());
+}
+
+/// An image row added on the Mac, as a desktop does: the file in the image folder, noted in
+/// `blobs`, and the row pointing at it.
+fn add_image(device: &mut Device, bytes: &[u8], at: usize) -> (NodeId, String) {
+    let info = device.ws.image_dir.as_ref().unwrap().put(bytes).unwrap();
+    let name = info.name.clone();
+    device.ws.record_blob(info);
+    let row = device.ws.tree.create_at(ROOT, at, "a picture");
+    let mut node = device.ws.tree.node(row).clone();
+    node.kind = flowie_core::BlockKind::Image;
+    node.image = name.clone();
+    device.ws.tree.put(node);
+    device.ws.commit_with_imports(None, None, None);
+    (row, name)
+}
+
+/// A GIF of `w`×`h` pixels (and `salt`, to make files that differ).
+fn gif(w: u8, h: u8, salt: u8) -> Vec<u8> {
+    vec![b'G', b'I', b'F', b'8', b'9', b'a', w, 0, h, 0, salt]
+}
+
+#[test]
+fn an_image_goes_up_before_its_row_and_arrives_with_its_size() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cloud = FakeCloudKit::default();
+    let mut mac = Device::open(&dir.path().join("mac.sqlite"));
+    let mut iphone = Device::open(&dir.path().join("iphone.sqlite"));
+    let bytes = gif(2, 3, 0);
+    let (row, name) = add_image(&mut mac, &bytes, 0);
+    mac.sync(&mut cloud);
+
+    let at = |id: &str| cloud.log.iter().position(|saved| saved == id).unwrap();
+    assert!(at(&flowie_sync::blob_name(&name)) < at(&row.to_string()), "the file is saved before the row");
+    assert!(matches!(&cloud.records[&name].0, Stored::Blob(saved, 2, 3, mime) if *saved == bytes && mime == "image/gif"));
+
+    iphone.sync(&mut cloud);
+    assert_eq!(iphone.ws.tree.node(row).image, name);
+    assert_eq!(iphone.ws.image_dir.as_ref().unwrap().read(&name).unwrap(), bytes, "the file came with the row");
+    let known = &iphone.ws.blobs[&name];
+    assert_eq!((known.width, known.height), (2, 3), "and its size, for the row's height");
+
+    // Edited again, the row goes alone: the file is there already.
+    mac.ws.tree.set_text(row, "a caption");
+    mac.ws.commit_with_imports(None, None, None);
+    let saves = mac.native.next_saves(&mut mac.ws, 10);
+    assert_eq!(saves.iter().map(|w| w.id.clone()).collect::<Vec<_>>(), [row.to_string()]);
+
+    // The iPhone sends the row back after an edit; the file it got isn't sent again either.
+    iphone.ws.tree.set_text(row, "from the iPhone");
+    iphone.ws.commit_with_imports(None, None, None);
+    let saves = iphone.native.next_saves(&mut iphone.ws, 10);
+    assert!(saves.iter().all(|w| w.file.is_none()), "the iPhone knows the file is in iCloud");
+}
+
+#[test]
+fn a_row_that_comes_before_its_file_shows_it_once_the_file_arrives() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut mac = Device::open(&dir.path().join("mac.sqlite"));
+    let mut iphone = Device::open(&dir.path().join("iphone.sqlite"));
+    let bytes = gif(4, 5, 1);
+    let (row, name) = add_image(&mut mac, &bytes, 0);
+    let saves = mac.native.next_saves(&mut mac.ws, 10);
+    let (file, record): (Vec<Wire>, Vec<Wire>) = saves.into_iter().partition(|w| w.file.is_some());
+    assert_eq!(file.len(), 1);
+    let file = file.into_iter().next().unwrap();
+    assert_eq!(file.file.as_ref().map(|f| (f.width, f.height)), Some((4, 5)));
+
+    // The row first, in one fetch: a placeholder of unknown size.
+    assert!(iphone.native.on_fetched(&mut iphone.ws, &record, ""));
+    assert!(iphone.ws.tree.contains(row) && !iphone.ws.blobs.contains_key(&name));
+    // Then the file: the outline says something changed, so the row is shown again.
+    assert!(iphone.native.on_fetched(&mut iphone.ws, std::slice::from_ref(&file), ""), "a row waits for it");
+    assert_eq!(iphone.ws.image_dir.as_ref().unwrap().read(&name).unwrap(), bytes);
+    assert_eq!((iphone.ws.blobs[&name].width, iphone.ws.blobs[&name].height), (4, 5));
+    assert!(!iphone.native.on_fetched(&mut iphone.ws, &[file], ""), "the same file again changes nothing");
+}
+
+#[test]
+fn a_file_that_isnt_what_its_name_says_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut iphone = Device::open(&dir.path().join("iphone.sqlite"));
+    let real = flowie_core::images::info(&gif(2, 2, 2)).unwrap().name;
+    let path = dir.path().join("download");
+    for bytes in [gif(2, 2, 3), b"not an image".to_vec()] {
+        std::fs::write(&path, bytes).unwrap();
+        let file = WireFile { path: path.to_string_lossy().into_owned(), width: 2, height: 2, mime: "image/gif".into() };
+        let wire = Wire { id: flowie_sync::blob_name(&real), etag: None, envelope: String::new(), file: Some(file) };
+        assert!(!iphone.native.on_fetched(&mut iphone.ws, &[wire], ""));
+    }
+    let missing = WireFile { path: dir.path().join("gone").to_string_lossy().into_owned(), width: 0, height: 0, mime: String::new() };
+    let wire = Wire { id: real.clone(), etag: None, envelope: String::new(), file: Some(missing) };
+    assert!(!iphone.native.on_fetched(&mut iphone.ws, &[wire], ""));
+    assert!(iphone.ws.blobs.is_empty() && !iphone.ws.image_dir.as_ref().unwrap().has(&real));
+    assert!(iphone.ws.tree.children(ROOT).is_empty(), "and no bullet comes of it");
+}
+
+#[test]
+fn a_file_whose_save_failed_goes_again_on_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cloud = FakeCloudKit::default();
+    let mut mac = Device::open(&dir.path().join("mac.sqlite"));
+    let (row, name) = add_image(&mut mac, &gif(3, 3, 4), 0);
+    let remote = flowie_sync::blob_name(&name);
+    let saves = mac.native.next_saves(&mut mac.ws, 10);
+    assert_eq!(saves.iter().map(|w| w.id.clone()).collect::<Vec<_>>(), [remote.clone(), row.to_string()]);
+    // The asset didn't upload; the row was saved.
+    let outcomes = saves
+        .into_iter()
+        .map(|w| match w.file {
+            Some(_) => NativeSaved::Failed { id: w.id, error: "network".into() },
+            None => cloud.save(w),
+        })
+        .collect();
+    mac.native.on_saved(&mut mac.ws, outcomes);
+    assert_eq!(mac.native.to_send(&mac.ws, 10), std::slice::from_ref(&remote), "only the file waits to be sent");
+    mac.sync(&mut cloud);
+    assert!(matches!(cloud.records[&remote].0, Stored::Blob(..)));
+    assert!(mac.native.to_send(&mac.ws, 10).is_empty());
+
+    let mut iphone = Device::open(&dir.path().join("iphone.sqlite"));
+    iphone.sync(&mut cloud);
+    assert!(iphone.ws.image_dir.as_ref().unwrap().has(&name));
+}
+
+#[test]
+fn files_already_in_icloud_and_full_batches_still_go_before_their_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cloud = FakeCloudKit::default();
+    let mut mac = Device::open(&dir.path().join("mac.sqlite"));
+    let mut rows = Vec::new();
+    for i in 0..5 {
+        rows.push(add_image(&mut mac, &gif(1, 1, 10 + i), i as usize));
+    }
+    // The same picture twice: one file.
+    let first = rows[0].1.clone();
+    let (twin, _) = {
+        let info = mac.ws.blobs[&first].clone();
+        let row = mac.ws.tree.create_at(ROOT, 5, "again");
+        let mut node = mac.ws.tree.node(row).clone();
+        node.kind = flowie_core::BlockKind::Image;
+        node.image = info.name.clone();
+        mac.ws.tree.put(node);
+        mac.ws.commit_with_imports(None, None, None);
+        (row, info.name)
+    };
+    // Another Mac put one of the files there already (a fresh start sends everything again).
+    let other = flowie_sync::blob_name(&rows[1].1);
+    let path = mac.ws.image_dir.as_ref().unwrap().path(&rows[1].1).unwrap();
+    let file = WireFile { path: path.to_string_lossy().into_owned(), width: 1, height: 1, mime: "image/gif".into() };
+    cloud.save(Wire { id: other.clone(), etag: None, envelope: String::new(), file: Some(file) });
+
+    mac.batch = 3;
+    mac.sync(&mut cloud);
+    for (row, name) in &rows {
+        let at = |id: &str| cloud.log.iter().position(|saved| saved == id).unwrap();
+        assert!(at(&flowie_sync::blob_name(name)) < at(&row.to_string()), "{name} before its row");
+    }
+    assert!(cloud.log.contains(&twin.to_string()));
+    assert_eq!(cloud.log.iter().filter(|id| **id == other).count(), 1, "a file there already isn't saved again");
+    assert_eq!(cloud.log.iter().filter(|id| **id == first).count(), 1, "nor one two rows show");
+    assert!(mac.native.to_send(&mac.ws, 10).is_empty());
+
+    let mut iphone = Device::open(&dir.path().join("iphone.sqlite"));
+    iphone.sync(&mut cloud);
+    for (_, name) in &rows {
+        assert!(iphone.ws.image_dir.as_ref().unwrap().has(name));
+    }
 }

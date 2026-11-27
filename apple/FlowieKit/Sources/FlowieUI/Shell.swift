@@ -46,6 +46,8 @@ final class Navigation: ObservableObject {
     @Published var search: [Route] = []
     /// The day the Today tab shows (YYYY-MM-DD).
     @Published var day = LaunchMemory.today
+    /// What the Search tab searches for.
+    let query = Local("")
 
     func path(_ tab: AppTab) -> [Route] {
         switch tab {
@@ -75,6 +77,13 @@ final class Navigation: ObservableObject {
 
     func push(_ routes: [Route], in tab: AppTab) {
         setPath(path(tab) + routes, for: tab)
+    }
+
+    /// Search for `query` in the Search tab (a tapped tag or date, as on the desktop).
+    func showSearch(_ query: String) {
+        self.query.value = query
+        search = []
+        tab = .search
     }
 
     /// Where the app is, to remember.
@@ -126,7 +135,6 @@ public struct FlowieShell: View {
     @StateObject private var nav = Navigation()
     @StateObject private var settings = Local(false)
     @StateObject private var started = Local(false)
-    @StateObject private var query = Local("")
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("appearance") private var appearance = "system"
 
@@ -149,7 +157,7 @@ public struct FlowieShell: View {
                 stack(.stars) { StarsScreen(store: store, nav: nav) }
             }
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
-                stack(.search) { SearchScreen(store: store, nav: nav, query: query) }
+                stack(.search) { SearchScreen(store: store, nav: nav, query: nav.query) }
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -240,7 +248,7 @@ struct PageScreen: View {
     }
 
     var body: some View {
-        OutlinePage(page: page) { id in nav.push(Route(id: id), in: tab) }
+        OutlinePage(page: page, open: { id in nav.push(Route(id: id), in: tab) }, search: { query in nav.showSearch(query) })
             // The page keeps its rows above the keyboard itself (an inset), and
             // its list scrolls under the tab bar.
             .ignoresSafeArea(.keyboard)

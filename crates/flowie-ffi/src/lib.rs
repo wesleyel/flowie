@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use flowie_core::images::ImageDir;
 use flowie_core::search::Query;
-use flowie_core::{flatten_mapped, journal, markup, BlockKind, Caret, NodeId, Tree, ViewOptions, ROOT};
+use flowie_core::{flatten_mapped, journal, markup, BlockKind, Caret, NodeId, Row, Tree, ViewOptions, ROOT};
 use flowie_doc::{find, utf16, Outcome, SyncDriver, SyncPhase, Workspace};
 use flowie_sync::http::HttpBackend;
 use flowie_sync::{ChangeBatch, Engine, Envelope, RecordStore, SaveResult};
@@ -82,6 +82,93 @@ pub struct RowView {
     pub completed: bool,
     pub collapsed: bool,
     pub has_children: bool,
+    /// The picture of an image row (`kind` is `image`; `text` is its caption).
+    pub image: Option<ImageView>,
+}
+
+/// An image row's picture: where its file is and how big it is, known before the file is read
+/// (the `blobs` table), so the row's height is right before the picture loads.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ImageView {
+    /// Where the file is in the image folder beside the database (content-addressed, so it
+    /// never changes). It may not be there yet: synced from another device without its file.
+    /// None for an outline without an image folder (in memory).
+    pub path: Option<String>,
+    /// Its size in pixels; 0 when not known.
+    pub width: u32,
+    pub height: u32,
+}
+
+/// One stretch of a bullet's text and how it shows, as the desktop parses it
+/// (`flowie_core::markup::parse`). Offsets are UTF-16 code units; the runs cover the text in
+/// order, without gaps.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct MarkupRun {
+    pub start: u32,
+    pub end: u32,
+    pub kind: RunKind,
+    pub bold: bool,
+    pub italic: bool,
+    pub strike: bool,
+    pub highlight: bool,
+    /// Text color, an index into `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `gray`.
+    pub color: Option<u8>,
+}
+
+/// What a run is.
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum RunKind {
+    Text,
+    /// Syntax (`**`, `[`, `](url)`, `{red}`, a `\` escape…): hidden when rendered.
+    Marker,
+    /// Inside backticks (the backticks are markers).
+    Code,
+    /// A whole `$…$` or `$$…$$`, delimiters included.
+    Math {
+        display: bool,
+    },
+    /// A link's label, or a bare web address. `bullet`: the bullet a `flowie:ID` link points to.
+    Link {
+        url: String,
+        bullet: Option<String>,
+    },
+    Tag,
+    Mention,
+    /// An ISO date (`2026-11-17`).
+    Date,
+}
+
+/// The markup runs of a bullet's text, for showing it formatted when it isn't being edited
+/// (wiki: iOS-Cross-Platform §2.3); the row being edited shows the text as stored.
+#[uniffi::export]
+pub fn markup(text: String) -> Vec<MarkupRun> {
+    utf16::markup_runs(&text)
+        .map(|(range, run)| {
+            let kind = match run.kind {
+                markup::Kind::Text => RunKind::Text,
+                markup::Kind::Marker => RunKind::Marker,
+                markup::Kind::Code => RunKind::Code,
+                markup::Kind::Math { display, .. } => RunKind::Math { display },
+                markup::Kind::Link { url } => {
+                    let bullet = url.strip_prefix("flowie:").and_then(|id| id.parse::<NodeId>().ok()).map(|id| id.to_string());
+                    RunKind::Link { url, bullet }
+                }
+                markup::Kind::Tag => RunKind::Tag,
+                markup::Kind::Mention => RunKind::Mention,
+                markup::Kind::Date => RunKind::Date,
+            };
+            MarkupRun {
+                start: range.start as u32,
+                end: range.end as u32,
+                kind,
+                bold: run.bold,
+                italic: run.italic,
+                strike: run.strike,
+                highlight: run.highlight,
+                color: run.color,
+            }
+        })
+        .collect()
 }
 
 /// What an edit changed, so the app updates only that (wiki: iOS-Cross-Platform §4.2).
@@ -234,6 +321,12 @@ impl State {
     fn view(&self) -> ViewOptions {
         ViewOptions { hide_completed: self.hide_completed, query: None }
     }
+
+    fn page_rows(&mut self, root: NodeId) -> Vec<Row> {
+        let (rows, virtuals) = flatten_mapped(&self.ws.tree, root, &self.view());
+        self.ws.tree.add_virtuals(virtuals);
+        rows
+    }
 }
 
 /// An open outline.
@@ -270,7 +363,7 @@ fn bullet_view(tree: &Tree, id: NodeId) -> BulletView {
         text: markup::plain_text(&source.text),
         completed: source.completed,
         starred: tree.is_starred(id),
-        has_children: tree.has_children(id),
+        has_children: tree.has_children(source.id),
         path: tree.ancestors(id).into_iter().map(|a| Crumb { id: a.to_string(), text: plain(tree, a) }).collect(),
     }
 }
@@ -293,9 +386,19 @@ fn page_root(tree: &Tree, root: Option<String>) -> Result<NodeId, FlowieError> {
     Ok(root)
 }
 
-fn row_view(tree: &Tree, id: NodeId, depth: u16) -> Option<RowView> {
+fn row_view(ws: &Workspace, id: NodeId, depth: u16) -> Option<RowView> {
+    let tree = &ws.tree;
     let node = tree.get(id)?;
     let source = tree.node(tree.source(id));
+    // As the desktop's `row_image`: the row's own kind, its source's file.
+    let image = (node.kind == BlockKind::Image && !source.image.is_empty()).then(|| {
+        let blob = ws.blobs.get(&source.image);
+        ImageView {
+            path: ws.image_dir.as_ref().and_then(|dir| dir.path(&source.image)).map(|p| p.to_string_lossy().into_owned()),
+            width: blob.map_or(0, |b| b.width),
+            height: blob.map_or(0, |b| b.height),
+        }
+    });
     Some(RowView {
         id: id.to_string(),
         depth,
@@ -304,7 +407,8 @@ fn row_view(tree: &Tree, id: NodeId, depth: u16) -> Option<RowView> {
         kind: kind_name(node.kind),
         completed: source.completed,
         collapsed: node.collapsed,
-        has_children: tree.has_children(id),
+        has_children: tree.has_children(source.id),
+        image,
     })
 }
 
@@ -348,32 +452,31 @@ impl Outline {
 
     /// The rows of the page at `root` (none: Home), expanded bullets' children included, and
     /// completed ones left out when [`hide_completed`](Self::hide_completed).
+    /// Rows inside a mirror have virtual ids, which edits then take (as on the desktop: they
+    /// change the mirrored bullets).
     pub fn page(&self, root: Option<String>) -> Result<Vec<RowView>, FlowieError> {
-        let state = self.lock();
-        let tree = &state.ws.tree;
-        let root = page_root(tree, root)?;
-        let (rows, _) = flatten_mapped(tree, root, &state.view());
-        Ok(rows.into_iter().filter_map(|row| row_view(tree, row.id, row.depth)).collect())
+        let mut state = self.lock();
+        let root = page_root(&state.ws.tree, root)?;
+        Ok(state.page_rows(root).into_iter().filter_map(|row| row_view(&state.ws, row.id, row.depth)).collect())
     }
 
     /// The rows with these ids on the page at `root` (none: Home), as [`page`](Self::page)
     /// has them, in the order asked; ids not on the page are left out. For the rows an edit
     /// changed (`EditOutcome::changed_ids`), without reading the whole page.
     pub fn rows(&self, ids: Vec<String>, root: Option<String>) -> Result<Vec<RowView>, FlowieError> {
-        let state = self.lock();
-        let tree = &state.ws.tree;
-        let root = page_root(tree, root)?;
+        let mut state = self.lock();
+        let root = page_root(&state.ws.tree, root)?;
         // Rows inside a mirror (virtual ids) are found on the page.
         let mut page = None;
         Ok(ids
             .iter()
             .filter_map(|id| {
                 let id = id.parse::<NodeId>().ok()?;
-                let depth = depth_on_page(tree, root, id, state.hide_completed).or_else(|| {
-                    let rows = page.get_or_insert_with(|| flatten_mapped(tree, root, &state.view()).0);
+                let depth = depth_on_page(&state.ws.tree, root, id, state.hide_completed).or_else(|| {
+                    let rows = page.get_or_insert_with(|| state.page_rows(root));
                     rows.iter().find(|row| row.id == id).map(|row| row.depth)
                 })?;
-                row_view(tree, id, depth)
+                row_view(&state.ws, id, depth)
             })
             .collect())
     }
@@ -405,10 +508,11 @@ impl Outline {
         })
     }
 
+    /// Save the notes sheet as one undo step, including when opened just after typing in the body.
     pub fn set_note(&self, id: String, note: String) -> Result<EditOutcome, FlowieError> {
         self.edit_text(&id, |ws, id| {
             ws.tree.set_note(id, &note);
-            ws.commit_typing(id, None, None);
+            ws.commit_with_imports(None, None, None);
             None
         })
     }
@@ -1243,6 +1347,118 @@ mod tests {
         let info = outline.bullet(b).unwrap();
         assert_eq!(info.path, [Crumb { id: a.clone(), text: "Work [2026]".into() }]);
         assert!(outline.bullet(a).unwrap().path.is_empty(), "Home isn't on the path");
+    }
+
+    #[test]
+    fn markup_runs_count_utf16() {
+        let id = NodeId::random();
+        // 日: 3 bytes, 1 unit; 😀: 4 bytes, 2 units.
+        let text =
+            format!("日😀 **粗** *斜* ~~删~~ [链接](flowie:{id}) #标签 2026-11-27 $x^2$ {{red}}红{{/}} ==亮== `c` https://example.com/a");
+        let runs = markup(text.clone());
+        let units: Vec<u16> = text.encode_utf16().collect();
+        let shown = |r: &MarkupRun| String::from_utf16(&units[r.start as usize..r.end as usize]).unwrap();
+        // The runs cover the text in order.
+        assert_eq!(runs.first().map(|r| r.start), Some(0));
+        assert_eq!(runs.last().map(|r| r.end as usize), Some(units.len()));
+        assert!(runs.windows(2).all(|w| w[0].end == w[1].start));
+        let find = |kind: fn(&RunKind) -> bool| runs.iter().find(|r| kind(&r.kind)).unwrap();
+        let bold = runs.iter().find(|r| r.bold && r.kind == RunKind::Text).unwrap();
+        assert_eq!((bold.start, shown(bold).as_str()), (6, "粗"), "after 日😀 and a space and **");
+        let link = find(|k| matches!(k, RunKind::Link { bullet: Some(_), .. }));
+        assert_eq!(shown(link), "链接");
+        assert_eq!(link.kind, RunKind::Link { url: format!("flowie:{id}"), bullet: Some(id.to_string()) });
+        assert_eq!(shown(find(|k| *k == RunKind::Tag)), "#标签");
+        assert_eq!(shown(find(|k| *k == RunKind::Date)), "2026-11-27");
+        assert_eq!(shown(find(|k| matches!(k, RunKind::Math { display: false }))), "$x^2$");
+        assert_eq!(shown(find(|k| *k == RunKind::Code)), "c");
+        let red = runs.iter().find(|r| r.color == Some(0)).unwrap();
+        assert_eq!(shown(red), "红");
+        assert!(runs.iter().any(|r| r.italic && shown(r) == "斜"));
+        assert!(runs.iter().any(|r| r.strike && shown(r) == "删"));
+        assert!(runs.iter().any(|r| r.highlight && shown(r) == "亮"));
+        let web = runs.last().unwrap();
+        assert_eq!(web.kind, RunKind::Link { url: "https://example.com/a".into(), bullet: None });
+        assert!(markup(String::new()).is_empty());
+        assert_eq!(markup("[x](flowie:nope)".into())[1].kind, RunKind::Link { url: "flowie:nope".into(), bullet: None });
+    }
+
+    #[test]
+    fn image_rows_say_where_their_file_is_and_its_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("outline.sqlite");
+        let outline = Outline::open(db.to_string_lossy().into_owned()).unwrap();
+        // A 300×200 PNG header, stored as the desktop stores images.
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        png.extend(300u32.to_be_bytes());
+        png.extend(200u32.to_be_bytes());
+        png.extend([8, 6, 0, 0, 0, 0, 0, 0, 0]);
+        let (shown, missing, plain) = {
+            let mut state = outline.lock();
+            let ws = &mut state.ws;
+            let info = ws.image_dir.as_ref().unwrap().put(&png).unwrap();
+            let name = info.name.clone();
+            ws.record_blob(info);
+            let mut ids = Vec::new();
+            for (image, caption) in [(name, "a caption"), (format!("{}.png", "ab".repeat(32)), "")] {
+                let id = ws.tree.create_at(ROOT, ids.len(), caption);
+                let mut node = ws.tree.node(id).clone();
+                node.kind = BlockKind::Image;
+                node.image = image;
+                ws.tree.put(node);
+                ids.push(id);
+            }
+            let plain = ws.tree.create_at(ROOT, 2, "no picture");
+            ws.commit_with_imports(None, None, None);
+            (ids[0].to_string(), ids[1].to_string(), plain.to_string())
+        };
+        let page = outline.page(None).unwrap();
+        let image = page[0].image.clone().unwrap();
+        assert_eq!((page[0].kind.as_str(), page[0].text.as_str()), ("image", "a caption"));
+        assert_eq!((image.width, image.height), (300, 200), "from the blobs table");
+        let path = std::path::PathBuf::from(image.path.unwrap());
+        assert!(path.starts_with(dir.path().join("outline.sqlite.images")) && path.exists());
+        // Synced without its file: where it would be, and no size.
+        let missing_image = page[1].image.clone().unwrap();
+        assert_eq!((missing_image.width, missing_image.height), (0, 0));
+        assert!(!std::path::Path::new(&missing_image.path.unwrap()).exists());
+        assert_eq!(page[2].image, None);
+        assert_eq!(outline.rows(vec![shown.clone()], None).unwrap()[0].image, page[0].image, "rows() says the same");
+        // Sizes are kept with the database.
+        outline.flush().unwrap();
+        drop(outline);
+        let outline = Outline::open(db.to_string_lossy().into_owned()).unwrap();
+        let again = outline.rows(vec![shown, missing, plain], None).unwrap();
+        assert_eq!(again[0].image.as_ref().map(|i| (i.width, i.height)), Some((300, 200)));
+        assert!(again[1].image.is_some() && again[2].image.is_none());
+    }
+
+    #[test]
+    fn rows_inside_a_mirror_show_and_edit_their_source() {
+        let outline = Outline::in_memory();
+        let source = add(&outline, None, 0, "source");
+        let child = add(&outline, Some(&source), 0, "child");
+        let mirror = {
+            let mut state = outline.lock();
+            let source = source.parse().unwrap();
+            let mirror = state.ws.tree.create_mirror(source, ROOT, 1).unwrap();
+            state.ws.commit_with_imports(None, None, None);
+            mirror.to_string()
+        };
+        let virtual_child = flowie_core::tree::virtual_id(mirror.parse().unwrap(), child.parse().unwrap()).to_string();
+        assert_eq!(outline.rows(vec![virtual_child], None).unwrap()[0].text, "child");
+        let page = outline.page(None).unwrap();
+        assert_eq!(page.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(), ["source", "child", "source", "child"]);
+        assert!(page[2].has_children && outline.bullet(mirror.clone()).unwrap().has_children);
+        assert_eq!(page[2].id, mirror);
+        let inside = page[3].id.clone();
+        assert_ne!(inside, child, "a virtual id");
+        outline.set_text(inside.clone(), "child, edited in the mirror".into()).unwrap();
+        outline.set_note(mirror.clone(), "a note through the mirror".into()).unwrap();
+        let page = outline.page(None).unwrap();
+        assert_eq!(page[1].text, "child, edited in the mirror", "the source changed");
+        assert_eq!(page[0].note, "a note through the mirror");
+        assert_eq!(outline.rows(vec![inside], None).unwrap()[0].text, "child, edited in the mirror");
     }
 
     /// How long reading a page takes on a big outline (20 000 rows), for deciding whether rows

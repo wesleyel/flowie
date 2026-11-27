@@ -65,6 +65,13 @@ check(outline.trashed().map(\.id) == [child], "in Recently Deleted")
 _ = try outline.restore(id: child)
 check(outline.trashed().isEmpty, "restored")
 check(try outline.link(id: first, untitled: "Untitled").hasSuffix("(flowie:\(first))"), "copy link")
+// Rendering: markup runs in UTF-16 offsets; rows say whether they have a picture.
+let runs = markup(text: "😀 **粗** [it](flowie:\(first)) #tag")
+let bold = runs.first { $0.bold && $0.kind == .text }
+check(bold?.start == 5 && bold?.end == 6, "markup offsets count UTF-16 past an emoji")
+check(runs.contains { if case .link(_, let bullet) = $0.kind { return bullet == first }; return false }, "a flowie: link names its bullet")
+check(runs.contains { $0.kind == .tag }, "a tag")
+check(try outline.page(root: nil).allSatisfy { $0.image == nil }, "no pictures")
 let saved = try outline.page(root: nil).map(\.text)
 try outline.flush()
 

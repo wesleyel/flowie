@@ -318,8 +318,14 @@ public final class PageModel: ObservableObject {
     }
 
     public func setText(_ row: RowView, _ text: String) {
-        guard text != row.text else { return }
+        guard !text.utf8.elementsEqual(row.text.utf8) else { return }
         edit { try store.outline.setText(id: row.id, text: text) }
+    }
+
+    /// Replace a bullet's note (the notes sheet saves once, as one undo step).
+    public func setNote(_ row: RowView, _ note: String) {
+        guard !note.utf8.elementsEqual(row.note.utf8) else { return }
+        edit { try store.outline.setNote(id: row.id, note: note) }
     }
 
     public func toggle(_ row: RowView) {

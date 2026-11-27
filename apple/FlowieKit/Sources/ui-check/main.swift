@@ -258,8 +258,81 @@ func checkLocation() throws {
     print("Outline location check: ok")
 }
 
+/// Rows not being edited show their markup rendered (§2.3): syntax hidden, long addresses cut
+/// in the middle, and a tap's place mapped back to the stored text; notes save as one step.
+@MainActor
+func checkRendering() throws {
+    // 日 is one UTF-16 unit, 😀 two.
+    let id = String(repeating: "ab", count: 16)
+    let stored = "日😀 **粗体** [链接](flowie:\(id)) #标签 $x^2$"
+    let shown = RenderedText(stored)
+    check(shown.string == "日😀 粗体 链接 #标签 $x^2$", "syntax hidden, math kept as source: \(shown.string)")
+    let bold = shown.pieces.first { $0.run.bold }
+    check(bold?.text == "粗体" && bold?.shown == 4..<6 && bold?.stored == 6..<8, "bold maps back past the emoji and **")
+    check(shown.storedOffset(0) == 0 && shown.storedOffset(3) == 3, "before the bold, as stored")
+    check(shown.storedOffset(5) == 7, "inside the bold")
+    check(shown.storedOffset(6) == 8, "at its end: before the closing **")
+    let link = shown.pieces.first { if case .link(_, let bullet) = $0.run.kind { return bullet == id }; return false }
+    check(link?.text == "链接", "a flowie: link shows its label")
+    check(shown.storedOffset(shown.string.utf16.count) == stored.utf16.count, "the end is the end")
+    check(shown.piece(at: 4)?.text == "粗体" && shown.piece(at: 99) == nil, "the piece under a place")
+
+    // Long web addresses: about 28 characters, cut in the middle; a caret in the "…" goes
+    // past the middle.
+    let url = "https://example.com/a/very/long/path/to/some/page.html"
+    let cut = RenderedText("see \(url) ok")
+    let address = cut.pieces.filter { if case .link = $0.run.kind { return true }; return false }.map(\.text).joined()
+    check(address.count == RenderedText.linkLimit && address.hasPrefix("https://example.co") && address.hasSuffix("page.html"), "cut: \(address)")
+    check(address.contains("…"), "with an ellipsis")
+    let ellipsis = cut.pieces.first { $0.text == "…" }!
+    check(cut.storedOffset(ellipsis.shown.upperBound) == ellipsis.stored.upperBound, "after the ellipsis: past the middle")
+    check(cut.storedOffset(cut.string.utf16.count) == ("see \(url) ok" as String).utf16.count, "the end after a cut address")
+    check(RenderedText("https://short.example/x").string == "https://short.example/x", "short addresses stay whole")
+    let longLabel = String(repeating: "中😀", count: 30)
+    let longLink = RenderedText("[\(longLabel)](flowie:\(id))")
+    check(longLink.string.count == 28 && longLink.storedOffset(longLink.string.utf16.count) == 1 + longLabel.utf16.count, "long label maps to its original end")
+    check(RenderedText.webURL("https://example.org/页")?.host == "example.org" && RenderedText.webURL("HTTP://example.org") != nil, "web links")
+    for unsupported in ["flowie:bad", "other:app", "file:///tmp/note", "//example.org", "https:"] {
+        check(RenderedText.webURL(unsupported) == nil, "unsupported link: \(unsupported)")
+    }
+    let many = RenderedText(String(repeating: "**中😀** ", count: 1024))
+    check(many.pieces.last?.shown.upperBound == 4 * 1024 && many.storedOffset(4 * 1024) == 8 * 1024, "many runs retain UTF-16 alignment")
+    check(RenderedText("**not** markup", code: true).string == "**not** markup", "code blocks show as stored")
+    check(RenderedText("").pieces.isEmpty && RenderedText("").storedOffset(0) == 0, "empty")
+
+    // Thumbnails: at most 64pt high, the pixel size at 2×, and a placeholder of the same size
+    // when the size isn't known.
+    check(Thumbnail.size(width: 400, height: 100, maxWidth: 300) == CGSize(width: 200, height: 50), "small enough: half its pixels")
+    check(Thumbnail.size(width: 1200, height: 900, maxWidth: 300) == CGSize(width: 85, height: 64), "at most 64pt high")
+    check(Thumbnail.size(width: 4000, height: 200, maxWidth: 300) == CGSize(width: 300, height: 16), "at most the width, at least 16pt")
+    check(Thumbnail.size(width: 0, height: 0, maxWidth: 300) == CGSize(width: 96, height: 64), "unknown: a placeholder")
+
+    // The notes sheet saves through set_note: one undo step, the preview follows.
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("flowie-render-check-\(UUID().uuidString)")
+    let docs = try OutlineStore.open(databaseAt: dir.appendingPathComponent("outline.sqlite"))
+    let home = docs.page(.home)
+    home.add("a bullet")
+    home.setText(home.rows[0], "a bullet, typed")
+    home.setNote(home.rows[0], "first line\nsecond \"line\"")
+    check(home.rows[0].note == "first line\nsecond \"line\"", "the note is saved")
+    home.setNote(home.rows[0], "又一条 -- \"备注\"")
+    home.undo()
+    check(home.rows[0].note == "first line\nsecond \"line\"", "a second sheet save is independent")
+    home.undo()
+    check(home.rows[0].note.isEmpty && home.rows[0].text == "a bullet, typed", "one undo step takes the note away only")
+    home.undo()
+    check(home.rows[0].text == "a bullet", "the previous undo step is the body edit")
+    home.setText(home.rows[0], "**é**")
+    home.setText(home.rows[0], "**e\u{301}**")
+    check(home.rows[0].text.utf16.count == 6, "keep the stored spelling even for canonically equivalent input")
+    try docs.outline.flush()
+    try? FileManager.default.removeItem(at: dir)
+    print("Rendering check: ok")
+}
+
 try MainActor.assumeIsolated {
     try run()
     try checkLocation()
     checkLaunchRule()
+    try checkRendering()
 }

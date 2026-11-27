@@ -499,6 +499,22 @@
         }
       }
     },
+    "Image": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片"
+          }
+        }
+      }
+    },
     "Indent": {
       "localizations": {
         "en": {
@@ -659,6 +675,22 @@
         }
       }
     },
+    "Note": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备注"
+          }
+        }
+      }
+    },
     "Nothing Deleted": {
       "localizations": {
         "en": {
@@ -671,6 +703,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "没有删除的条目"
+          }
+        }
+      }
+    },
+    "Opens the note": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens the note"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开备注"
           }
         }
       }
@@ -943,6 +991,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "点这里开始写这一天"
+          }
+        }
+      }
+    },
+    "That bullet was deleted.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That bullet was deleted."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该条目已删除。"
           }
         }
       }

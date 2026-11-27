@@ -8,23 +8,28 @@ import FlowieFFI
 /// 28pt a line at the default text size. Typing reconfigures only its row; rows coming, going
 /// or moving apply a new snapshot of ids; the row being edited is never reloaded, and the caret
 /// moves before the edit returns, so the next key lands where the edit put it. Tapping a bullet
-/// pushes its page (`open`).
+/// pushes its page (`open`). Rows not being edited show their markup rendered (§2.3): tapping a
+/// `flowie:` link opens its bullet, a web link the browser, a tag or a date a search (`search`).
 public struct OutlinePage: UIViewControllerRepresentable {
     let page: PageModel
     /// Open a bullet as a page (push it).
     let open: (String) -> Void
+    /// Search for this (a tapped tag or date), as the desktop does.
+    let search: (String) -> Void
 
-    public init(page: PageModel, open: @escaping (String) -> Void) {
+    public init(page: PageModel, open: @escaping (String) -> Void, search: @escaping (String) -> Void = { _ in }) {
         self.page = page
         self.open = open
+        self.search = search
     }
 
     public func makeUIViewController(context: Context) -> OutlinePageController {
-        OutlinePageController(page: page, open: open)
+        OutlinePageController(page: page, open: open, search: search)
     }
 
     public func updateUIViewController(_ controller: OutlinePageController, context: Context) {
         controller.open = open
+        controller.search = search
     }
 }
 
@@ -94,6 +99,7 @@ struct RowMetrics: Equatable {
 public final class OutlinePageController: UIViewController, UICollectionViewDelegate, UITextViewDelegate, UIGestureRecognizerDelegate, UIContextMenuInteractionDelegate {
     let page: PageModel
     var open: (String) -> Void
+    var search: (String) -> Void
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var rowsByID: [String: RowView] = [:]
@@ -114,9 +120,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     /// Whether the rows have been shown once (the remembered scroll position applies then).
     private var shownOnce = false
 
-    init(page: PageModel, open: @escaping (String) -> Void) {
+    init(page: PageModel, open: @escaping (String) -> Void, search: @escaping (String) -> Void) {
         self.page = page
         self.open = open
+        self.search = search
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -370,6 +377,17 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             guard let self, let id = cell?.textView.rowID, let row = rowsByID[id] else { return }
             page.toggleFold(row)
         }
+        cell.onTextTap = { [weak self, weak cell] tap in
+            guard let self, let id = cell?.textView.rowID else { return }
+            tapped(tap, in: id)
+        }
+        cell.onNoteTap = { [weak self, weak cell] in
+            guard let self, let id = cell?.textView.rowID, let row = rowsByID[id] else { return }
+            presentNote(row)
+        }
+        cell.onImageTap = { [weak self] path in
+            self?.presentImage(path)
+        }
         cell.configure(row: row, metrics: metrics, strong: strong[row.id] ?? 0)
     }
 
@@ -417,6 +435,54 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         LaunchMemory.zoomedOnce = true
         updateHint()
         open(row.id)
+    }
+
+    /// A tap on a row's rendered text: on a link, a tag or a date it does what the desktop does;
+    /// elsewhere the row is edited, the caret where the finger was.
+    private func tapped(_ tap: RowCell.TextTap, in id: String) {
+        switch tap {
+        case .caret(let offset):
+            place(Focus(id: id, start: offset, end: offset))
+        case .bullet(let target):
+            view.endEditing(true)
+            if page.store.bullet(target) != nil {
+                open(target)
+            } else {
+                page.store.problem = NSLocalizedString("That bullet was deleted.", comment: "Shown when a tapped link points to a deleted bullet")
+            }
+        case .url(let url):
+            UIApplication.shared.open(url)
+        case .search(let query):
+            view.endEditing(true)
+            search(query)
+        }
+    }
+
+    // MARK: Note and picture
+
+    /// A bullet's note in a sheet, to read and edit (§2.1); saved as one undo step.
+    func presentNote(_ row: RowView) {
+        view.endEditing(true)
+        let page = self.page
+        let title = page.store.bullet(row.id)?.title ?? ""
+        let sheet = NoteSheet(note: row.note, title: title) { note in
+            // The row as it is now (the sheet may have been open a while).
+            let current = page.rows.first { $0.id == row.id } ?? row
+            page.setNote(current, note)
+        }
+        let controller = UINavigationController(rootViewController: sheet)
+        if let presentation = controller.sheetPresentationController {
+            presentation.detents = [.medium(), .large()]
+            presentation.prefersGrabberVisible = true
+        }
+        controller.presentationController?.delegate = sheet
+        present(controller, animated: true)
+    }
+
+    private func presentImage(_ path: String) {
+        guard FileManager.default.fileExists(atPath: path) else { return }
+        view.endEditing(true)
+        present(ImageViewer(path: path), animated: true)
     }
 
     @objc private func tappedBelowRows() {
@@ -499,6 +565,9 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             ) { _ in store.setStarred(row.id, !starred) },
             UIAction(title: NSLocalizedString("Move To…", comment: "Menu item"), image: UIImage(systemName: "arrow.turn.down.right")) { [weak self] _ in
                 self?.presentMoveTo(row)
+            },
+            UIAction(title: NSLocalizedString("Note", comment: "Menu item and title of the sheet with a bullet's note"), image: UIImage(systemName: "note.text")) { [weak self] _ in
+                self?.presentNote(row)
             },
             UIAction(title: NSLocalizedString("Copy Link", comment: "Menu item"), image: UIImage(systemName: "link")) { _ in
                 if let link = store.link(row.id) { UIPasteboard.general.string = link }
@@ -639,6 +708,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     }
 
     public func textViewDidEndEditing(_ textView: UITextView) {
+        // The row shows its markup rendered again.
+        if let cell = sequence(first: textView as UIView, next: { $0.superview }).first(where: { $0 is RowCell }) as? RowCell {
+            cell.showRendered()
+        }
         guard let id = (textView as? BulletTextView)?.rowID, id == editingID else { return }
         // When the caret moved to another row, that row has begun editing by now.
         DispatchQueue.main.async { [weak self] in
@@ -650,16 +723,43 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     }
 }
 
-/// One row: its bullet slot (with the guide lines), its text and a line of its note.
+/// One row: its bullet slot (with the guide lines), an image row's picture, its text and a line
+/// of its note. While the row is edited its text is the stored markup; otherwise it shows
+/// rendered (§2.3), read-only, and a tap either follows what is under the finger (a link, a tag,
+/// a date) or starts editing there.
 final class RowCell: UICollectionViewCell {
+    /// What a tap on the rendered text does.
+    enum TextTap: Equatable {
+        /// Edit the row, the caret at this offset of the stored text (UTF-16).
+        case caret(Int)
+        case bullet(String)
+        case url(URL)
+        case search(String)
+    }
+
     let slot = SlotView()
     let textView = BulletTextView()
     private let note = UILabel()
+    private let picture = UIImageView()
+    private let placeholder = UIImageView(image: UIImage(systemName: "photo"))
+    var onTextTap: ((TextTap) -> Void)?
+    var onNoteTap: (() -> Void)?
+    /// A tap on the picture, with its file.
+    var onImageTap: ((String) -> Void)?
+    private let textTap = UITapGestureRecognizer()
     private var metrics: RowMetrics?
+    private var row: RowView?
     private var depth = 0
     private var hasNote = false
-    /// What the text's attributes were made for.
+    /// What the stored text's attributes were made for (while edited).
     private var styled: (completed: Bool, metrics: RowMetrics)?
+    /// The text shown while the row isn't edited, and what it was made from.
+    private var rendered: RenderedText?
+    private var renderedFor: (text: String, kind: String, completed: Bool, metrics: RowMetrics)?
+    /// Whether the text view holds the stored text (the row is or was just edited).
+    private var showsStored = false
+    /// The picture's file shown (or loading).
+    private var picturePath: String?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -670,10 +770,38 @@ final class RowCell: UICollectionViewCell {
         // Typed text is stored as markup: quotes and dashes stay as typed.
         textView.smartQuotesType = .no
         textView.smartDashesType = .no
+        textView.smartInsertDeleteType = .no
+        // Read-only until it is edited: taps come here.
+        textView.isEditable = false
+        textView.isSelectable = false
+        textTap.addTarget(self, action: #selector(tappedText))
+        textView.addGestureRecognizer(textTap)
+        textView.willEdit = { [weak self] in self?.showStored() }
+        textView.onActivate = { [weak self] in
+            guard let self else { return }
+            onTextTap?(.caret(rendered?.storedLength ?? 0))
+        }
         note.numberOfLines = 1
         note.lineBreakMode = .byTruncatingTail
         note.textColor = .secondaryLabel
+        note.isUserInteractionEnabled = true
+        note.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tappedNote)))
+        note.accessibilityTraits = .button
+        note.accessibilityHint = NSLocalizedString("Opens the note", comment: "VoiceOver hint of a bullet's note preview")
+        picture.contentMode = .scaleAspectFill
+        picture.clipsToBounds = true
+        picture.layer.cornerRadius = 6
+        picture.layer.cornerCurve = .continuous
+        picture.backgroundColor = .secondarySystemFill
+        picture.isUserInteractionEnabled = true
+        picture.isAccessibilityElement = true
+        picture.accessibilityLabel = NSLocalizedString("Image", comment: "VoiceOver label of an image row's picture")
+        picture.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tappedPicture)))
+        placeholder.tintColor = .tertiaryLabel
+        placeholder.contentMode = .center
+        picture.addSubview(placeholder)
         contentView.addSubview(slot)
+        contentView.addSubview(picture)
         contentView.addSubview(textView)
         contentView.addSubview(note)
     }
@@ -693,24 +821,29 @@ final class RowCell: UICollectionViewCell {
     func configure(row: RowView, metrics: RowMetrics, strong: Int) {
         let rowChanged = textView.rowID != row.id
         textView.rowID = row.id
+        self.row = row
         self.metrics = metrics
         depth = Int(row.depth)
         let attributes = metrics.textAttributes(completed: row.completed)
-        // Never under an unfinished composition (pinyin).
-        if textView.markedTextRange == nil {
-            if rowChanged || textView.text != row.text {
-                let selection = textView.selectedRange
-                textView.attributedText = NSAttributedString(string: row.text, attributes: attributes)
-                if textView.isFirstResponder && !rowChanged {
-                    let length = (row.text as NSString).length
-                    textView.selectedRange = NSRange(location: min(selection.location, length), length: 0)
+        if textView.isFirstResponder {
+            // Never under an unfinished composition (pinyin).
+            if textView.markedTextRange == nil {
+                if rowChanged || !textView.text.utf8.elementsEqual(row.text.utf8) {
+                    let selection = textView.selectedRange
+                    textView.attributedText = NSAttributedString(string: row.text, attributes: attributes)
+                    if !rowChanged {
+                        let length = (row.text as NSString).length
+                        textView.selectedRange = NSRange(location: min(selection.location, length), length: 0)
+                    }
+                } else if styled.map({ $0.completed != row.completed || $0.metrics != metrics }) ?? true {
+                    let selection = textView.selectedRange
+                    textView.textStorage.setAttributes(attributes, range: NSRange(location: 0, length: textView.textStorage.length))
+                    textView.selectedRange = selection
                 }
-            } else if styled.map({ $0.completed != row.completed || $0.metrics != metrics }) ?? true {
-                let selection = textView.selectedRange
-                textView.textStorage.setAttributes(attributes, range: NSRange(location: 0, length: textView.textStorage.length))
-                textView.selectedRange = selection
+                styled = (row.completed, metrics)
             }
-            styled = (row.completed, metrics)
+        } else {
+            showRendered(resize: false)
         }
         textView.typingAttributes = attributes
         textView.alpha = row.completed ? 0.45 : 1
@@ -718,10 +851,13 @@ final class RowCell: UICollectionViewCell {
 
         let preview = row.note.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? ""
         hasNote = !preview.isEmpty
-        note.text = preview
-        note.font = metrics.noteFont
+        note.attributedText = hasNote
+            ? RenderedText(preview).attributed(base: [.font: metrics.noteFont, .foregroundColor: UIColor.secondaryLabel], font: metrics.noteFont, completed: false)
+            : nil
         note.alpha = row.completed ? 0.45 : 1
         note.isHidden = !hasNote
+
+        configurePicture(row.image)
 
         let deep = depth > metrics.maxIndent
         slot.update(
@@ -738,16 +874,131 @@ final class RowCell: UICollectionViewCell {
         setNeedsLayout()
     }
 
+    // MARK: Stored and rendered text
+
+    /// The row is about to be edited: its text view takes the stored text, editable.
+    private func showStored() {
+        guard let row, let metrics else { return }
+        textView.isEditable = true
+        textView.isSelectable = true
+        textTap.isEnabled = false
+        guard !showsStored else { return }
+        showsStored = true
+        textView.attributedText = NSAttributedString(string: row.text, attributes: metrics.textAttributes(completed: row.completed))
+        styled = (row.completed, metrics)
+        resizeIfNeeded()
+    }
+
+    /// The row isn't edited (any more): its text shows rendered, read-only.
+    func showRendered(resize: Bool = true) {
+        guard let row, let metrics, !textView.isFirstResponder else { return }
+        textView.isEditable = false
+        textView.isSelectable = false
+        textTap.isEnabled = true
+        let current = renderedFor.map { $0.kind == row.kind && $0.completed == row.completed && $0.metrics == metrics && $0.text.utf8.elementsEqual(row.text.utf8) }
+        if showsStored || current != true {
+            showsStored = false
+            let text = RenderedText(row.text, code: row.kind == "code")
+            rendered = text
+            renderedFor = (row.text, row.kind, row.completed, metrics)
+            var attributes = metrics.textAttributes(completed: row.completed)
+            if row.kind == "code" {
+                attributes[.font] = UIFont.monospacedSystemFont(ofSize: metrics.font.pointSize * 0.94, weight: .regular)
+            }
+            textView.attributedText = text.attributed(base: attributes, font: metrics.font, completed: row.completed)
+            if resize { resizeIfNeeded() }
+        }
+    }
+
+    /// Stored and rendered text can wrap differently: the row is measured again.
+    private func resizeIfNeeded() {
+        if needsResize() {
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    @objc private func tappedText(_ recognizer: UITapGestureRecognizer) {
+        guard let rendered, !textView.isFirstResponder else { return }
+        let point = recognizer.location(in: textView)
+        let start = textView.beginningOfDocument
+        let shown = textView.closestPosition(to: point).map { textView.offset(from: start, to: $0) } ?? rendered.string.utf16.count
+        for offset in [shown, shown - 1] {
+            guard let piece = rendered.piece(at: offset) else { continue }
+            let tap: TextTap?
+            switch piece.run.kind {
+            case .link(let address, let bullet): tap = bullet.map(TextTap.bullet) ?? RenderedText.webURL(address).map(TextTap.url)
+            case .tag, .mention: tap = .search(piece.text)
+            case .date: tap = .search("date:\(piece.text)")
+            default: tap = nil
+            }
+            guard let tap, let from = textView.position(from: start, offset: piece.shown.lowerBound),
+                  let to = textView.position(from: start, offset: piece.shown.upperBound),
+                  let range = textView.textRange(from: from, to: to) else { continue }
+            if textView.selectionRects(for: range).contains(where: { !$0.rect.isEmpty && $0.rect.insetBy(dx: -1, dy: -2).contains(point) }) {
+                onTextTap?(tap)
+                return
+            }
+        }
+        onTextTap?(.caret(rendered.storedOffset(shown)))
+    }
+
+    @objc private func tappedNote() {
+        onNoteTap?()
+    }
+
+    @objc private func tappedPicture() {
+        if let picturePath { onImageTap?(picturePath) }
+    }
+
+    // MARK: Picture
+
+    private func pictureSize(width: CGFloat) -> CGSize? {
+        guard let image = row?.image, let metrics else { return nil }
+        let textWidth = width - metrics.textX(depth) - metrics.trailing
+        return Thumbnail.size(width: image.width, height: image.height, maxWidth: Double(max(16, textWidth)))
+    }
+
+    /// The picture's thumbnail, read off the main thread; until it is there (or when the file
+    /// isn't on this device) a placeholder of the same size.
+    private func configurePicture(_ image: ImageView?) {
+        picture.isHidden = image == nil
+        guard let image, let path = image.path, let size = pictureSize(width: bounds.width > 0 ? bounds.width : window?.bounds.width ?? 390) else {
+            picturePath = nil
+            picture.image = nil
+            placeholder.isHidden = false
+            return
+        }
+        if picturePath != path {
+            picture.image = nil
+        }
+        picturePath = path
+        let scale = traitCollection.displayScale > 0 ? traitCollection.displayScale : 2
+        let ready = Thumbnails.shared.image(at: path, size: size, scale: scale) { [weak self] loaded in
+            guard let self, picturePath == path, let loaded else { return }
+            picture.image = loaded
+            placeholder.isHidden = true
+        }
+        if let ready { picture.image = ready }
+        placeholder.isHidden = picture.image != nil
+    }
+
+    // MARK: Layout
+
     private func textHeight(width: CGFloat) -> CGFloat {
         guard let metrics else { return 22 }
         let fitted = textView.sizeThatFits(CGSize(width: max(1, width), height: .greatestFiniteMagnitude)).height
         return max(metrics.lineHeight, ceil(fitted))
     }
 
+    /// The picture's height and the gap below it (none without one).
+    private func pictureBlock(width: CGFloat) -> CGFloat {
+        pictureSize(width: width).map { $0.height + 4 } ?? 0
+    }
+
     private func height(width: CGFloat) -> CGFloat {
         guard let metrics else { return 28 }
         let textWidth = width - metrics.textX(depth) - metrics.trailing
-        return metrics.pad + textHeight(width: textWidth) + (hasNote ? metrics.noteLineHeight : 0) + metrics.pad
+        return metrics.pad + pictureBlock(width: width) + textHeight(width: textWidth) + (hasNote ? metrics.noteLineHeight : 0) + metrics.pad
     }
 
     /// Whether the text no longer fits its height (typing wrapped a line or unwrapped one).
@@ -760,10 +1011,16 @@ final class RowCell: UICollectionViewCell {
         guard let metrics else { return }
         let x = metrics.textX(depth)
         let width = bounds.width - x - metrics.trailing
+        var y = metrics.pad
+        if let size = pictureSize(width: bounds.width) {
+            picture.frame = CGRect(x: x, y: y, width: size.width, height: size.height)
+            placeholder.frame = picture.bounds
+            y += size.height + 4
+        }
         let height = textHeight(width: width)
         slot.frame = CGRect(x: 0, y: 0, width: x, height: bounds.height)
-        textView.frame = CGRect(x: x, y: metrics.pad, width: width, height: height)
-        note.frame = CGRect(x: x, y: metrics.pad + height, width: width, height: hasNote ? metrics.noteLineHeight : 0)
+        textView.frame = CGRect(x: x, y: y, width: width, height: height)
+        note.frame = CGRect(x: x, y: y + height, width: width, height: hasNote ? metrics.noteLineHeight : 0)
     }
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
@@ -886,10 +1143,27 @@ final class SlotView: UIView {
 }
 
 /// A row's UITextView: it reports Backspace with the caret at the start (UIKit doesn't ask
-/// `shouldChangeTextIn` there).
+/// `shouldChangeTextIn` there), and says when it is about to be edited, so its row swaps the
+/// rendered text for the stored one first.
 final class BulletTextView: UITextView {
     var rowID: String?
     var onBackspaceAtStart: (() -> Void)?
+    var willEdit: (() -> Void)?
+    /// VoiceOver activated the row while it wasn't edited.
+    var onActivate: (() -> Void)?
+
+    @discardableResult override func becomeFirstResponder() -> Bool {
+        if !isFirstResponder {
+            willEdit?()
+        }
+        return super.becomeFirstResponder()
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard !isFirstResponder, let onActivate else { return super.accessibilityActivate() }
+        onActivate()
+        return true
+    }
 
     override func deleteBackward() {
         if selectedRange == NSRange(location: 0, length: 0) && markedTextRange == nil {

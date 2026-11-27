@@ -56,6 +56,20 @@ func run() throws {
     check(store.rows.map(\.depth) == [0, 1, 0], "outdented to Home")
     store.undo()
     check(store.rows.map(\.depth) == [0, 1, 1], "undo outdents one step back")
+    check(home.childCount(home.rows[0]) == 2 && home.childCount(home.rows[1]) == 0, "children counted")
+    home.toggleFold(home.rows[0])
+    check(home.childCount(home.rows[0]) == 2, "a collapsed row's children counted")
+    home.toggleFold(home.rows[0])
+
+    // VoiceOver's rotors: siblings under the same parent, and the parent.
+    let depths = [0, 1, 2, 1, 0, 1]
+    check(RowNavigation.sibling(of: 1, in: depths, forward: true) == 3, "next sibling skips deeper rows")
+    check(RowNavigation.sibling(of: 3, in: depths, forward: true) == nil, "no sibling past the parent's children")
+    check(RowNavigation.sibling(of: 3, in: depths, forward: false) == 1, "previous sibling")
+    check(RowNavigation.sibling(of: 0, in: depths, forward: true) == 4, "top-level sibling")
+    check(RowNavigation.parent(of: 2, in: depths) == 1 && RowNavigation.parent(of: 5, in: depths) == 4, "parent")
+    check(RowNavigation.parent(of: 4, in: depths) == nil, "no parent at the top")
+    check(RowNavigation.childCount(of: 0, in: depths) == 2 && RowNavigation.childCount(of: 2, in: depths) == 0, "child count")
 
     // Return and Backspace, as on the desktop (UTF-16 offsets).
     store.enter(store.rows[2], from: 4, to: 4)

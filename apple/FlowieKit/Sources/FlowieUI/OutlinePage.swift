@@ -465,6 +465,16 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
                 page.backspaceAtStart(row)
             }
             cell.slot.addInteraction(UIContextMenuInteraction(delegate: self))
+            cell.accessibilityCustomRotors = rotors
+            textView.accessibilityCustomRotors = rotors
+            cell.accessibilityStatus = { [weak self, weak cell] in
+                guard let self, let id = cell?.textView.rowID else { return nil }
+                return accessibilityStatus(of: id)
+            }
+            cell.accessibilityActions = { [weak self, weak cell] in
+                guard let self, let id = cell?.textView.rowID else { return [] }
+                return accessibilityActions(for: id)
+            }
         }
         cell.slot.onTap = { [weak self, weak cell] in
             guard let self, let id = cell?.textView.rowID, let row = rowsByID[id] else { return }
@@ -714,6 +724,126 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         return UIMenu(children: items)
     }
 
+    // MARK: VoiceOver (§4.4)
+
+    /// A row's level, children, folding and completion, read after its text.
+    private func accessibilityStatus(of id: String) -> String? {
+        guard let row = rowsByID[id] else { return nil }
+        var parts = [String.localizedStringWithFormat(NSLocalizedString("Level %lld", comment: "VoiceOver: how deep a bullet sits on the page, 1 at the top"), Int(row.depth) + 1)]
+        if row.hasChildren {
+            if let count = page.childCount(row), count > 0 {
+                parts.append(String.localizedStringWithFormat(NSLocalizedString("%lld children", comment: "VoiceOver: how many children a bullet has"), count))
+            }
+            parts.append(row.collapsed
+                ? NSLocalizedString("Collapsed", comment: "VoiceOver: a bullet whose children are hidden")
+                : NSLocalizedString("Expanded", comment: "VoiceOver: a bullet whose children show"))
+        }
+        if row.completed {
+            parts.append(NSLocalizedString("Completed", comment: "A completed bullet, for VoiceOver"))
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    /// What VoiceOver's actions rotor offers on a row: the keyboard bar's and the long-press
+    /// menu's commands, on that row whether or not it is edited.
+    private func accessibilityActions(for id: String) -> [UIAccessibilityCustomAction] {
+        guard let row = rowsByID[id] else { return [] }
+        let store = page.store
+        /// `stays`: the row stays on the page, and VoiceOver reads it again where it went.
+        func action(_ name: String, _ symbol: String, stays: Bool = false, _ body: @escaping (OutlinePageController, RowView) -> Void) -> UIAccessibilityCustomAction {
+            UIAccessibilityCustomAction(name: name, image: UIImage(systemName: symbol)) { [weak self] _ in
+                guard let self, let row = rowsByID[id] else { return false }
+                body(self, row)
+                if stays {
+                    DispatchQueue.main.async { [weak self] in self?.focusVoiceOver(on: id) }
+                }
+                return true
+            }
+        }
+        let starred = store.bullet(id)?.starred ?? false
+        var actions = [
+            action(NSLocalizedString("Indent", comment: "Keyboard bar button"), "increase.indent", stays: true) { $0.page.indent($1) },
+            action(NSLocalizedString("Outdent", comment: "Keyboard bar button"), "decrease.indent", stays: true) { $0.page.outdent($1) },
+            action(NSLocalizedString("Move Up", comment: "Keyboard bar button"), "arrow.up", stays: true) { $0.page.moveUp($1) },
+            action(NSLocalizedString("Move Down", comment: "Keyboard bar button"), "arrow.down", stays: true) { $0.page.moveDown($1) },
+            action(row.completed
+                ? NSLocalizedString("Mark Not Completed", comment: "VoiceOver action: mark a completed bullet as not completed")
+                : NSLocalizedString("Complete", comment: "Keyboard bar button"),
+                row.completed ? "circle" : "checkmark.circle", stays: true) { $0.page.toggle($1) },
+        ]
+        if row.hasChildren {
+            actions.append(action(row.collapsed
+                ? NSLocalizedString("Expand", comment: "Menu item: show a bullet's children")
+                : NSLocalizedString("Collapse", comment: "Menu item: hide a bullet's children"),
+                row.collapsed ? "chevron.down" : "chevron.right", stays: true) { $0.page.toggleFold($1) })
+        }
+        actions += [
+            action(NSLocalizedString("Zoom In", comment: "Opens a bullet as the page, for VoiceOver"), "arrow.up.left.and.arrow.down.right") { $0.zoom(into: $1) },
+            action(NSLocalizedString("Move To…", comment: "Menu item"), "arrow.turn.down.right") { $0.presentMoveTo($1) },
+            action(starred ? NSLocalizedString("Unstar", comment: "Menu item") : NSLocalizedString("Star", comment: "Menu item"), starred ? "star.slash" : "star") { _, row in
+                store.setStarred(row.id, !starred)
+            },
+            action(NSLocalizedString("Note", comment: "Menu item and title of the sheet with a bullet's note"), "note.text") { $0.presentNote($1) },
+        ]
+        if let path = row.image?.path, FileManager.default.fileExists(atPath: path) {
+            actions.append(action(NSLocalizedString("View Image", comment: "VoiceOver action: show an image row's picture full screen"), "photo") { controller, _ in
+                controller.presentImage(path)
+            })
+        }
+        actions.append(action(NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), "trash") { $0.page.delete($1) })
+        return actions
+    }
+
+    /// The 「同级」 and 「父级」 rotors: the next or previous row at the same depth under the same
+    /// parent, and the row above this one.
+    private lazy var rotors: [UIAccessibilityCustomRotor] = [
+        UIAccessibilityCustomRotor(name: NSLocalizedString("Siblings", comment: "VoiceOver rotor: the next or previous bullet under the same parent")) { [weak self] predicate in
+            self?.rotorTarget(predicate) { index, depths in
+                RowNavigation.sibling(of: index, in: depths, forward: predicate.searchDirection == .next)
+            }
+        },
+        UIAccessibilityCustomRotor(name: NSLocalizedString("Parent", comment: "VoiceOver rotor: the bullet this one sits under")) { [weak self] predicate in
+            self?.rotorTarget(predicate) { index, depths in RowNavigation.parent(of: index, in: depths) }
+        },
+    ]
+
+    private func rotorTarget(_ predicate: UIAccessibilityCustomRotorSearchPredicate, _ find: (Int, [Int]) -> Int?) -> UIAccessibilityCustomRotorItemResult? {
+        let current = predicate.currentItem.targetElement ?? UIAccessibility.focusedElement(using: .notificationVoiceOver) as? NSObjectProtocol
+        guard let id = rowID(of: current), let index = indexByID[id],
+              let target = find(index, order.map { Int(rowsByID[$0]?.depth ?? 0) }),
+              let element = voiceOverElement(for: order[target])
+        else { return nil }
+        return UIAccessibilityCustomRotorItemResult(targetElement: element, targetRange: nil)
+    }
+
+    /// The row an accessibility element belongs to: a row, or its text view while edited.
+    private func rowID(of element: Any?) -> String? {
+        guard let view = element as? UIView else { return nil }
+        let cell = sequence(first: view, next: { $0.superview }).first { $0 is RowCell } as? RowCell
+        return cell?.textView.rowID
+    }
+
+    /// What VoiceOver focuses for a row, scrolled on screen: the row, or its text view while it
+    /// is edited.
+    private func voiceOverElement(for id: String) -> NSObject? {
+        guard let index = indexByID[id] else { return nil }
+        let path = IndexPath(item: index, section: 0)
+        collectionView.layoutIfNeeded()
+        if let frame = collectionView.layoutAttributesForItem(at: path)?.frame, !frame.intersects(visibleRect) {
+            placing = true
+            collectionView.scrollToItem(at: path, at: .centeredVertically, animated: false)
+            collectionView.layoutIfNeeded()
+            placing = false
+        }
+        guard let cell = collectionView.cellForItem(at: path) as? RowCell else { return nil }
+        return cell.textView.isFirstResponder ? cell.textView : cell
+    }
+
+    private func focusVoiceOver(on id: String) {
+        guard UIAccessibility.isVoiceOverRunning, let element = voiceOverElement(for: id) else { return }
+        UIAccessibility.post(notification: .layoutChanged, argument: element)
+    }
+
     // MARK: Move To (§2.1)
 
     /// Pick where a bullet goes (built on search), then move it there as the last child.
@@ -899,6 +1029,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         editingID = row.id
         page.editing(row)
         refreshGuides()
+        // The row stops being one element while edited: VoiceOver goes to its text.
+        if UIAccessibility.isVoiceOverRunning {
+            UIAccessibility.post(notification: .layoutChanged, argument: textView)
+        }
     }
 
     public func textViewDidEndEditing(_ textView: UITextView) {
@@ -913,6 +1047,11 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             editingID = nil
             page.editing(nil)
             refreshGuides()
+            // VoiceOver was on the text: it goes back to the row, one element again.
+            if UIAccessibility.isVoiceOverRunning, let cell = cell(for: id),
+               (UIAccessibility.focusedElement(using: .notificationVoiceOver) as? UIView).map({ $0 === textView || $0 === cell }) ?? true {
+                UIAccessibility.post(notification: .layoutChanged, argument: cell)
+            }
         }
     }
 }
@@ -943,6 +1082,13 @@ final class RowCell: UICollectionViewCell {
     var onNoteTap: (() -> Void)?
     /// A tap on the picture, with its file.
     var onImageTap: ((String) -> Void)?
+    /// For VoiceOver: the row's level, children, folding and completion, and its actions.
+    var accessibilityStatus: (() -> String?)? {
+        didSet { textView.accessibilityStatus = accessibilityStatus }
+    }
+    var accessibilityActions: (() -> [UIAccessibilityCustomAction])? {
+        didSet { textView.accessibilityActions = accessibilityActions }
+    }
     private let textTap = UITapGestureRecognizer()
     private var metrics: RowMetrics?
     private var row: RowView?
@@ -1061,7 +1207,6 @@ final class RowCell: UICollectionViewCell {
         }
         textView.typingAttributes = attributes
         textView.alpha = row.completed ? 0.45 : 1
-        textView.accessibilityValue = row.completed ? NSLocalizedString("Completed", comment: "A completed bullet, for VoiceOver") : nil
 
         let preview = row.note.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? ""
         hasNote = !preview.isEmpty
@@ -1086,6 +1231,51 @@ final class RowCell: UICollectionViewCell {
             foldable: row.hasChildren
         )
         setNeedsLayout()
+    }
+
+    // MARK: VoiceOver (§4.4)
+
+    // The row is one element: its text (and a line of its note), then its level, children,
+    // folding and completion, with the row's actions. While it is edited its parts are elements
+    // instead, so VoiceOver reads and edits the text view's text.
+
+    override var isAccessibilityElement: Bool {
+        get { !textView.isFirstResponder }
+        set {}
+    }
+
+    override var accessibilityLabel: String? {
+        get {
+            var parts: [String] = []
+            if row?.image != nil {
+                parts.append(picture.accessibilityLabel ?? "")
+            }
+            let text = (rendered?.string ?? row?.text ?? "").trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty { parts.append(text) }
+            if hasNote, let note = note.attributedText?.string, !note.isEmpty { parts.append(note) }
+            return parts.joined(separator: ", ")
+        }
+        set {}
+    }
+
+    override var accessibilityValue: String? {
+        get {
+            let status = accessibilityStatus?()
+            guard let waiting = picture.accessibilityValue else { return status }
+            return [status, waiting].compactMap { $0 }.joined(separator: ", ")
+        }
+        set {}
+    }
+
+    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
+        get { accessibilityActions?() }
+        set {}
+    }
+
+    /// Double-tap edits the row, the caret at the end of its text.
+    override func accessibilityActivate() -> Bool {
+        onTextTap?(.caret(rendered?.storedLength ?? (row?.text as NSString?)?.length ?? 0))
+        return true
     }
 
     // MARK: Stored and rendered text
@@ -1387,6 +1577,20 @@ final class BulletTextView: UITextView {
     var onActivate: (() -> Void)?
     /// The page's undo manager: ⌘Z, shake and the shortcuts bar undo outline steps.
     weak var pageUndo: UndoManager?
+    /// While edited, VoiceOver reads the text as the value, the row's status as the hint, and
+    /// offers the row's actions (`RowCell`).
+    var accessibilityStatus: (() -> String?)?
+    var accessibilityActions: (() -> [UIAccessibilityCustomAction])?
+
+    override var accessibilityHint: String? {
+        get { accessibilityStatus?() }
+        set {}
+    }
+
+    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
+        get { accessibilityActions?() }
+        set {}
+    }
 
     override var undoManager: UndoManager? { pageUndo ?? super.undoManager }
 

@@ -437,6 +437,17 @@ public final class PageModel: ObservableObject {
         edit { try store.outline.setCollapsed(id: row.id, collapsed: !row.collapsed) }
     }
 
+    /// How many children a row has as the page would show them (completed ones left out when
+    /// hidden), for VoiceOver; a collapsed row's are read from the outline. Nil when unknown.
+    public func childCount(_ row: RowView) -> Int? {
+        guard row.hasChildren else { return 0 }
+        if row.collapsed {
+            return (try? store.outline.page(root: row.id))?.filter { $0.depth == 0 }.count
+        }
+        guard let index = rows.firstIndex(where: { $0.id == row.id }) else { return nil }
+        return RowNavigation.childCount(of: index, in: rows.map { Int($0.depth) })
+    }
+
     /// Return in a bullet's text with `start..<end` selected (UTF-16 offsets, as UIKit counts;
     /// equal for a caret), as on the desktop: the text after the caret moves to a new bullet
     /// below, and the caret goes there (`focus`). One undo step.

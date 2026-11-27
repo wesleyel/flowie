@@ -9,11 +9,13 @@ pub use driver::{SyncDriver, SyncPhase};
 use flowie_core::images::{BlobInfo, ImageDir};
 use flowie_core::store::{self, ImportRecord, ImportState, Writer};
 use flowie_core::{Caret, History, HistoryKind, NodeId, Tree};
+pub use outcome::Outcome;
 pub use sync::{LostCopy, SyncState};
 
 #[cfg(feature = "native")]
 mod driver;
 pub mod keys;
+mod outcome;
 mod sync;
 pub mod utf16;
 
@@ -35,6 +37,8 @@ pub struct Workspace {
     prefs_at: HashMap<String, flowie_core::hlc::Hlc>,
     /// What sync has left to send and has seen of the backend.
     pub sync: SyncState,
+    /// What the edit being tracked changed so far (`Workspace::tracked`).
+    tracker: Option<outcome::Tracker>,
 }
 
 impl Workspace {
@@ -50,6 +54,7 @@ impl Workspace {
             prefs: HashMap::new(),
             prefs_at: HashMap::new(),
             sync: SyncState::default(),
+            tracker: None,
         }
     }
 
@@ -84,6 +89,7 @@ impl Workspace {
             prefs: prefs.iter().map(|(k, v, _)| (k.clone(), v.clone())).collect(),
             prefs_at: prefs.into_iter().map(|(k, _, at)| (k, at)).collect(),
             sync: SyncState::load(sync),
+            tracker: None,
         };
         let actor = meta.iter().find(|(k, _)| k == "actor.app").and_then(|(_, v)| v.parse::<u64>().ok()).filter(|a| *a != 0);
         let actor = actor.unwrap_or_else(|| {
@@ -177,6 +183,7 @@ impl Workspace {
     /// import state it changes (before, after). Moving to and from the Trash is part of the
     /// command's tree changes (`Tree::trash`, `Tree::untrash`).
     pub fn commit_with_imports(&mut self, before: Option<Caret>, after: Option<Caret>, imports: Option<(ImportState, ImportState)>) {
+        self.track_journal();
         self.history.commit_with_imports(&mut self.tree, HistoryKind::Structure, before, after, imports.clone());
         let dirty = self.take_dirty();
         if let Some((_, state)) = imports {
@@ -218,6 +225,7 @@ impl Workspace {
 
     /// Record typing in `id` (merged into the previous typing step when recent) and save it.
     pub fn commit_typing(&mut self, id: NodeId, before: Option<Caret>, after: Option<Caret>) {
+        self.track_journal();
         self.history.commit(&mut self.tree, HistoryKind::Typing(id), before, after);
         self.persist();
     }
@@ -226,6 +234,9 @@ impl Workspace {
     /// otherwise the caret from before that step.
     pub fn undo(&mut self) -> Option<Option<Caret>> {
         let imports = self.history.undo_imports().cloned();
+        if let Some(tracker) = &mut self.tracker {
+            tracker.note(self.history.undo_changes());
+        }
         let caret = self.history.undo(&mut self.tree)?;
         self.save_history_step(imports);
         Some(caret)
@@ -235,6 +246,9 @@ impl Workspace {
     /// otherwise the caret from after that step.
     pub fn redo(&mut self) -> Option<Option<Caret>> {
         let imports = self.history.redo_imports().cloned();
+        if let Some(tracker) = &mut self.tracker {
+            tracker.note(self.history.redo_changes());
+        }
         let caret = self.history.redo(&mut self.tree)?;
         self.save_history_step(imports);
         Some(caret)

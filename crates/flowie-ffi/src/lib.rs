@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use flowie_core::images::ImageDir;
-use flowie_core::{flatten_mapped, BlockKind, NodeId, Tree, ViewOptions, ROOT};
-use flowie_doc::{SyncDriver, SyncPhase, Workspace};
+use flowie_core::{flatten_mapped, BlockKind, Caret, NodeId, Tree, ViewOptions, ROOT};
+use flowie_doc::{utf16, Outcome, SyncDriver, SyncPhase, Workspace};
 use flowie_sync::http::HttpBackend;
 use flowie_sync::{ChangeBatch, Engine, Envelope, RecordStore, SaveResult};
 
@@ -80,16 +80,44 @@ pub struct RowView {
     pub has_children: bool,
 }
 
-/// Where the caret goes after a key: a row, and a byte offset in its text.
-#[derive(Debug, Clone, PartialEq, uniffi::Record)]
-pub struct CaretView {
-    pub id: String,
-    pub offset: u32,
+/// What an edit changed, so the app updates only that (wiki: iOS-Cross-Platform §4.2).
+#[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
+pub struct EditOutcome {
+    /// Rows whose content changed: read them again with [`Outline::rows`] (ones not on the
+    /// page shown can be ignored).
+    pub changed_ids: Vec<String>,
+    /// Rows came, went or moved: read the page again ([`Outline::page`]), its rows too.
+    pub structure_changed: bool,
+    /// Where the caret goes, when the edit moves it.
+    pub focus: Option<FocusView>,
 }
 
-impl From<flowie_core::Caret> for CaretView {
-    fn from(caret: flowie_core::Caret) -> Self {
-        CaretView { id: caret.node.to_string(), offset: caret.offset as u32 }
+/// A selection in a row's text, in UTF-16 code units (what UIKit counts); a caret when
+/// `start == end`.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FocusView {
+    pub id: String,
+    pub start: u32,
+    pub end: u32,
+}
+
+impl EditOutcome {
+    /// Whether nothing changed.
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.changed_ids.is_empty() && !self.structure_changed
+    }
+
+    fn from(tree: &Tree, outcome: Outcome) -> Self {
+        let focus = outcome.focus.filter(|caret| tree.contains(caret.node)).map(|caret| {
+            let offset = utf16::to_utf16(&tree.node(tree.source(caret.node)).text, caret.offset) as u32;
+            FocusView { id: caret.node.to_string(), start: offset, end: offset }
+        });
+        EditOutcome {
+            changed_ids: outcome.changed_ids.iter().map(ToString::to_string).collect(),
+            structure_changed: outcome.structure_changed,
+            focus,
+        }
     }
 }
 
@@ -171,6 +199,55 @@ fn kind_name(kind: BlockKind) -> String {
     format!("{kind:?}").to_lowercase()
 }
 
+/// Run an edit that returns where the caret goes, and say what it changed.
+fn tracked(ws: &mut Workspace, f: impl FnOnce(&mut Workspace) -> Option<Caret>) -> EditOutcome {
+    let (focus, outcome) = ws.tracked(f);
+    EditOutcome::from(&ws.tree, Outcome { focus, ..outcome })
+}
+
+/// The page's own bullet (none: Home).
+fn page_root(tree: &Tree, root: Option<String>) -> Result<NodeId, FlowieError> {
+    let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
+    if root != ROOT && !tree.contains(root) {
+        return Err(FlowieError::NoSuchBullet { id: root.to_string() });
+    }
+    Ok(root)
+}
+
+fn row_view(tree: &Tree, id: NodeId, depth: u16) -> Option<RowView> {
+    let node = tree.get(id)?;
+    let source = tree.node(tree.source(id));
+    Some(RowView {
+        id: id.to_string(),
+        depth,
+        text: source.text.clone(),
+        note: source.note.clone(),
+        kind: kind_name(node.kind),
+        completed: source.completed,
+        collapsed: node.collapsed,
+        has_children: tree.has_children(id),
+    })
+}
+
+/// The depth of bullet `id`'s row on the page at `root`, found by walking up from it: none if
+/// it isn't under `root` or a collapsed bullet hides it. Rows inside mirrors (virtual ids) are
+/// not found this way.
+fn depth_on_page(tree: &Tree, root: NodeId, id: NodeId) -> Option<u16> {
+    if id.is_virtual() || id == root || !tree.contains(id) {
+        return None;
+    }
+    let mut depth = 0;
+    let mut cur = tree.parent(id);
+    while cur != root {
+        if cur == ROOT || tree.node(cur).collapsed {
+            return None;
+        }
+        depth += 1;
+        cur = tree.parent(cur);
+    }
+    Some(depth)
+}
+
 #[uniffi::export]
 impl Outline {
     /// Open (or create) the outline database at `db`, its images beside it.
@@ -192,131 +269,142 @@ impl Outline {
     pub fn page(&self, root: Option<String>) -> Result<Vec<RowView>, FlowieError> {
         let state = self.lock();
         let tree = &state.ws.tree;
-        let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
-        if root != ROOT && !tree.contains(root) {
-            return Err(FlowieError::NoSuchBullet { id: root.to_string() });
-        }
+        let root = page_root(tree, root)?;
         let (rows, _) = flatten_mapped(tree, root, &ViewOptions::default());
-        Ok(rows
-            .into_iter()
-            .filter_map(|row| {
-                let node = tree.get(row.id)?;
-                let source = tree.node(tree.source(row.id));
-                Some(RowView {
-                    id: row.id.to_string(),
-                    depth: row.depth,
-                    text: source.text.clone(),
-                    note: source.note.clone(),
-                    kind: kind_name(node.kind),
-                    completed: source.completed,
-                    collapsed: node.collapsed,
-                    has_children: tree.has_children(row.id),
-                })
+        Ok(rows.into_iter().filter_map(|row| row_view(tree, row.id, row.depth)).collect())
+    }
+
+    /// The rows with these ids on the page at `root` (none: Home), as [`page`](Self::page)
+    /// has them, in the order asked; ids not on the page are left out. For the rows an edit
+    /// changed (`EditOutcome::changed_ids`), without reading the whole page.
+    pub fn rows(&self, ids: Vec<String>, root: Option<String>) -> Result<Vec<RowView>, FlowieError> {
+        let state = self.lock();
+        let tree = &state.ws.tree;
+        let root = page_root(tree, root)?;
+        // Rows inside a mirror (virtual ids) are found on the page.
+        let mut page = None;
+        Ok(ids
+            .iter()
+            .filter_map(|id| {
+                let id = id.parse::<NodeId>().ok()?;
+                let depth = depth_on_page(tree, root, id).or_else(|| {
+                    let rows = page.get_or_insert_with(|| flatten_mapped(tree, root, &ViewOptions::default()).0);
+                    rows.iter().find(|row| row.id == id).map(|row| row.depth)
+                })?;
+                row_view(tree, id, depth)
             })
             .collect())
     }
 
-    /// Add a bullet with `text` under `parent` (none: Home) at `index`; returns its id. An
-    /// undo step.
-    pub fn create(&self, parent: Option<String>, index: u32, text: String) -> Result<String, FlowieError> {
+    /// Add a bullet with `text` under `parent` (none: Home) at `index`; the focus is on it, at
+    /// the end of its text. An undo step.
+    pub fn create(&self, parent: Option<String>, index: u32, text: String) -> Result<EditOutcome, FlowieError> {
         let mut state = self.lock();
         let parent = parent.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
         if parent != ROOT && !state.ws.tree.contains(parent) {
             return Err(FlowieError::NoSuchBullet { id: parent.to_string() });
         }
-        let id = state.ws.tree.create_at(parent, index as usize, &text.replace('\n', " "));
-        state.ws.commit_with_imports(None, None, None);
-        Ok(id.to_string())
+        let text = text.replace('\n', " ");
+        let (id, mut outcome) = state.ws.tracked(|ws| {
+            let id = ws.tree.create_at(parent, index as usize, &text);
+            ws.commit_with_imports(None, None, None);
+            id
+        });
+        outcome.focus = Some(Caret { node: id, offset: text.len() });
+        Ok(EditOutcome::from(&state.ws.tree, outcome))
     }
 
     /// Replace a bullet's text. Typing in one bullet merges into one undo step.
-    pub fn set_text(&self, id: String, text: String) -> Result<(), FlowieError> {
+    pub fn set_text(&self, id: String, text: String) -> Result<EditOutcome, FlowieError> {
         self.edit(&id, |ws, id| {
             ws.tree.set_text(id, &text.replace('\n', " "));
             ws.commit_typing(id, None, None);
+            None
         })
     }
 
-    pub fn set_note(&self, id: String, note: String) -> Result<(), FlowieError> {
+    pub fn set_note(&self, id: String, note: String) -> Result<EditOutcome, FlowieError> {
         self.edit(&id, |ws, id| {
             ws.tree.set_note(id, &note);
             ws.commit_typing(id, None, None);
+            None
         })
     }
 
-    pub fn set_completed(&self, id: String, completed: bool) -> Result<(), FlowieError> {
+    pub fn set_completed(&self, id: String, completed: bool) -> Result<EditOutcome, FlowieError> {
         self.edit(&id, |ws, id| {
             ws.tree.set_completed(id, completed);
             ws.commit_with_imports(None, None, None);
+            None
         })
     }
 
-    /// Make a bullet the last child of the one above it; false if there is none. An undo step.
-    pub fn indent(&self, id: String) -> Result<bool, FlowieError> {
-        let mut done = false;
+    /// Make a bullet the last child of the one above it (nothing changes if there is none). An
+    /// undo step.
+    pub fn indent(&self, id: String) -> Result<EditOutcome, FlowieError> {
         self.edit_row(&id, |ws, id| {
-            done = ws.tree.indent(id);
-            if done {
+            if ws.tree.indent(id) {
                 ws.commit_with_imports(None, None, None);
             }
-        })?;
-        Ok(done)
+            None
+        })
     }
 
-    /// Move a bullet out to follow its parent, but not out of the page at `root` (none: Home);
-    /// false if it can't go further. An undo step.
-    pub fn outdent(&self, id: String, root: Option<String>) -> Result<bool, FlowieError> {
+    /// Move a bullet out to follow its parent, but not out of the page at `root` (none: Home;
+    /// nothing changes if it can't go further). An undo step.
+    pub fn outdent(&self, id: String, root: Option<String>) -> Result<EditOutcome, FlowieError> {
         let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
-        let mut done = false;
         self.edit_row(&id, |ws, id| {
-            done = ws.tree.outdent(id, root);
-            if done {
+            if ws.tree.outdent(id, root) {
                 ws.commit_with_imports(None, None, None);
             }
-        })?;
-        Ok(done)
+            None
+        })
     }
 
-    /// Return in a row's text with the bytes `start..end` selected (a caret when equal), on the
-    /// page at `root` (none: Home), as on the desktop (`flowie_doc::keys::enter`): the text after
-    /// the caret moves to a new bullet below. Returns where the caret goes. An undo step.
-    pub fn enter(&self, id: String, start: u32, end: u32, root: Option<String>) -> Result<CaretView, FlowieError> {
+    /// Return in a row's text with `start..end` selected (UTF-16 offsets; a caret when equal),
+    /// on the page at `root` (none: Home), as on the desktop (`flowie_doc::keys::enter`): the
+    /// text after the caret moves to a new bullet below, where the focus goes. An undo step.
+    pub fn enter(&self, id: String, start: u32, end: u32, root: Option<String>) -> Result<EditOutcome, FlowieError> {
         let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
-        let mut caret = None;
-        self.edit_row(&id, |ws, id| caret = Some(ws.enter(id, start as usize..end.max(start) as usize, root)))?;
-        Ok(caret.expect("edit_row ran").into())
+        self.edit_row(&id, |ws, id| {
+            let text = &ws.tree.node(ws.tree.source(id)).text;
+            let sel = utf16::from_utf16(text, start as usize)..utf16::from_utf16(text, end.max(start) as usize);
+            Some(ws.enter(id, sel, root))
+        })
     }
 
     /// Backspace with the caret at the start of a row's text, on the page at `root` (none:
     /// Home), as on the desktop (`flowie_doc::keys::backspace_at_start`): the row joins the one
-    /// above, or goes if it is empty. Returns where the caret goes, or none when nothing
-    /// changed. An undo step.
-    pub fn backspace_at_start(&self, id: String, root: Option<String>) -> Result<Option<CaretView>, FlowieError> {
+    /// above, or goes if it is empty, and the focus goes where they meet. Nothing changes on
+    /// the first row. An undo step.
+    pub fn backspace_at_start(&self, id: String, root: Option<String>) -> Result<EditOutcome, FlowieError> {
         let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
-        let mut caret = None;
         self.edit_row(&id, |ws, id| {
             let (rows, _) = flatten_mapped(&ws.tree, root, &ViewOptions::default());
             let prev = rows.iter().position(|r| r.id == id).and_then(|i| i.checked_sub(1)).map(|i| rows[i].id);
-            caret = ws.backspace_at_start(id, prev, root);
-        })?;
-        Ok(caret.map(Into::into))
-    }
-
-    /// Move a bullet and what is under it to the Trash. An undo step.
-    pub fn delete(&self, id: String) -> Result<(), FlowieError> {
-        self.edit(&id, |ws, id| {
-            ws.tree.trash(id);
-            ws.commit_with_imports(None, None, None);
+            ws.backspace_at_start(id, prev, root)
         })
     }
 
-    /// Undo the last step; false if there was none.
-    pub fn undo(&self) -> bool {
-        self.lock().ws.undo().is_some()
+    /// Move a bullet and what is under it to the Trash. An undo step.
+    pub fn delete(&self, id: String) -> Result<EditOutcome, FlowieError> {
+        self.edit(&id, |ws, id| {
+            ws.tree.trash(id);
+            ws.commit_with_imports(None, None, None);
+            None
+        })
     }
 
-    pub fn redo(&self) -> bool {
-        self.lock().ws.redo().is_some()
+    /// Undo the last step (nothing changes if there is none); the focus goes where the caret
+    /// was before it, when that is known.
+    pub fn undo(&self) -> EditOutcome {
+        self.track(|ws| ws.undo().flatten())
+    }
+
+    /// Redo the last undone step; the focus goes where the caret was after it.
+    pub fn redo(&self) -> EditOutcome {
+        self.track(|ws| ws.redo().flatten())
     }
 
     /// The bullet whose text is being typed in (a mirror row's source is found from it): what
@@ -447,8 +535,13 @@ impl Outline {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Run an edit that returns where the caret goes, and say what it changed.
+    fn track(&self, f: impl FnOnce(&mut Workspace) -> Option<Caret>) -> EditOutcome {
+        tracked(&mut self.lock().ws, f)
+    }
+
     /// Change a bullet's content: a mirror's row changes its source.
-    fn edit(&self, id: &str, f: impl FnOnce(&mut Workspace, NodeId)) -> Result<(), FlowieError> {
+    fn edit(&self, id: &str, f: impl FnOnce(&mut Workspace, NodeId) -> Option<Caret>) -> Result<EditOutcome, FlowieError> {
         self.edit_row(id, |ws, id| {
             let id = ws.tree.source(id);
             f(ws, id)
@@ -456,14 +549,13 @@ impl Outline {
     }
 
     /// Change a bullet's place: the row itself moves, a mirror included.
-    fn edit_row(&self, id: &str, f: impl FnOnce(&mut Workspace, NodeId)) -> Result<(), FlowieError> {
-        let mut state = self.lock();
+    fn edit_row(&self, id: &str, f: impl FnOnce(&mut Workspace, NodeId) -> Option<Caret>) -> Result<EditOutcome, FlowieError> {
         let id = parse(id)?;
+        let mut state = self.lock();
         if !state.ws.tree.contains(id) {
             return Err(FlowieError::NoSuchBullet { id: id.to_string() });
         }
-        f(&mut state.ws, id);
-        Ok(())
+        Ok(tracked(&mut state.ws, |ws| f(ws, id)))
     }
 }
 
@@ -471,11 +563,20 @@ impl Outline {
 mod tests {
     use super::*;
 
+    /// Add a bullet; its id.
+    fn add(outline: &Outline, parent: Option<&str>, index: u32, text: &str) -> String {
+        outline.create(parent.map(String::from), index, text.into()).unwrap().focus.unwrap().id
+    }
+
+    fn texts(outline: &Outline) -> Vec<(String, u16)> {
+        outline.page(None).unwrap().into_iter().map(|r| (r.text, r.depth)).collect()
+    }
+
     #[test]
     fn edits_show_on_the_page_and_undo() {
         let outline = Outline::in_memory();
-        let a = outline.create(None, 0, "first".into()).unwrap();
-        let b = outline.create(Some(a.clone()), 0, "child".into()).unwrap();
+        let a = add(&outline, None, 0, "first");
+        let b = add(&outline, Some(&a), 0, "child");
         outline.set_completed(b.clone(), true).unwrap();
         let page = outline.page(None).unwrap();
         assert_eq!(
@@ -486,21 +587,21 @@ mod tests {
         assert_eq!(outline.page(Some(a.clone())).unwrap().len(), 1);
         outline.delete(b.clone()).unwrap();
         assert_eq!(outline.page(None).unwrap().len(), 1);
-        assert!(outline.undo());
+        assert!(outline.undo().structure_changed);
         assert_eq!(outline.page(None).unwrap().len(), 2);
         assert!(matches!(outline.set_text("nope".into(), "x".into()), Err(FlowieError::NoSuchBullet { .. })));
 
-        let c = outline.create(None, 1, "second".into()).unwrap();
-        assert!(outline.indent(c.clone()).unwrap());
+        let c = add(&outline, None, 1, "second");
+        assert!(outline.indent(c.clone()).unwrap().structure_changed);
         assert_eq!(
             outline.page(None).unwrap().iter().map(|r| (r.text.as_str(), r.depth)).collect::<Vec<_>>(),
             [("first", 0), ("child", 1), ("second", 1)]
         );
-        assert!(!outline.outdent(c.clone(), Some(a.clone())).unwrap(), "not out of the page shown");
-        assert!(outline.outdent(c.clone(), None).unwrap());
+        assert!(outline.outdent(c.clone(), Some(a.clone())).unwrap().is_empty(), "not out of the page shown");
+        assert!(outline.outdent(c.clone(), None).unwrap().structure_changed);
         assert_eq!(outline.page(None).unwrap()[2].depth, 0);
-        assert!(!outline.outdent(c.clone(), None).unwrap());
-        assert!(outline.undo());
+        assert!(outline.outdent(c.clone(), None).unwrap().is_empty());
+        assert!(outline.undo().structure_changed);
         assert_eq!(outline.page(None).unwrap()[2].depth, 1);
         assert_eq!(outline.sync_status(), SyncStatus::Off);
     }
@@ -537,7 +638,7 @@ mod tests {
         for outline in [&a, &b] {
             outline.begin_native_sync("icloud".into());
         }
-        let x = a.create(None, 0, "from a".into()).unwrap();
+        let x = add(&a, None, 0, "from a");
         assert_eq!(a.unsent_ids(10), std::slice::from_ref(&x));
         native_round(&a, &mut server, &mut ca);
         assert!(a.unsent_ids(10).is_empty());
@@ -561,33 +662,119 @@ mod tests {
     #[test]
     fn return_and_backspace_split_and_merge_rows() {
         let outline = Outline::in_memory();
-        let a = outline.create(None, 0, "hello world".into()).unwrap();
-        let b = outline.create(None, 1, "b".into()).unwrap();
-        outline.create(Some(b.clone()), 0, "child".into()).unwrap();
-        let texts = |o: &Outline| o.page(None).unwrap().into_iter().map(|r| (r.text, r.depth)).collect::<Vec<_>>();
+        let a = add(&outline, None, 0, "hello world");
+        let b = add(&outline, None, 1, "b");
+        add(&outline, Some(&b), 0, "child");
 
-        let caret = outline.enter(a.clone(), 5, 5, None).unwrap();
-        assert_eq!(caret.offset, 0);
+        let out = outline.enter(a.clone(), 5, 5, None).unwrap();
+        assert!(out.structure_changed);
+        let focus = out.focus.unwrap();
+        assert_eq!((focus.start, focus.end), (0, 0));
         let rows = outline.page(None).unwrap();
-        assert_eq!((rows[1].id.as_str(), rows[1].text.as_str()), (caret.id.as_str(), " world"));
+        assert_eq!((rows[1].id.as_str(), rows[1].text.as_str()), (focus.id.as_str(), " world"));
         // Backspace at the start of the new row joins it back, the caret where they meet.
-        let back = outline.backspace_at_start(caret.id.clone(), None).unwrap().unwrap();
-        assert_eq!((back.id.as_str(), back.offset), (a.as_str(), 5));
+        let back = outline.backspace_at_start(focus.id.clone(), None).unwrap().focus.unwrap();
+        assert_eq!((back.id.as_str(), back.start, back.end), (a.as_str(), 5, 5));
         assert_eq!(texts(&outline)[0].0, "hello world");
         // A row with children joins a leaf above, children and all.
-        outline.backspace_at_start(b.clone(), None).unwrap().unwrap();
+        outline.backspace_at_start(b.clone(), None).unwrap().focus.unwrap();
         assert_eq!(texts(&outline), [("hello worldb".to_string(), 0), ("child".to_string(), 1)]);
-        assert_eq!(outline.backspace_at_start(a.clone(), None).unwrap(), None, "the first row");
+        assert_eq!(outline.backspace_at_start(a.clone(), None).unwrap(), EditOutcome::default(), "the first row");
         // Each key is one undo step.
-        assert!(outline.undo());
-        assert!(outline.undo());
+        assert!(outline.undo().structure_changed);
+        assert!(outline.undo().structure_changed);
         assert_eq!(texts(&outline)[..2], [("hello".to_string(), 0), (" world".to_string(), 0)]);
-        assert!(outline.undo());
+        // Undo puts the caret back where it was before Return.
+        let undone = outline.undo();
+        assert_eq!(undone.focus, Some(FocusView { id: a.clone(), start: 5, end: 5 }));
         assert_eq!(texts(&outline)[0].0, "hello world");
-        // A caret inside a character falls back to its start.
-        let c = outline.create(None, 0, "日记".into()).unwrap();
-        outline.enter(c, 4, 4, None).unwrap();
-        assert_eq!(texts(&outline)[..2], [("日".to_string(), 0), ("记".to_string(), 0)]);
+    }
+
+    #[test]
+    fn offsets_cross_in_utf16() {
+        let outline = Outline::in_memory();
+        // 日记: 3 bytes and 1 unit each; 😀: 4 bytes, 2 units.
+        let a = add(&outline, None, 0, "日记😀x");
+        let out = outline.create(None, 1, "日😀".into()).unwrap();
+        assert_eq!(out.focus.map(|f| (f.start, f.end)), Some((3, 3)), "the end of the text, in UTF-16");
+        // Return after 记 (unit 2), and with 记😀 (units 1..4) selected.
+        let focus = outline.enter(a.clone(), 2, 2, None).unwrap().focus.unwrap();
+        assert_eq!(texts(&outline)[..2], [("日记".to_string(), 0), ("😀x".to_string(), 0)]);
+        let back = outline.backspace_at_start(focus.id, None).unwrap().focus.unwrap();
+        assert_eq!((back.start, back.end), (2, 2), "after 日记, in UTF-16");
+        outline.enter(a.clone(), 1, 4, None).unwrap();
+        assert_eq!(texts(&outline)[..2], [("日".to_string(), 0), ("x".to_string(), 0)]);
+        // A caret between the halves of 😀 moves past it.
+        let b = add(&outline, None, 0, "😀😀");
+        outline.enter(b, 1, 1, None).unwrap();
+        assert_eq!(texts(&outline)[..2], [("😀".to_string(), 0), ("😀".to_string(), 0)]);
+    }
+
+    #[test]
+    fn typing_changes_only_its_row() {
+        let outline = Outline::in_memory();
+        let a = add(&outline, None, 0, "a");
+        let b = add(&outline, Some(&a), 0, "b");
+        let out = outline.set_text(b.clone(), "b, typed 中文 ✓".into()).unwrap();
+        assert_eq!(out, EditOutcome { changed_ids: vec![b.clone()], structure_changed: false, focus: None });
+        // The changed row reads the same as on the page.
+        let page = outline.page(None).unwrap();
+        assert_eq!(outline.rows(out.changed_ids.clone(), None).unwrap(), [page[1].clone()]);
+        assert_eq!(outline.rows(vec![b.clone(), a.clone()], Some(a.clone())).unwrap()[..], [RowView { depth: 0, ..page[1].clone() }]);
+        assert!(outline.rows(vec!["nope".into()], None).unwrap().is_empty());
+        let out = outline.set_completed(b.clone(), true).unwrap();
+        assert_eq!((out.changed_ids.as_slice(), out.structure_changed), (std::slice::from_ref(&b), false));
+        let out = outline.set_note(a.clone(), "note".into()).unwrap();
+        assert_eq!((out.changed_ids.as_slice(), out.structure_changed), (std::slice::from_ref(&a), false));
+        // Undoing typing changes the row back.
+        let out = outline.undo();
+        assert_eq!((out.changed_ids, out.structure_changed), (vec![a.clone()], false));
+        // A row hidden under a collapsed bullet isn't on the page.
+        let mut state = outline.lock();
+        let id = a.parse().unwrap();
+        state.ws.tree.set_collapsed(id, true);
+        drop(state);
+        assert!(outline.rows(vec![b.clone()], None).unwrap().is_empty());
+        // Deleting is structural.
+        let out = outline.delete(b).unwrap();
+        assert!(out.structure_changed);
+        assert!(outline.redo().is_empty(), "nothing to redo after an edit");
+    }
+
+    /// How long reading a page takes on a big outline (20 000 rows), for deciding whether rows
+    /// should be read lazily (wiki: iOS-Cross-Platform §4.2). Run with `cargo test --release -p
+    /// flowie-ffi -- --ignored --nocapture page_timing`.
+    #[test]
+    #[ignore]
+    fn page_timing() {
+        let outline = Outline::in_memory();
+        {
+            let mut state = outline.lock();
+            let tree = &mut state.ws.tree;
+            for i in 0..2000 {
+                let top = tree.create_at(ROOT, i, &format!("Top-level bullet number {i} with some text"));
+                for j in 0..9 {
+                    tree.create_at(top, j, &format!("A child bullet {j} under {i}, with **markup** and 中文"));
+                }
+            }
+            state.ws.commit_with_imports(None, None, None);
+        }
+        let started = std::time::Instant::now();
+        let n = 20;
+        let mut rows = 0;
+        for _ in 0..n {
+            rows = outline.page(None).unwrap().len();
+        }
+        let page = started.elapsed() / n;
+        let id = outline.page(None).unwrap()[rows / 2].id.clone();
+        let started = std::time::Instant::now();
+        for i in 0..n {
+            let out = outline.set_text(id.clone(), format!("typed {i}")).unwrap();
+            outline.rows(out.changed_ids, None).unwrap();
+        }
+        let typing = started.elapsed() / n;
+        eprintln!("page(): {rows} rows in {page:?}; set_text + rows(): {typing:?}");
+        assert_eq!(rows, 20_000);
     }
 
     #[test]
@@ -596,7 +783,7 @@ mod tests {
         let path = dir.path().join("outline.sqlite");
         let db = path.to_string_lossy().into_owned();
         let outline = Outline::open(db.clone()).unwrap();
-        outline.create(None, 0, "kept".into()).unwrap();
+        add(&outline, None, 0, "kept");
         outline.flush().unwrap();
         drop(outline);
         let conn = rusqlite::Connection::open(&path).unwrap();
@@ -619,7 +806,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("outline.sqlite").to_string_lossy().into_owned();
         let outline = Outline::open(db.clone()).unwrap();
-        let id = outline.create(None, 0, "saved".into()).unwrap();
+        let id = add(&outline, None, 0, "saved");
         outline.set_text(id.clone(), "saved, edited".into()).unwrap();
         outline.flush().unwrap();
         drop(outline);

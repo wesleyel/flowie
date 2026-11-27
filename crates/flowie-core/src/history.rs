@@ -139,6 +139,17 @@ impl History {
         self.redo.last()?.imports.as_ref().map(|pair| &pair.1)
     }
 
+    /// The changes the next undo reverts, oldest first (a field changed since is left alone
+    /// then, `Tree::revert`).
+    pub fn undo_changes(&self) -> &[Change] {
+        self.undo.last().map_or(&[], |step| &step.changes)
+    }
+
+    /// The changes the next redo makes again, in the same form.
+    pub fn redo_changes(&self) -> &[Change] {
+        self.redo.last().map_or(&[], |step| &step.changes)
+    }
+
     /// Drop every recorded change to `ids` (records deleted for good, `Tree::purge`), and
     /// every move into or out of them, so undo and redo never bring back part of what is
     /// gone or put a node under it. Steps left with nothing to do go too.

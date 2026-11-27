@@ -47,10 +47,10 @@ struct RowTextView: UIViewRepresentable {
             view.selectedRange = NSRange(location: min(caret, (row.text as NSString).length), length: 0)
         }
         view.textColor = row.completed ? .secondaryLabel : .label
-        // A key moved the caret to this row.
+        // An edit moved the caret to this row.
         if let focus = store.focus, focus.id == row.id {
             store.focus = nil
-            view.pendingCaret = row.text.utf16Offset(utf8: focus.offset)
+            view.pendingSelection = NSRange(location: focus.start, length: max(0, focus.end - focus.start))
         }
     }
 
@@ -74,10 +74,7 @@ struct RowTextView: UIViewRepresentable {
             // While composing, the keyboard owns Return (it confirms the composition).
             guard text.contains("\n"), view.markedTextRange == nil else { return true }
             if text == "\n" {
-                let current = view.text ?? ""
-                let start = current.utf8Offset(utf16: range.location)
-                let end = current.utf8Offset(utf16: range.location + range.length)
-                store.enter(row, from: start, to: end)
+                store.enter(row, from: range.location, to: range.location + range.length)
             } else {
                 // A bullet's text is one line: pasted newlines become spaces, as on the desktop.
                 view.textStorage.replaceCharacters(in: range, with: text.replacingOccurrences(of: "\n", with: " "))
@@ -107,12 +104,12 @@ struct RowTextView: UIViewRepresentable {
     }
 }
 
-/// A UITextView that reports Backspace with the caret at the start, and takes the caret when a
-/// key put it here (once it is on screen).
+/// A UITextView that reports Backspace with the caret at the start, and takes the caret when an
+/// edit put it here (once it is on screen).
 final class BulletTextView: UITextView {
     var onBackspaceAtStart: (() -> Void)?
-    /// Where the caret goes (UTF-16) once this view is in a window.
-    var pendingCaret: Int? {
+    /// The selection (UTF-16) to take once this view is in a window.
+    var pendingSelection: NSRange? {
         // After the view update that set it: taking the caret ends editing in another row.
         didSet { DispatchQueue.main.async { [weak self] in self?.takeCaret() } }
     }
@@ -123,10 +120,12 @@ final class BulletTextView: UITextView {
     }
 
     private func takeCaret() {
-        guard let caret = pendingCaret, window != nil else { return }
-        pendingCaret = nil
+        guard let selection = pendingSelection, window != nil else { return }
+        pendingSelection = nil
         becomeFirstResponder()
-        selectedRange = NSRange(location: min(caret, (text as NSString).length), length: 0)
+        let length = (text as NSString).length
+        let start = min(selection.location, length)
+        selectedRange = NSRange(location: start, length: min(selection.length, length - start))
     }
 
     override func deleteBackward() {

@@ -30,6 +30,14 @@ func run() throws {
     check(store.rows[0].completed, "ticked off")
     store.setText(store.rows[1], "rye bread")
     check(store.rows[1].text == "rye bread", "edited")
+    // Typing reads back only its row: a bullet added behind the store's back doesn't show yet.
+    _ = try store.outline.create(parent: store.root, index: 2, text: "behind")
+    store.setText(store.rows[1], "rye bread 中文 ✓")
+    check(store.rows.map(\.text) == ["milk", "rye bread 中文 ✓"], "typing reads only its row: \(store.rows.map(\.text))")
+    store.reload()
+    check(store.rows.count == 3, "the page read again shows it")
+    store.delete(store.rows[2])
+    store.setText(store.rows[1], "rye bread")
     store.delete(store.rows[1])
     check(store.rows.count == 1, "deleted")
     store.undo()
@@ -44,17 +52,24 @@ func run() throws {
     store.undo()
     check(store.rows.map(\.depth) == [0, 1, 1], "undo outdents one step back")
 
-    // Return and Backspace, as on the desktop (byte offsets: "rye " is 4 bytes).
+    // Return and Backspace, as on the desktop (UTF-16 offsets).
     store.enter(store.rows[2], from: 4, to: 4)
     check(store.rows.map(\.text) == ["groceries", "milk", "rye ", "bread"], "Return splits at the caret: \(store.rows.map(\.text))")
-    check(store.focus == Focus(id: store.rows[3].id, offset: 0), "the caret goes to the new bullet")
+    check(store.focus == Focus(id: store.rows[3].id, start: 0, end: 0), "the caret goes to the new bullet")
     store.backspaceAtStart(store.rows[3])
     check(store.rows.map(\.text) == ["groceries", "milk", "rye bread"], "Backspace at the start joins it back")
-    check(store.focus == Focus(id: store.rows[2].id, offset: 4), "the caret goes where they meet")
+    check(store.focus == Focus(id: store.rows[2].id, start: 4, end: 4), "the caret goes where they meet")
     store.undo()
     check(store.rows.map(\.text) == ["groceries", "milk", "rye ", "bread"], "undo of Backspace")
     store.undo()
     check(store.rows.map(\.text) == ["groceries", "milk", "rye bread"], "undo of Return")
+    check(store.focus == Focus(id: store.rows[2].id, start: 4, end: 4), "undo puts the caret back")
+    // Offsets count UTF-16, past CJK and emoji: 日 is one unit, 😀 two.
+    store.setText(store.rows[1], "日😀milk")
+    store.enter(store.rows[1], from: 3, to: 3)
+    check(store.rows.map(\.text) == ["groceries", "日😀", "milk", "rye bread"], "Return after an emoji: \(store.rows.map(\.text))")
+    store.backspaceAtStart(store.rows[2])
+    check(store.focus == Focus(id: store.rows[1].id, start: 3, end: 3), "the caret after the emoji")
 
     store.startSync(server: "http://127.0.0.1:9", token: "t")
     let deadline = Date().addingTimeInterval(10)

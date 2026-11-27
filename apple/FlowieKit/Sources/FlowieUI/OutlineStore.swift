@@ -1,9 +1,10 @@
 import Foundation
 import FlowieFFI
 
-/// The outline as the views see it: the page shown and its rows, read again after each edit and
-/// each time sync brings changes. Every read and write goes through flowie-ffi; nothing is kept
-/// or merged here (ios-cross-platform.md §1).
+/// The outline as the views see it: the page shown and its rows. An edit says what it changed
+/// (`EditOutcome`): typing reads back only its row, and the page is read again when rows come,
+/// go or move, and each time sync brings changes. Every read and write goes through flowie-ffi;
+/// nothing is kept or merged here (ios-cross-platform.md §1, §4.2).
 @MainActor
 public final class OutlineStore: ObservableObject {
     public let outline: Outline
@@ -55,22 +56,48 @@ public final class OutlineStore: ObservableObject {
         reload()
     }
 
-    /// Run an edit, then show its result (or why it failed).
-    private func edit(_ change: () throws -> Void) {
+    /// Run an edit, then show what it changed (or why it failed).
+    private func edit(_ change: () throws -> EditOutcome) {
         do {
-            try change()
+            apply(try change())
             problem = nil
         } catch {
             problem = String(describing: error)
+            reload()
         }
-        reload()
-        _ = outline.pumpSync()
+        if outline.pumpSync() {
+            reload()
+        }
     }
 
-    /// Add a bullet at the end of the page shown.
+    /// Show what an edit changed: the page read again when rows came, went or moved, otherwise
+    /// just the rows that changed. The caret moves when the edit says where.
+    private func apply(_ outcome: EditOutcome) {
+        if outcome.structureChanged {
+            reload()
+        } else {
+            let shown = outcome.changedIds.filter { id in rows.contains { $0.id == id } }
+            if !shown.isEmpty, let fresh = try? outline.rows(ids: shown, root: root) {
+                for row in fresh {
+                    if let index = rows.firstIndex(where: { $0.id == row.id }) {
+                        rows[index] = row
+                    }
+                }
+            }
+        }
+        if let focus = outcome.focus {
+            self.focus = Focus(focus)
+        }
+    }
+
+    /// Add a bullet at the end of the page shown (the caret stays where it is).
     public func add(_ text: String) {
         let index = UInt32(rows.filter { $0.depth == 0 }.count)
-        edit { _ = try outline.create(parent: root, index: index, text: text) }
+        edit {
+            var outcome = try outline.create(parent: root, index: index, text: text)
+            outcome.focus = nil
+            return outcome
+        }
     }
 
     public func setText(_ row: RowView, _ text: String) {
@@ -82,35 +109,28 @@ public final class OutlineStore: ObservableObject {
         edit { try outline.setCompleted(id: row.id, completed: !row.completed) }
     }
 
-    /// Return in a bullet's text with `start..<end` selected (UTF-8 byte offsets; equal for a
-    /// caret), as on the desktop: the text after the caret moves to a new bullet below, and the
-    /// caret goes there (`focus`). One undo step.
+    /// Return in a bullet's text with `start..<end` selected (UTF-16 offsets, as UIKit counts;
+    /// equal for a caret), as on the desktop: the text after the caret moves to a new bullet
+    /// below, and the caret goes there (`focus`). One undo step.
     public func enter(_ row: RowView, from start: Int, to end: Int) {
-        edit {
-            let caret = try outline.enter(id: row.id, start: UInt32(max(0, start)), end: UInt32(max(start, end)), root: root)
-            focus = Focus(caret)
-        }
+        edit { try outline.enter(id: row.id, start: UInt32(max(0, start)), end: UInt32(max(start, end)), root: root) }
     }
 
     /// Backspace with the caret at the start of a bullet's text, as on the desktop: it joins the
     /// bullet above, or goes if it is empty, and the caret goes where they meet (`focus`). One
     /// undo step; nothing happens on the first bullet.
     public func backspaceAtStart(_ row: RowView) {
-        edit {
-            if let caret = try outline.backspaceAtStart(id: row.id, root: root) {
-                focus = Focus(caret)
-            }
-        }
+        edit { try outline.backspaceAtStart(id: row.id, root: root) }
     }
 
     /// Make a bullet the last child of the one above it.
     public func indent(_ row: RowView) {
-        edit { _ = try outline.indent(id: row.id) }
+        edit { try outline.indent(id: row.id) }
     }
 
     /// Move a bullet out to follow its parent, staying on the page shown.
     public func outdent(_ row: RowView) {
-        edit { _ = try outline.outdent(id: row.id, root: root) }
+        edit { try outline.outdent(id: row.id, root: root) }
     }
 
     /// Move a bullet and what is under it to the Trash.
@@ -118,12 +138,13 @@ public final class OutlineStore: ObservableObject {
         edit { try outline.delete(id: row.id) }
     }
 
+    /// Undo the last step; the caret goes back where it was, when that is known.
     public func undo() {
-        edit { _ = outline.undo() }
+        edit { outline.undo() }
     }
 
     public func redo() {
-        edit { _ = outline.redo() }
+        edit { outline.redo() }
     }
 
     /// The bullet being typed in (nil: none): what another device changes in it waits until
@@ -154,33 +175,21 @@ public final class OutlineStore: ObservableObject {
     }
 }
 
-/// Where the caret goes: a row, and a UTF-8 byte offset in its text (as flowie-ffi counts).
+/// Where the caret goes: a row, and the selection in its text in UTF-16 offsets (as UIKit and
+/// flowie-ffi count); a caret when `start == end`.
 public struct Focus: Equatable {
     public let id: String
-    public let offset: Int
+    public let start: Int
+    public let end: Int
 
-    public init(id: String, offset: Int) {
+    public init(id: String, start: Int, end: Int) {
         self.id = id
-        self.offset = offset
+        self.start = start
+        self.end = end
     }
 
-    init(_ caret: CaretView) {
-        self.init(id: caret.id, offset: Int(caret.offset))
-    }
-}
-
-extension String {
-    /// The UTF-8 byte offset of the UTF-16 offset `n` (what UIKit counts).
-    func utf8Offset(utf16 n: Int) -> Int {
-        let index = String.Index(utf16Offset: Swift.min(Swift.max(0, n), utf16.count), in: self)
-        return self[..<index].utf8.count
-    }
-
-    /// The UTF-16 offset of the UTF-8 byte offset `n`.
-    func utf16Offset(utf8 n: Int) -> Int {
-        let index = utf8.index(utf8.startIndex, offsetBy: Swift.min(Swift.max(0, n), utf8.count))
-        let boundary = String.Index(index, within: self) ?? index
-        return utf16.distance(from: startIndex, to: boundary)
+    init(_ focus: FocusView) {
+        self.init(id: focus.id, start: Int(focus.start), end: Int(focus.end))
     }
 }
 

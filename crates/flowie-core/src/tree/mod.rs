@@ -1036,6 +1036,11 @@ impl Tree {
             .collect()
     }
 
+    /// The changes since the last `take_journal`, oldest first: what the next commit records.
+    pub fn journal(&self) -> &[Change] {
+        &self.journal
+    }
+
     pub fn journal_is_empty(&self) -> bool {
         self.journal.is_empty()
     }

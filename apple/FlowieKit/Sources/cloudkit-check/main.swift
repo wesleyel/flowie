@@ -15,7 +15,7 @@ func check(_ ok: Bool, _ what: String) {
 
 let outline = Outline.inMemory()
 outline.beginNativeSync(remote: "icloud")
-let id = try outline.create(parent: nil, index: 0, text: "to iCloud")
+let id = try outline.create(parent: nil, index: 0, text: "to iCloud").focus!.id
 check(outline.unsentIds(limit: 10) == [id], "the new bullet waits to be sent")
 let saves = outline.nextSaves(limit: 10)
 check(saves.count == 1 && saves[0].id == id && saves[0].etag == nil, "one new record to save")
@@ -29,7 +29,7 @@ check(back.envelope == saves[0].envelope && back.id == id && back.etag != nil, "
 // Saved: the system fields become the etag; the next save starts from them.
 outline.onSaved(outcomes: [.saved(id: id, etag: back.etag!)])
 check(outline.unsentIds(limit: 10).isEmpty, "nothing left to send")
-try outline.setText(id: id, text: "edited")
+_ = try outline.setText(id: id, text: "edited")
 let next = outline.nextSaves(limit: 10)
 check(next.count == 1 && next[0].etag == back.etag, "the next save is conditional on the saved version")
 let again = CloudRecordCodec.record(for: next[0], zone: zone)

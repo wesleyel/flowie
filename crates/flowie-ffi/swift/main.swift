@@ -18,29 +18,34 @@ try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: tr
 let db = dir.appendingPathComponent("outline.sqlite").path
 
 let outline = try Outline.open(db: db)
-let first = try outline.create(parent: nil, index: 0, text: "From Swift")
-let child = try outline.create(parent: first, index: 0, text: "A child, 中文 ✓")
-try outline.setCompleted(id: child, completed: true)
+let first = try outline.create(parent: nil, index: 0, text: "From Swift").focus!.id
+let child = try outline.create(parent: first, index: 0, text: "A child, 中文 ✓").focus!.id
+let done = try outline.setCompleted(id: child, completed: true)
+// An edit says what it changed: here one row, read back on its own.
+check(done.changedIds == [child] && !done.structureChanged, "outcome: \(done)")
+check(try outline.rows(ids: done.changedIds, root: nil).map(\.completed) == [true], "rows")
 let page = try outline.page(root: nil)
 check(page.map(\.text) == ["From Swift", "A child, 中文 ✓"], "page rows: \(page.map(\.text))")
 check(page[1].depth == 1 && page[1].completed && page[0].hasChildren, "row details")
-try outline.delete(id: child)
+_ = try outline.delete(id: child)
 check(try outline.page(root: nil).count == 1, "delete")
-check(outline.undo(), "undo")
+check(outline.undo().structureChanged, "undo")
 check(try outline.page(root: nil).count == 2, "undo brings it back")
 do {
-    try outline.setText(id: "not-an-id", text: "x")
+    _ = try outline.setText(id: "not-an-id", text: "x")
     check(false, "an unknown id throws")
 } catch FlowieError.NoSuchBullet {
 }
-// Return splits at the caret (UTF-8 byte offsets), Backspace at the start joins back.
-let caret = try outline.enter(id: first, start: 4, end: 4, root: nil)
+// Return splits at the caret (UTF-16 offsets), Backspace at the start joins back.
+let caret = try outline.enter(id: first, start: 4, end: 4, root: nil).focus!
 // The children stay with the first half; the rest goes after them.
 check(try outline.page(root: nil).map(\.text) == ["From", "A child, 中文 ✓", " Swift"], "Return splits")
 // Backspace joins it to the row shown above it: the child.
-check(try outline.backspaceAtStart(id: caret.id, root: nil)?.id == child, "Backspace joins")
+let joined = try outline.backspaceAtStart(id: caret.id, root: nil).focus!
+// The caret goes after "A child, 中文 ✓": 13 UTF-16 units.
+check(joined.id == child && joined.start == 13, "Backspace joins: \(joined)")
 check(try outline.page(root: nil).map(\.text) == ["From", "A child, 中文 ✓ Swift"], "joined")
-check(outline.undo() && outline.undo(), "two undo steps")
+check(outline.undo().structureChanged && outline.undo().structureChanged, "two undo steps")
 check(try outline.page(root: nil)[0].text == "From Swift", "undone")
 check(outline.syncStatus() == .off, "sync is off")
 try outline.flush()

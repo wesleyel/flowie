@@ -2,8 +2,28 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'README.*.md'
+      - 'docs/**'
+      - 'website/**'
+      - 'CONTRIBUTING.md'
+      - 'SECURITY.md'
+      - 'CLAUDE.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
   push:
     branches: [main]
+    paths-ignore:
+      - 'README.md'
+      - 'README.*.md'
+      - 'docs/**'
+      - 'website/**'
+      - 'CONTRIBUTING.md'
+      - 'SECURITY.md'
+      - 'CLAUDE.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

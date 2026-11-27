@@ -109,8 +109,7 @@ to its icon.
 ### iOS (in development)
 
 The iOS app (`apple/FlowieApp`) is FlowieUI's SwiftUI views over the Rust core through
-`flowie-ffi`. It runs in the iOS Simulator only for now (no signing set up). It needs Xcode and
-[Tuist](https://tuist.dev):
+`flowie-ffi`. It needs Xcode and [Tuist](https://tuist.dev). Simulator builds need no signing:
 
 ```bash
 scripts/build-ios-ffi.sh                  # build/ios/FlowieFFI.xcframework + Swift bindings
@@ -128,6 +127,28 @@ flowie.spokey.cn groups` shows where); one left in the app's own Application Sup
 earlier build moves there on launch. To check the launch rule (back to the last page within the
 hour, otherwise today's journal), a debug build takes another time: `xcrun simctl launch booted
 flowie.spokey.cn -FlowieNow 2026-11-28T09:00:00+08:00`.
+
+`Project.swift` signs automatically with team `5D26F33GNM` (the app `flowie.spokey.cn` and its
+Control Center extension `flowie.spokey.cn.JournalControl`). Debug builds use CloudKit's
+Development environment and the development push service, Release builds (TestFlight, the App
+Store) Production. To check a Release build in the Simulator, which leaves out the self-hosted
+sync settings, add `-configuration Release` to the `xcodebuild` line above; the app is then in
+`Release-iphonesimulator`. The app icon comes from `swift scripts/make-icon.swift --ios
+apple/FlowieApp/Resources/Assets.xcassets/AppIcon.appiconset`.
+
+For the App Store:
+
+```bash
+scripts/package-ios.sh             # build/ios/appstore/Flowie-<version>-<build>.ipa
+scripts/package-ios.sh --upload    # the same, then upload it to App Store Connect (TestFlight)
+```
+
+It builds the Rust core, archives the Release configuration with the desktop's version (from
+`Cargo.toml`) and build number (the git commit count, or `FLOWIE_BUILD`), exports an App Store
+`.ipa` and checks it (production push and iCloud, versions of the app and the extension, privacy
+manifest, icon). Signing is automatic: with the App Store Connect API key in
+`appstore/fastlane/.env` (see `appstore/README.md`), xcodebuild makes the profiles itself;
+otherwise it uses the account signed in to Xcode. `--upload` needs a clean working tree.
 
 ### One instance per outline
 

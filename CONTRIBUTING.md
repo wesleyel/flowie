@@ -1,8 +1,9 @@
 # Contributing to Flowie
 
 Bug reports, ideas and pull requests are welcome. What's planned, and the design notes behind it, are in the
-[roadmap wiki](https://github.com/wesleyel/flowie/wiki) (in Chinese); it's kept by the maintainer, so please
-bring ideas to [Discussions](https://github.com/wesleyel/flowie/discussions) or a feature request.
+[roadmap wiki](https://github.com/wesleyel/flowie/wiki) (in Chinese; see [docs/wiki.md](docs/wiki.md) for
+its layout and local setup); it's kept by the maintainer, so please bring ideas to
+[Discussions](https://github.com/wesleyel/flowie/discussions) or a feature request.
 
 ## Before you open a pull request
 
@@ -26,31 +27,13 @@ advisories (`deny.toml`), which also limits which crates may depend on `gpui-kit
 - New features belong in the first-launch tutorial too
   (`crates/flowie-app/tutorial/<locale>.md`).
 
-## App source layout
+## Project layout
 
-The desktop app lives under `crates/flowie-app/src`. Keep a feature's state,
-actions, and rendering together. `outline/` owns the main editor, `pages/`
-owns full-page replacements such as Trash and What's New, and `overlays/`
-owns the palette, popovers, and menus. `settings/` is organized by tab.
-`app/` holds platform integration, while `text/` and `ui/` provide shared
-editing and UI components.
-
-`share/` owns the package dialogs and unread indicators. The package format
-and image storage live in `flowie-core`. Screenshot tooling lives in `dev/`
-and builds with the `screenshots` feature.
-
-## Core source layout
-
-In `crates/flowie-core/src`, `tree/` holds node IDs, the model, and editing
-operations. `io/` handles text, Markdown, and OPML. `package/` handles share
-package encoding, export, import tracking, and three-way updates. `store/`
-holds SQLite persistence for nodes, Trash, imports, and image metadata, plus
-the background writer. `images.rs` provides the content-addressed file store.
-
-`crates/flowie-doc` holds `Workspace`, which owns the tree, undo history and
-writer of an open outline: it opens the database and records and saves each
-edit. It doesn't depend on GPUI; `Outline` holds one as `ws` and does the UI
-part (rows, animation, caret) after each commit.
+See [docs/workspace.md](docs/workspace.md) for the crate map (`flowie-core`, `flowie-doc`,
+`flowie-sync`, `flowie-server`, `flowie-ffi`, `flowie-cloudkit`, `flowie-wasm`, `flowie-math`,
+`flowie-app`), the `crates/flowie-app/src` module breakdown, `apple/`, `web/`, and the
+edit/commit/render data flow. Keep a feature's state, actions, and rendering together, and avoid
+GPUI dependencies in core/document logic (`flowie-core`, `flowie-doc`).
 
 ## Licensing of contributions
 

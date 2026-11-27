@@ -192,17 +192,10 @@ Terminal.app write into another app's container, so run the copy there.
 
 ## Project layout
 
-```
-crates/flowie-core   tree, operations, undo, flattening, search, markup parser, SQLite store
-crates/flowie-doc    Workspace: opens an outline and commits edits (undo history, writer), no GPUI
-crates/flowie-math   RaTeX layout and native GPUI painting of formulas
-crates/flowie-app    the GPUI application (UI, settings, i18n, MCP server)
-apple/               FlowieKit (Swift package over flowie-ffi) and the iOS app (FlowieApp)
-scripts/             app bundle, Linux packages, App Store package, icon
-appstore/            Mac App Store release: fastlane, listing, screenshots, sandbox files
-website/             flowie's GitHub Pages site (home, privacy policy, terms of use)
-docs/                these documents
-```
+See [workspace.md](workspace.md) for the full crate breakdown (`crates/*`), desktop module layout
+(`crates/flowie-app/src`), Apple (`apple/`) and browser (`web/`) directories, `scripts/`,
+`appstore/`, `website/`, and the edit/commit/render data flow (and [wiki.md](wiki.md) for the
+local `wiki/` clone).
 
 ## Checks
 

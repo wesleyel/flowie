@@ -6,11 +6,15 @@
 # usage:
 #   scripts/package-appstore.sh              signed build/appstore/Flowie.pkg
 #   scripts/package-appstore.sh --local      sandboxed, ad-hoc signed app for testing (no .pkg)
+#   scripts/package-appstore.sh --dev        development-signed app for this Mac's architecture,
+#                                            syncing with the CloudKit Development environment (no .pkg)
 #
 # environment (signed build):
 #   FLOWIE_BUNDLE_ID   default flowie.spokey.cn (must match the App ID in App Store Connect)
 #   FLOWIE_ICLOUD_CONTAINER default iCloud.flowie.spokey.cn (the profile must carry it)
 #   FLOWIE_PROFILE     Mac App Store provisioning profile (.provisionprofile); default appstore/macos/embedded.provisionprofile
+#                      (--dev: a Mac development profile with the container and this Mac; default: Xcode's
+#                      "Mac Team Provisioning Profile: <bundle id>", which Xcode's automatic signing makes)
 #   FLOWIE_BUILD       build number (CFBundleVersion); default: git commit count
 #   APP_IDENTITY       default: the first "Apple Distribution" / "3rd Party Mac Developer Application" identity
 #   INSTALLER_IDENTITY default: the first "3rd Party Mac Developer Installer" identity
@@ -18,7 +22,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 LOCAL=0
+DEV=0
 [ "${1:-}" = "--local" ] && LOCAL=1
+[ "${1:-}" = "--dev" ] && DEV=1
 
 NAME=Flowie
 BID="${FLOWIE_BUNDLE_ID:-flowie.spokey.cn}"
@@ -34,15 +40,33 @@ echo "== $NAME $VERSION ($BUILD), $BID"
 # ---------------------------------------------------------------- signing
 if [ $LOCAL = 0 ]; then
     find_identity() { security find-identity -v "$@" | grep -E "$PATTERN" | head -1 | sed -E 's/^.*"(.*)"$/\1/'; }
-    PATTERN='"(Apple Distribution|3rd Party Mac Developer Application): '
-    APP_IDENTITY="${APP_IDENTITY:-$(find_identity -p codesigning)}"
-    PATTERN='"3rd Party Mac Developer Installer: '
-    INSTALLER_IDENTITY="${INSTALLER_IDENTITY:-$(find_identity)}"
-    PROFILE="${FLOWIE_PROFILE:-$PKG_DIR/embedded.provisionprofile}"
-    [ -n "$APP_IDENTITY" ] || { echo "no Apple Distribution signing identity in the keychain" >&2; exit 1; }
-    [ -n "$INSTALLER_IDENTITY" ] || { echo "no 3rd Party Mac Developer Installer identity in the keychain" >&2; exit 1; }
-    [ -f "$PROFILE" ] || { echo "missing provisioning profile: $PROFILE (Mac App Store distribution profile for $BID; or set FLOWIE_PROFILE)" >&2; exit 1; }
-    TEAM=$(echo "$APP_IDENTITY" | sed -E 's/.*\(([A-Z0-9]+)\)$/\1/')
+    if [ $DEV = 1 ]; then
+        PATTERN='"Apple Development: '
+        APP_IDENTITY="${APP_IDENTITY:-$(find_identity -p codesigning)}"
+        [ -n "$APP_IDENTITY" ] || { echo "no Apple Development signing identity in the keychain" >&2; exit 1; }
+        if [ -z "${FLOWIE_PROFILE:-}" ]; then
+            # The newest of Xcode's managed Mac development profiles for this bundle id.
+            while IFS= read -r f; do
+                if security cms -D -i "$f" 2>/dev/null | grep -q "<string>Mac Team Provisioning Profile: $BID</string>"; then
+                    FLOWIE_PROFILE="$f"; break
+                fi
+            done < <(ls -t "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.provisionprofile 2>/dev/null)
+        fi
+        PROFILE="${FLOWIE_PROFILE:-}"
+        [ -f "$PROFILE" ] || { echo "no Mac development profile for $BID: let Xcode's automatic signing make one, or set FLOWIE_PROFILE" >&2; exit 1; }
+        # A development profile names its team in its entitlements, not in the identity.
+        TEAM=$(security cms -D -i "$PROFILE" | plutil -extract Entitlements.com\\.apple\\.developer\\.team-identifier raw -)
+    else
+        PATTERN='"(Apple Distribution|3rd Party Mac Developer Application): '
+        APP_IDENTITY="${APP_IDENTITY:-$(find_identity -p codesigning)}"
+        PATTERN='"3rd Party Mac Developer Installer: '
+        INSTALLER_IDENTITY="${INSTALLER_IDENTITY:-$(find_identity)}"
+        PROFILE="${FLOWIE_PROFILE:-$PKG_DIR/embedded.provisionprofile}"
+        [ -n "$APP_IDENTITY" ] || { echo "no Apple Distribution signing identity in the keychain" >&2; exit 1; }
+        [ -n "$INSTALLER_IDENTITY" ] || { echo "no 3rd Party Mac Developer Installer identity in the keychain" >&2; exit 1; }
+        [ -f "$PROFILE" ] || { echo "missing provisioning profile: $PROFILE (Mac App Store distribution profile for $BID; or set FLOWIE_PROFILE)" >&2; exit 1; }
+        TEAM=$(echo "$APP_IDENTITY" | sed -E 's/.*\(([A-Z0-9]+)\)$/\1/')
+    fi
     # The profile must be for this team and bundle id.
     PROFILE_PLIST=$(mktemp)
     security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
@@ -53,19 +77,21 @@ if [ $LOCAL = 0 ]; then
     rm -f "$PROFILE_PLIST"
     [ "$PROFILE_APPID" = "$TEAM.$BID" ] || { echo "profile is for $PROFILE_APPID, expected $TEAM.$BID" >&2; exit 1; }
     echo "   app: $APP_IDENTITY"
-    echo "   pkg: $INSTALLER_IDENTITY"
+    [ $DEV = 1 ] && echo "   profile: $PROFILE" || echo "   pkg: $INSTALLER_IDENTITY"
 fi
 
 # ---------------------------------------------------------------- build
 # Own target dir: cross builds next to stale host artifacts in target/ can
 # fail to load proc macros (E0463).
 TD=target/appstore
-for t in aarch64-apple-darwin x86_64-apple-darwin; do
+TARGETS="aarch64-apple-darwin x86_64-apple-darwin"
+# A development build only needs to run on this Mac.
+[ $DEV = 1 ] && { TARGETS="$(uname -m | sed 's/arm64/aarch64/')-apple-darwin"; OUT=build/appstore-dev; APP="$OUT/$NAME.app"; }
+for t in $TARGETS; do
     CARGO_TARGET_DIR=$TD cargo build --release -p flowie-app --target "$t"
 done
 mkdir -p "$OUT"
-lipo -create -output "$OUT/flowie" \
-    $TD/aarch64-apple-darwin/release/flowie $TD/x86_64-apple-darwin/release/flowie
+lipo -create -output "$OUT/flowie" $(for t in $TARGETS; do echo "$TD/$t/release/flowie"; done)
 scripts/bundle-macos.sh "$OUT/flowie" "$NAME" "$BID" "$OUT" >/dev/null
 rm -f "$OUT/flowie"
 
@@ -119,13 +145,19 @@ for cmd in "Add :com.apple.developer.icloud-container-identifiers array" \
            "Add :com.apple.developer.icloud-container-identifiers:0 string $CONTAINER" \
            "Add :com.apple.developer.icloud-services array" \
            "Add :com.apple.developer.icloud-services:0 string CloudKit" \
-           "Add :com.apple.developer.aps-environment string production"; do
+           "Add :com.apple.developer.aps-environment string $([ $DEV = 1 ] && echo development || echo production)"; do
     /usr/libexec/PlistBuddy -c "$cmd" "$ENT"
 done
+# A development build talks to the CloudKit Development environment, where the schema can still change.
+[ $DEV = 1 ] && /usr/libexec/PlistBuddy -c "Add :com.apple.developer.icloud-container-environment string Development" "$ENT"
 cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
 codesign --force --timestamp --options runtime --entitlements "$ENT" --sign "$APP_IDENTITY" "$APP"
 rm -f "$ENT"
 codesign --verify --strict --verbose=1 "$APP"
+if [ $DEV = 1 ]; then
+    echo "development build (CloudKit Development): $APP"
+    exit 0
+fi
 
 PKG="$OUT/$NAME-$VERSION-$BUILD.pkg"
 productbuild --component "$APP" /Applications --sign "$INSTALLER_IDENTITY" "$PKG"

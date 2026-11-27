@@ -77,13 +77,7 @@ impl Writer {
     }
 
     pub fn blob(&self, b: crate::images::BlobInfo) {
-        self.run(|conn| {
-            conn.execute(
-                "INSERT OR REPLACE INTO blobs (name, mime, width, height, size) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![b.name, b.mime, b.width, b.height, b.size as i64],
-            )
-            .map(drop)
-        });
+        self.run(|conn| super::blobs::write_blob(conn, &b));
     }
 
     pub fn seen(&self, root: NodeId, at: i64) {

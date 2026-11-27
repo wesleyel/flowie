@@ -1,5 +1,7 @@
 //! Imported roots, merge bases, and transactional package updates.
 
+use std::collections::HashSet;
+
 use rusqlite::{params, Connection};
 
 use super::write_nodes_tx;
@@ -41,15 +43,52 @@ pub(super) fn save_import_state(conn: &mut Connection, state: &ImportState) -> r
 }
 
 fn save_import_state_tx(tx: &rusqlite::Transaction<'_>, state: &ImportState) -> rusqlite::Result<()> {
-    for root in &state.roots {
-        tx.execute("DELETE FROM import_bases WHERE root=?1", [root])?;
-        tx.execute("DELETE FROM imports WHERE root=?1", [root])?;
-    }
+    let mut kept_bases = HashSet::with_capacity(state.bases.len());
     for (node, root, hash) in &state.bases {
-        tx.execute("INSERT OR REPLACE INTO import_bases(node,root,base_hash) VALUES (?1,?2,?3)", params![node, root, hash])?;
+        kept_bases.insert((*root, *node));
+        tx.execute(
+            "INSERT INTO import_bases(node,root,base_hash) VALUES (?1,?2,?3)
+             ON CONFLICT(node) DO UPDATE SET root = excluded.root, base_hash = excluded.base_hash",
+            params![node, root, hash],
+        )?;
     }
+    let mut kept_roots = HashSet::with_capacity(state.records.len());
     for record in &state.records {
-        tx.execute("INSERT INTO imports(root,package_id,title,author_id,author_name,exported_at,imported_at,seen_at,source_ids) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![record.root,record.package_id,record.title,record.author_id,record.author_name,record.exported_at,record.imported_at,record.seen_at,serde_json::to_string(&record.source_ids).unwrap_or_default()])?;
+        kept_roots.insert(record.root);
+        tx.execute(
+            "INSERT INTO imports(root,package_id,title,author_id,author_name,exported_at,imported_at,seen_at,source_ids)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+             ON CONFLICT(root) DO UPDATE SET package_id = excluded.package_id, title = excluded.title,
+               author_id = excluded.author_id, author_name = excluded.author_name,
+               exported_at = excluded.exported_at, imported_at = excluded.imported_at,
+               seen_at = excluded.seen_at, source_ids = excluded.source_ids",
+            params![
+                record.root,
+                record.package_id,
+                record.title,
+                record.author_id,
+                record.author_name,
+                record.exported_at,
+                record.imported_at,
+                record.seen_at,
+                serde_json::to_string(&record.source_ids).unwrap_or_default()
+            ],
+        )?;
+    }
+    for root in &state.roots {
+        let existing: Vec<NodeId> = {
+            let mut stmt = tx.prepare_cached("SELECT node FROM import_bases WHERE root = ?1")?;
+            let rows = stmt.query_map([root], |r| r.get(0))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        for node in existing {
+            if !kept_bases.contains(&(*root, node)) {
+                tx.execute("DELETE FROM import_bases WHERE node = ?1", [node])?;
+            }
+        }
+        if !kept_roots.contains(root) {
+            tx.execute("DELETE FROM imports WHERE root = ?1", [root])?;
+        }
     }
     Ok(())
 }

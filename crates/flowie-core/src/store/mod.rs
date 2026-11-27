@@ -407,7 +407,10 @@ fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, dirty: &Dirty, meta: &[(String
         unpurge.execute(params![n.id])?;
     }
     let mut del = tx.prepare_cached("DELETE FROM nodes WHERE id = ?1")?;
-    let mut purge = tx.prepare_cached("INSERT OR REPLACE INTO purged (id, at) VALUES (?1, ?2)")?;
+    let mut purge = tx.prepare_cached(
+        "INSERT INTO purged (id, at) VALUES (?1, ?2)
+         ON CONFLICT(id) DO UPDATE SET at = excluded.at",
+    )?;
     for (id, at) in &dirty.removed {
         del.execute(params![id])?;
         purge.execute(params![id, at.to_bytes().to_vec()])?;
@@ -610,5 +613,143 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
         write_batch(&mut conn, &back, &[]).unwrap();
         assert!(load_purged(&conn).unwrap().is_empty());
         assert!(outbox(&conn).contains(&(b.id, crate::hlc::ALL_REGS as i64)));
+    }
+
+    #[test]
+    fn writes_preserve_unknown_columns_on_every_table() {
+        use crate::hlc::Reg;
+        use crate::images::BlobInfo;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = open(&dir.path().join("flowie.sqlite")).unwrap();
+
+        let mut tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        for table in &tables {
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN future TEXT NOT NULL DEFAULT ''")).unwrap();
+        }
+        let mark = |conn: &Connection, table: &str| {
+            conn.execute(&format!("UPDATE {table} SET future = 'keep'"), []).unwrap();
+        };
+        let futures = |conn: &Connection, table: &str| -> Vec<String> {
+            conn.prepare(&format!("SELECT future FROM {table} ORDER BY rowid"))
+                .unwrap_or_else(|_| conn.prepare(&format!("SELECT future FROM {table}")).unwrap())
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+
+        let mut tested = Vec::new();
+
+        // nodes, outbox, purged, meta
+        let mut node = Node::new(NodeId::random(), ROOT, "a0".into());
+        node.text = "v1".into();
+        let gone_id = NodeId::random();
+        let t1 = Hlc { wall: 10, counter: 0, actor: 1 };
+        let t2 = Hlc { wall: 20, counter: 0, actor: 1 };
+        write_batch(
+            &mut conn,
+            &Dirty { upserts: vec![node.clone()], removed: vec![(gone_id, t1)], unsent: vec![(node.id, Reg::Text.bit())] },
+            &[("zoom".into(), "0".into())],
+        )
+        .unwrap();
+        for table in ["nodes", "outbox", "purged", "meta"] {
+            mark(&conn, table);
+        }
+        node.text = "v2".into();
+        write_batch(
+            &mut conn,
+            &Dirty { upserts: vec![node.clone()], removed: vec![(gone_id, t2)], unsent: vec![(node.id, Reg::Note.bit())] },
+            &[("zoom".into(), "1".into())],
+        )
+        .unwrap();
+        for table in ["nodes", "outbox", "purged", "meta"] {
+            assert_eq!(futures(&conn, table), ["keep"], "{table} lost extra column");
+            tested.push(table.to_string());
+        }
+        assert_eq!(load(&conn).unwrap().0[0].text, "v2");
+        assert_eq!(load_purged(&conn).unwrap(), [(gone_id, t2)]);
+
+        // prefs
+        write_pref(&conn, "saved_searches", "a", t1).unwrap();
+        mark(&conn, "prefs");
+        write_pref(&conn, "saved_searches", "b", t2).unwrap();
+        assert_eq!(futures(&conn, "prefs"), ["keep"], "prefs lost extra column");
+        assert_eq!(load_prefs(&conn).unwrap()[0].1, "b");
+        tested.push("prefs".into());
+
+        // bases, sync_state, lost
+        write_sync(&conn, &SyncWrite::Base(node.id, "e1".into(), "{}".into())).unwrap();
+        mark(&conn, "bases");
+        write_sync(&conn, &SyncWrite::Base(node.id, "e2".into(), r#"{"v":2}"#.into())).unwrap();
+        assert_eq!(futures(&conn, "bases"), ["keep"], "bases lost extra column");
+        tested.push("bases".into());
+
+        write_sync(&conn, &SyncWrite::Cursor { remote: "self".into(), cursor: "c1".into() }).unwrap();
+        mark(&conn, "sync_state");
+        write_sync(&conn, &SyncWrite::Cursor { remote: "self".into(), cursor: "c2".into() }).unwrap();
+        assert_eq!(futures(&conn, "sync_state"), ["keep"], "sync_state lost extra column");
+        tested.push("sync_state".into());
+
+        write_sync(&conn, &SyncWrite::Lost { id: node.id, field: "text".into(), value: "old".into(), at: 1 }).unwrap();
+        mark(&conn, "lost");
+        write_sync(&conn, &SyncWrite::Lost { id: node.id, field: "text".into(), value: "older".into(), at: 2 }).unwrap();
+        assert_eq!(futures(&conn, "lost"), ["keep", ""], "lost modified existing row's extra column");
+        tested.push("lost".into());
+
+        // blobs
+        let blob = BlobInfo { name: "abc.png".into(), mime: "image/png".into(), width: 10, height: 10, size: 42 };
+        blobs::write_blob(&conn, &blob).unwrap();
+        mark(&conn, "blobs");
+        blobs::write_blob(&conn, &BlobInfo { size: 99, ..blob }).unwrap();
+        assert_eq!(futures(&conn, "blobs"), ["keep"], "blobs lost extra column");
+        assert_eq!(load_blobs(&conn).unwrap()[0].size, 99);
+        tested.push("blobs".into());
+
+        // imports, import_bases (update preserves extra columns on surviving rows and drops removed ones)
+        let (root, base_keep, base_drop) = (NodeId::random(), NodeId::random(), NodeId::random());
+        let mut record = ImportRecord {
+            root,
+            package_id: "pkg".into(),
+            title: "v1".into(),
+            author_id: "a".into(),
+            author_name: "Alice".into(),
+            exported_at: 1,
+            imported_at: 2,
+            seen_at: None,
+            source_ids: vec![(root, root)],
+        };
+        let state = ImportState {
+            roots: vec![root],
+            records: vec![record.clone()],
+            bases: vec![(base_keep, root, "h1".into()), (base_drop, root, "h2".into())],
+        };
+        write_import_batch(&mut conn, &Dirty::default(), &state).unwrap();
+        mark(&conn, "imports");
+        mark(&conn, "import_bases");
+        record.title = "v2".into();
+        record.seen_at = Some(5);
+        let updated = ImportState { roots: vec![root], records: vec![record.clone()], bases: vec![(base_keep, root, "h1-updated".into())] };
+        write_import_batch(&mut conn, &Dirty::default(), &updated).unwrap();
+        assert_eq!(futures(&conn, "imports"), ["keep"], "imports lost extra column");
+        assert_eq!(futures(&conn, "import_bases"), ["keep"], "import_bases lost extra column");
+        assert_eq!(load_imports(&conn).unwrap(), [record]);
+        assert_eq!(load_bases(&conn, &[root]).unwrap(), [(base_keep, root, "h1-updated".into())]);
+        // Undoing the import still removes both rows.
+        imports::save_import_state(&mut conn, &ImportState { roots: vec![root], records: vec![], bases: vec![] }).unwrap();
+        assert!(load_imports(&conn).unwrap().is_empty());
+        assert!(load_bases(&conn, &[root]).unwrap().is_empty());
+        tested.push("imports".into());
+        tested.push("import_bases".into());
+
+        tables.sort();
+        tested.sort();
+        assert_eq!(tested, tables, "every table in the schema must be covered by the extra-column test");
     }
 }

@@ -7,6 +7,16 @@ use rusqlite::{params, Connection};
 
 use super::open;
 
+pub(super) fn write_blob(conn: &Connection, b: &crate::images::BlobInfo) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO blobs (name, mime, width, height, size) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(name) DO UPDATE SET mime = excluded.mime, width = excluded.width,
+           height = excluded.height, size = excluded.size",
+        params![b.name, b.mime, b.width, b.height, b.size as i64],
+    )?;
+    Ok(())
+}
+
 pub fn load_blobs(conn: &Connection) -> rusqlite::Result<Vec<crate::images::BlobInfo>> {
     let mut stmt = conn.prepare("SELECT name, mime, width, height, size FROM blobs")?;
     let rows = stmt.query_map([], |r| {

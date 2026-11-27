@@ -298,13 +298,7 @@ fn run_op(conn: &mut Connection, op: &PendingOp) -> rusqlite::Result<()> {
         PendingOp::Pref(key, value, at) => write_pref(conn, key, value, *at),
         PendingOp::ImportState(state) => save_import_state(conn, state),
         PendingOp::ImportBatch { dirty, state } => write_import_batch(conn, dirty, state),
-        PendingOp::Blob(b) => {
-            conn.execute(
-                "INSERT OR REPLACE INTO blobs (name, mime, width, height, size) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![b.name, b.mime, b.width, b.height, b.size as i64],
-            )?;
-            Ok(())
-        }
+        PendingOp::Blob(b) => super::blobs::write_blob(conn, b),
         PendingOp::Sync(write) => write_sync(conn, write),
         PendingOp::Seen { root, at } => {
             conn.execute("UPDATE imports SET seen_at = ?2 WHERE root = ?1", params![root, at])?;

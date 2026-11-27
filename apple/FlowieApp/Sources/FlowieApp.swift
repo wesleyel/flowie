@@ -1,6 +1,7 @@
 // Flowie for iOS: FlowieUI's views over the outline kept in the App Group container.
 import SwiftUI
 import StoreKit
+import CoreSpotlight
 import FlowieFFI
 import FlowieUI
 
@@ -14,6 +15,12 @@ struct FlowieApp: App {
         WindowGroup {
             if let store = launch.store {
                 FlowieShell(store: store, showsSelfHosted: launch.testing)
+                    // A page tapped in Spotlight's results.
+                    .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                        if let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String, store.bullet(id) != nil {
+                            store.show(store.pageRef(bullet: id))
+                        }
+                    }
             } else if let error = launch.error {
                 OpenFailureView(error: error, database: launch.database)
             }
@@ -46,6 +53,8 @@ final class Launch: ObservableObject {
     let database: URL
     let store: OutlineStore?
     let error: Error?
+    /// The pages in Spotlight, kept current while the app runs.
+    private var spotlight: SpotlightIndex?
     /// A debug or TestFlight build: these keep the self-hosted sync settings, which App Store
     /// builds leave out (they sync only through iCloud; wiki: iOS-Cross-Platform §5).
     @Published private(set) var testing: Bool
@@ -68,6 +77,9 @@ final class Launch: ObservableObject {
         // iCloud sync starts at launch, and runs while an account is signed in (wiki:
         // Per-Node-Sync §5.2). CKSyncEngine keeps its place beside the database.
         store?.startICloud(stateURL: database.deletingLastPathComponent().appendingPathComponent("icloud-sync-state.json"))
+        if let store {
+            spotlight = SpotlightIndex(store: store, stateURL: database.deletingLastPathComponent().appendingPathComponent("spotlight-index.json"))
+        }
         // Siri's "Open <page> in Flowie" learns the starred pages' names.
         CaptureShortcuts.updateAppShortcutParameters()
         #if DEBUG

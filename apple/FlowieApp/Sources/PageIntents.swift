@@ -5,8 +5,9 @@ import AppIntents
 import FlowieFFI
 import FlowieUI
 
-/// A bullet's page: its title and the path to it.
-struct PageEntity: AppEntity {
+/// A bullet's page: its title and the path to it. Spotlight's items for pages carry one
+/// (SpotlightIndex.swift).
+struct PageEntity: IndexedEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Page")
     static let defaultQuery = PageQuery()
 

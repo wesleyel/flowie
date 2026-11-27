@@ -272,6 +272,99 @@ pub struct BacklinkView {
     pub path: Vec<Crumb>,
 }
 
+/// A page for the system's search (Spotlight): a bullet with children, a starred bullet, or a
+/// day of the journal. `digest` changes when anything shown or searched changes, so the app
+/// indexes again only the pages whose digest it hasn't indexed.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct IndexedPage {
+    pub id: String,
+    /// Its text as plain text, without markup.
+    pub title: String,
+    /// The bullets above it, from the top, as plain text (Home is not in it).
+    pub path: Vec<String>,
+    /// The start of its children's text, one a line: found by search, not shown.
+    pub content: String,
+    pub starred: bool,
+    /// The date (YYYY-MM-DD) of a journal page.
+    pub day: Option<String>,
+    pub completed: bool,
+    pub digest: u64,
+}
+
+/// How much of a page's children's text goes into the index (characters).
+const INDEXED_CONTENT: usize = 600;
+
+/// A stable hash (FNV-1a), the same in every build and on every run, unlike std's.
+struct Fnv(u64);
+
+impl Fnv {
+    fn new() -> Self {
+        Fnv(0xcbf2_9ce4_8422_2325)
+    }
+
+    fn add(&mut self, bytes: &[u8]) {
+        for b in bytes.iter().chain([&0xff]) {
+            self.0 ^= u64::from(*b);
+            self.0 = self.0.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+}
+
+/// Every page to index (`IndexedPage`), in outline order. Mirrors are left out (their source
+/// is indexed), and so are bullets without text, except the journal's days.
+fn index_pages(tree: &Tree) -> Vec<IndexedPage> {
+    let journal = journal::find_journal(tree);
+    let mut out = Vec::new();
+    // Depth-first, with the path (plain texts) to the bullet being looked at.
+    let mut path: Vec<String> = Vec::new();
+    let mut stack: Vec<(NodeId, usize)> = tree.children(ROOT).iter().rev().map(|&c| (c, 0)).collect();
+    while let Some((id, depth)) = stack.pop() {
+        path.truncate(depth);
+        let node = tree.node(id);
+        if node.mirror != ROOT {
+            continue;
+        }
+        let title = markup::plain_text(&node.text);
+        let children = tree.children(id);
+        let starred = tree.is_starred(id);
+        let day = (journal == Some(tree.parent(id)) && journal::is_date(&node.text)).then(|| node.text.clone());
+        if (!children.is_empty() || starred || day.is_some()) && (!title.trim().is_empty() || day.is_some()) {
+            let mut content = String::new();
+            for &child in children {
+                if content.chars().count() >= INDEXED_CONTENT {
+                    break;
+                }
+                let text = plain(tree, child);
+                if !text.trim().is_empty() {
+                    if !content.is_empty() {
+                        content.push('\n');
+                    }
+                    content.push_str(&text);
+                }
+            }
+            content = content.chars().take(INDEXED_CONTENT).collect();
+            let mut hash = Fnv::new();
+            for part in path.iter().chain([&title, &content]) {
+                hash.add(part.as_bytes());
+            }
+            hash.add(&[u8::from(starred), u8::from(node.completed)]);
+            out.push(IndexedPage {
+                id: id.to_string(),
+                title: title.clone(),
+                path: path.clone(),
+                content,
+                starred,
+                day,
+                completed: node.completed,
+                digest: hash.0,
+            });
+        }
+        path.push(title);
+        stack.extend(children.iter().rev().map(|&c| (c, depth + 1)));
+    }
+    out
+}
+
 /// A deleted bullet, with what is under it, as Recently Deleted lists it.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TrashView {
@@ -819,6 +912,13 @@ impl Outline {
         let links = tree.backlinks(src).into_iter().map(|id| view(id, false));
         let mirrors = tree.mirrors_of(src).into_iter().map(|id| view(id, true));
         Ok(links.chain(mirrors).collect())
+    }
+
+    /// The pages for the system's search (Spotlight): bullets with children, starred bullets
+    /// and the journal's days, not every bullet; each with a digest of what is indexed, so the
+    /// app sends only what changed.
+    pub fn index_pages(&self) -> Vec<IndexedPage> {
+        index_pages(&self.lock().ws.tree)
     }
 
     /// The starred bullets, in the starred list's order.
@@ -1541,6 +1641,38 @@ mod tests {
     }
 
     #[test]
+    fn index_pages_are_parents_stars_and_days() {
+        let outline = Outline::in_memory();
+        let a = add(&outline, None, 0, "**Projects**");
+        let b = add(&outline, Some(&a), 0, "Flowie");
+        let c = add(&outline, Some(&b), 0, "ship it");
+        add(&outline, None, 1, "lone");
+        let star = add(&outline, None, 2, "starred leaf");
+        outline.set_starred(star.clone(), true).unwrap();
+        outline.open_day("2026-11-27".into()).unwrap();
+        let pages = outline.index_pages();
+        let names: Vec<&str> = pages.iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(names, ["Projects", "Flowie", "starred leaf", "Journal", "2026-11-27"], "not leaves, in outline order");
+        assert_eq!(pages[1].path, ["Projects"]);
+        assert_eq!(pages[1].content, "ship it");
+        assert!(pages[2].starred);
+        assert_eq!(pages[4].day.as_deref(), Some("2026-11-27"));
+        assert_eq!(pages[4].path, ["Journal"]);
+        // The digest follows what is indexed: a child's text, the path, a star.
+        let before = pages[1].digest;
+        assert_eq!(outline.index_pages()[1].digest, before, "stable");
+        outline.set_text(c.clone(), "shipped".into()).unwrap();
+        let after = outline.index_pages();
+        assert_ne!(after[1].digest, before);
+        assert_eq!(after[0].digest, pages[0].digest, "the parent's own children didn't change");
+        outline.set_text(a.clone(), "Work".into()).unwrap();
+        assert_ne!(outline.index_pages()[1].digest, after[1].digest, "the path changed");
+        // Deleted pages leave the list.
+        outline.delete(b).unwrap();
+        assert_eq!(outline.index_pages().iter().map(|p| p.title.as_str()).collect::<Vec<_>>(), ["starred leaf", "Journal", "2026-11-27"]);
+    }
+
+    #[test]
     fn saved_searches_list_the_pref() {
         let outline = Outline::in_memory();
         assert!(outline.saved_searches().is_empty());
@@ -1853,6 +1985,9 @@ mod tests {
         }
         let typing = started.elapsed() / n;
         eprintln!("page(): {rows} rows in {page:?}; set_text + rows(): {typing:?}");
+        let started = std::time::Instant::now();
+        let pages = outline.index_pages().len();
+        eprintln!("index_pages(): {pages} pages in {:?}", started.elapsed());
         assert_eq!(rows, 20_000);
     }
 

@@ -1528,7 +1528,7 @@ final class RowCell: UICollectionViewCell {
 /// it is collapsed with children), or its depth number when the row is deeper than rows move
 /// right. Tapping the bullet slot opens the row as a page; double-tapping it folds or unfolds a
 /// row with children; holding it opens the row's menu.
-final class SlotView: UIView {
+final class SlotView: UIView, UIPointerInteractionDelegate {
     var onTap: (() -> Void)?
     /// Double-tapping the bullet of a row with children folds or unfolds it.
     var onDoubleTap: (() -> Void)?
@@ -1557,6 +1557,10 @@ final class SlotView: UIView {
         isAccessibilityElement = true
         accessibilityTraits = .button
         accessibilityLabel = NSLocalizedString("Zoom In", comment: "Opens a bullet as the page, for VoiceOver")
+        // iPad pointer: the bullet highlights under it, as a button does (§4.4). A secondary
+        // click opens the row's menu (the context menu interaction), as on the desktop; one on
+        // the text gets the text's own menu.
+        addInteraction(UIPointerInteraction(delegate: self))
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
             self.setNeedsDisplay()
         }
@@ -1599,6 +1603,25 @@ final class SlotView: UIView {
 
     @objc private func tapped() {
         onTap?()
+    }
+
+    func pointerInteraction(_ interaction: UIPointerInteraction, regionFor request: UIPointerRegionRequest, defaultRegion: UIPointerRegion) -> UIPointerRegion? {
+        tapArea.contains(request.location) ? UIPointerRegion(rect: tapArea) : nil
+    }
+
+    func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
+        guard let metrics else { return nil }
+        // Round, around the bullet (wider for a number).
+        let height = metrics.ring + 8
+        var width = height
+        if let number {
+            let font = UIFont.monospacedDigitSystemFont(ofSize: metrics.noteFont.pointSize - 2, weight: .medium)
+            width = max(height, (number as NSString).size(withAttributes: [.font: font]).width + 14)
+        }
+        let shape = UIBezierPath(roundedRect: CGRect(x: bulletX - width / 2, y: bulletY - height / 2, width: width, height: height), cornerRadius: height / 2)
+        let parameters = UIPreviewParameters()
+        parameters.visiblePath = shape
+        return UIPointerStyle(effect: .highlight(UITargetedPreview(view: self, parameters: parameters)), shape: .path(shape))
     }
 
     @objc private func doubleTapped() {

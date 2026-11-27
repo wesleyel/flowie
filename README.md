@@ -97,15 +97,15 @@ xattr -dr com.apple.quarantine /Applications/Flowie.app
 
 ### Windows 10/11 (x64) preview
 
-— [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
+- [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
 
 ### Linux x86_64 preview
 
-— [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
+- [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
 
 ### Build from source
 
-— [Build guide](docs/building.md).
+- [Build guide](docs/building.md)
 
 ## Learn more
 

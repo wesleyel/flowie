@@ -96,15 +96,15 @@ xattr -dr com.apple.quarantine /Applications/Flowie.app
 
 ### Windows 10/11（x64）预览版
 
-— [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
+- [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
 
 ### Linux x86_64 预览版
 
-— [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
+- [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
 
 ### 从源码构建
 
-— [编译指南](docs/building.md)。
+- [编译指南](docs/building.md)
 
 ## 了解更多
 

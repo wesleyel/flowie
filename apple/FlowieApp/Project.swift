@@ -1,14 +1,37 @@
 // The iOS app, generated with Tuist: `tuist generate` here (after scripts/build-ios-ffi.sh,
-// which builds the Rust core it links). Simulator builds only for now: no signing set up.
+// which builds the Rust core it links). Simulator builds need no signing; device builds and
+// App Store archives (scripts/package-ios.sh) sign automatically with the team below.
 import ProjectDescription
 
 let project = Project(
     name: "Flowie",
     packages: [.package(path: "../FlowieKit")],
-    settings: .settings(base: [
-        "MARKETING_VERSION": "1.0.1",
-        "CURRENT_PROJECT_VERSION": "1",
-    ]),
+    settings: .settings(
+        base: [
+            // Like the desktop: the version is the workspace's in Cargo.toml and the build number
+            // the git commit count. scripts/package-ios.sh sets both when it archives; these are
+            // what Simulator builds show.
+            "MARKETING_VERSION": "1.0.1",
+            "CURRENT_PROJECT_VERSION": "1",
+            "DEVELOPMENT_TEAM": "5D26F33GNM",
+            "CODE_SIGN_STYLE": "Automatic",
+            // The Rust core is built for Apple-silicon Simulators only (scripts/build-ios-ffi.sh),
+            // so Release Simulator builds, which build every architecture, leave Intel out.
+            "EXCLUDED_ARCHS[sdk=iphonesimulator*]": "x86_64",
+        ],
+        configurations: [
+            // Debug builds talk to CloudKit's Development environment and the sandbox push
+            // service; Release builds (TestFlight and the App Store) to Production.
+            .debug(name: "Debug", settings: [
+                "FLOWIE_APS_ENVIRONMENT": "development",
+                "FLOWIE_ICLOUD_ENVIRONMENT": "Development",
+            ]),
+            .release(name: "Release", settings: [
+                "FLOWIE_APS_ENVIRONMENT": "production",
+                "FLOWIE_ICLOUD_ENVIRONMENT": "Production",
+            ]),
+        ]
+    ),
     targets: [
         .target(
             name: "Flowie",
@@ -34,20 +57,25 @@ let project = Project(
                 // CKSyncEngine's silent pushes wake the app to fetch iCloud changes.
                 "UIBackgroundModes": ["remote-notification"],
                 "ITSAppUsesNonExemptEncryption": false,
+                // arm64 only (iOS 26); Tuist's default asks for armv7.
+                "UIRequiredDeviceCapabilities": ["arm64"],
             ]),
             sources: ["Sources/**", "Shared/**"],
-            // The app's own strings, in English and Simplified Chinese.
-            resources: ["Resources/**"],
+            // The app's own strings in English and Simplified Chinese, the app icon
+            // (`swift scripts/make-icon.swift --ios …`), and the Mac app's privacy manifest:
+            // no tracking, no data collected (wiki: iOS-Cross-Platform §5).
+            resources: ["Resources/**", "../../appstore/macos/PrivacyInfo.xcprivacy"],
             // The outline lives in the App Group container (wiki: iOS-Cross-Platform §5), and
             // syncs through iCloud's private database (CloudKit, with pushes for changes; wiki:
             // Per-Node-Sync §5.2). The Simulator needs nothing more; device builds need the group
-            // registered on the App ID, and a profile with it, iCloud and push. Archiving for
-            // the App Store turns aps-environment to production.
+            // registered on the App ID, and a profile with it, iCloud and push. The environments
+            // follow the configuration (above).
             entitlements: .dictionary([
                 "com.apple.security.application-groups": .array([.string("group.flowie.spokey.cn")]),
                 "com.apple.developer.icloud-container-identifiers": .array([.string("iCloud.flowie.spokey.cn")]),
                 "com.apple.developer.icloud-services": .array([.string("CloudKit")]),
-                "aps-environment": .string("development"),
+                "com.apple.developer.icloud-container-environment": .string("$(FLOWIE_ICLOUD_ENVIRONMENT)"),
+                "aps-environment": .string("$(FLOWIE_APS_ENVIRONMENT)"),
             ]),
             dependencies: [
                 // Embedded in the app.
@@ -58,7 +86,8 @@ let project = Project(
                 // What the Rust code needs besides libSystem (rustc --print native-static-libs).
                 .sdk(name: "iconv", type: .library),
                 .sdk(name: "CoreFoundation", type: .framework),
-            ]
+            ],
+            settings: .settings(base: ["ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon"])
         ),
         // The Control Center control (also offered for the Action Button). It only runs the
         // shared `WriteInJournal` intent, which the system runs in the app: no outline, no App
@@ -69,6 +98,7 @@ let project = Project(
             infoPlist: .extendingDefault(with: [
                 "CFBundleDisplayName": "Flowie",
                 "NSExtension": ["NSExtensionPointIdentifier": "com.apple.widgetkit-extension"],
+                // The same version and build number as the app, as the App Store requires.
                 "CFBundleShortVersionString": "$(MARKETING_VERSION)",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
             ]),

@@ -23,7 +23,7 @@ Flowie follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`, 
 - **Release candidates (`X.Y.Z-rc.N`)** freeze the database format at **`rc.1`**:
   - `rc.2` and later candidates of the same version, as well as the final `X.Y.Z` release after candidates, must keep the exact same database format as `rc.1`.
   - Every released SQL snapshot in `crates/flowie-core/src/store/formats/v<N>.sql` is immutable once tagged.
-  - Both CI (`.github/workflows/ci.yml`) and releases (`.github/workflows/release.yml`) enforce these rules via `scripts/check-formats.sh`, and `cargo test -p flowie-core` checks that upgrading every `formats/v*.sql` snapshot produces the exact schema of a fresh database.
+  - Both CI (`.github/workflows/ci.yml`) and releases (`.github/workflows/release.yml`) enforce these rules via `scripts/check-formats.sh`, which also rejects row-replacing writes (`INSERT OR REPLACE`, `REPLACE INTO`). `cargo test -p flowie-core` checks that upgrading every `formats/v*.sql` snapshot produces the exact schema of a fresh database (tables, `WITHOUT ROWID`, indexes, triggers, views), and that a migration marked `additive` only adds to the previous schema. Whether new columns would go stale under older builds is still a judgment call.
 - **Changelogs**: each release candidate lists only what changed since the previous candidate; the final release summarizes all changes across its candidates.
 
 ## Bootstrap phase vs. stable phase

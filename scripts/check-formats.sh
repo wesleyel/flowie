@@ -1,23 +1,86 @@
 #!/usr/bin/env bash
-# Check SQLite format snapshots and SemVer format-freeze rules.
+# Check SQLite format snapshots, SemVer format-freeze rules, and that store
+# writes keep columns they don't know about.
 #
 # Usage:
 #   bash scripts/check-formats.sh            # CI mode (PRs / pushes to main)
 #   bash scripts/check-formats.sh 1.1.0-rc.1 # Release mode (tag v1.1.0-rc.1)
+#
+# The snapshot files are the source of truth for formats here: the newest
+# formats/v<N>.sql is the current format. `cargo test -p flowie-core` checks that
+# they match BASELINE, MIGRATIONS and SCHEMA in store/mod.rs, so this script
+# never reads Rust source.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 python3 - "${1:-}" <<'PY'
-import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
-STORE_MOD = "crates/flowie-core/src/store/mod.rs"
 FORMATS_DIR = "crates/flowie-core/src/store/formats"
+# Frozen at 1.0 (docs/versioning.md); the oldest snapshot must be this one.
+BASELINE = 5
+# Releases from 1.0 on that predate formats/ all shipped the baseline format.
+FORMAT_BEFORE_SNAPSHOTS = BASELINE
+
+# Code under these folders writes the outline database. `crates/flowie-server`
+# keeps its own database and isn't checked.
+STORE_WRITERS = [
+    "crates/flowie-core/src",
+    "crates/flowie-doc/src",
+    "crates/flowie-sync/src",
+    "crates/flowie-ffi/src",
+    "crates/flowie-wasm/src",
+    "crates/flowie-app/src",
+]
+# These delete the old row and insert a new one, wiping columns from a newer
+# format that this build doesn't know: additive formats need
+# `INSERT … ON CONFLICT … DO UPDATE` instead. SQL here is written in capitals,
+# so prose like "insert or replace a node" doesn't match.
+ROW_REPLACING = re.compile(r"\bINSERT\s+OR\s+REPLACE\b|\bREPLACE\s+INTO\b")
+
 SEMVER_RE = re.compile(r"^v?([0-9]+)\.([0-9]+)\.([0-9]+)(?:-rc\.([0-9]+))?$")
-SNAP_RE = re.compile(r"^v([0-9]+)\.sql$")
+SNAPSHOT_RE = re.compile(r"^v([0-9]+)\.sql$")
+
+
+class Version:
+    def __init__(self, major: int, minor: int, patch: int, rc):
+        self.major = major
+        self.minor = minor
+        self.patch = patch
+        self.rc = rc
+
+    @staticmethod
+    def parse(text: str) -> "Version":
+        m = SEMVER_RE.match(text.strip())
+        if not m:
+            fail(f"invalid release version '{text}' (expected X.Y.Z or X.Y.Z-rc.N)")
+        rc = int(m.group(4)) if m.group(4) is not None else None
+        return Version(int(m.group(1)), int(m.group(2)), int(m.group(3)), rc)
+
+    def base(self) -> tuple:
+        return (self.major, self.minor, self.patch)
+
+    def sort_key(self) -> tuple:
+        # A final release sorts after the release candidates of the same version.
+        if self.rc is None:
+            return (self.major, self.minor, self.patch, 1, 0)
+        return (self.major, self.minor, self.patch, 0, self.rc)
+
+    def __str__(self) -> str:
+        base = f"{self.major}.{self.minor}.{self.patch}"
+        if self.rc is None:
+            return base
+        return f"{base}-rc.{self.rc}"
+
+
+class Tag:
+    def __init__(self, name: str, version: Version):
+        self.name = name
+        self.version = version
 
 
 def fail(msg: str) -> None:
@@ -26,225 +89,204 @@ def fail(msg: str) -> None:
 
 
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", *args],
-        capture_output=True,
-        check=check,
-    )
+    return subprocess.run(["git", *args], capture_output=True, check=check)
 
 
-def parse_semver(text: str):
-    m = SEMVER_RE.match(text.strip())
+def snapshot_version(file_name: str):
+    m = SNAPSHOT_RE.match(file_name)
     if not m:
-        fail(f"invalid release version '{text}' (expected X.Y.Z or X.Y.Z-rc.N)")
-    major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    rc = int(m.group(4)) if m.group(4) is not None else None
-    return (major, minor, patch, rc)
+        return None
+    return int(m.group(1))
 
 
-def semver_key(v):
-    major, minor, patch, rc = v
-    # Final releases sort after RCs of the same major.minor.patch.
-    return (major, minor, patch, 1 if rc is None else 0, rc or 0)
+def working_snapshots() -> dict:
+    """Format number -> path of each snapshot in the working tree."""
+    formats_dir = Path(FORMATS_DIR)
+    if not formats_dir.is_dir():
+        fail(f"missing snapshot directory {FORMATS_DIR}")
+    snapshots = {}
+    for entry in sorted(formats_dir.iterdir()):
+        version = snapshot_version(entry.name)
+        if version is None or not entry.is_file():
+            fail(f"unexpected entry in {FORMATS_DIR}: {entry.name}")
+        snapshots[version] = entry
+    return snapshots
 
 
-def fmt_version(v) -> str:
-    major, minor, patch, rc = v
-    base = f"{major}.{minor}.{patch}"
-    return f"{base}-rc.{rc}" if rc is not None else base
+def check_contiguous(snapshots: dict) -> int:
+    """The snapshots run from BASELINE without gaps; returns the current format."""
+    if not snapshots:
+        fail(f"{FORMATS_DIR} holds no snapshots")
+    current = max(snapshots)
+    for version in range(BASELINE, current + 1):
+        if version not in snapshots:
+            fail(f"{FORMATS_DIR} must contain v{BASELINE}.sql..v{current}.sql (v{version}.sql is missing)")
+    for version in snapshots:
+        if version < BASELINE:
+            fail(f"{FORMATS_DIR}/v{version}.sql is older than BASELINE {BASELINE}")
+    return current
 
 
-def strip_rust_comments(src: str) -> str:
-    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
-    src = re.sub(r"//[^\n]*", "", src)
-    return src
+def check_no_row_replacing_writes() -> None:
+    found = []
+    for folder in STORE_WRITERS:
+        root = Path(folder)
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*")):
+            if path.suffix not in (".rs", ".sql") or not path.is_file():
+                continue
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for number, line in enumerate(lines, start=1):
+                # Comments may name these statements, as this check's own docs do.
+                if line.lstrip().startswith(("//", "--")):
+                    continue
+                if ROW_REPLACING.search(line):
+                    found.append(f"  {path}:{number}: {line.strip()}")
+    if found:
+        fail(
+            "these writes replace whole rows and would wipe columns a newer format added; "
+            "use INSERT … ON CONFLICT … DO UPDATE SET <known columns>:\n" + "\n".join(found)
+        )
 
 
-def count_top_level_items(body: str) -> int:
-    body = strip_rust_comments(body).strip()
-    if not body:
-        return 0
-    depth = 0
-    items = 0
-    has_token = False
-    for ch in body:
-        if ch in "{([":
-            depth += 1
-            has_token = True
-        elif ch in "})]":
-            depth -= 1
-            has_token = True
-        elif ch == "," and depth == 0:
-            if has_token:
-                items += 1
-                has_token = False
-        elif not ch.isspace():
-            has_token = True
-    if has_token:
-        items += 1
-    return items
-
-
-def parse_store_mod(src: str, origin: str):
-    m_base = re.search(r"const\s+BASELINE\s*:\s*i64\s*=\s*([0-9]+)\s*;", src)
-    if not m_base:
-        fail(f"could not find BASELINE in {origin}")
-    baseline = int(m_base.group(1))
-
-    m_mig = re.search(r"const\s+MIGRATIONS\s*:\s*&\[Migration\]\s*=\s*&\[(.*?)\]\s*;", src, flags=re.S)
-    if not m_mig:
-        fail(f"could not find MIGRATIONS in {origin}")
-    migrations = count_top_level_items(m_mig.group(1))
-    return baseline, baseline + migrations
-
-
-def parse_cargo_marketing() -> tuple[int, int, int]:
-    text = Path("Cargo.toml").read_text(encoding="utf-8")
-    m_sec = re.search(r"^\[workspace\.package\]\s*$(.*?)(?:^\[|\Z)", text, flags=re.M | re.S)
-    if not m_sec:
-        fail("could not find [workspace.package] in Cargo.toml")
-    m_ver = re.search(r'^version\s*=\s*"([0-9]+)\.([0-9]+)\.([0-9]+)"\s*$', m_sec.group(1), flags=re.M)
-    if not m_ver:
-        fail("could not find version in [workspace.package] of Cargo.toml")
-    return (int(m_ver.group(1)), int(m_ver.group(2)), int(m_ver.group(3)))
-
-
-def released_tags():
-    out = git("tag", "-l", "v*").stdout.decode("utf-8")
+def released_tags() -> list:
+    """Release tags from 1.0.0 on, oldest first. Format rules start at 1.0.0;
+    0.x and the 1.0.0 release candidates predate them."""
     tags = []
+    out = git("tag", "-l", "v*").stdout.decode("utf-8")
     for line in out.splitlines():
         name = line.strip()
-        if not name or not SEMVER_RE.match(name):
+        if not SEMVER_RE.match(name):
             continue
-        v = parse_semver(name)
-        # Format rules begin at 1.0.0 (BASELINE = 5); earlier 0.x and 1.0.0-rc.* predated it.
-        if v[0] < 1 or (v[:3] == (1, 0, 0) and v[3] is not None):
+        version = Version.parse(name)
+        if version.major < 1:
             continue
-        tags.append((semver_key(v), name, v))
-    tags.sort(key=lambda item: item[0])
+        if version.base() == (1, 0, 0) and version.rc is not None:
+            continue
+        tags.append(Tag(name, version))
+    tags.sort(key=lambda tag: tag.version.sort_key())
     return tags
 
 
-def tag_snapshot_files(tag: str) -> dict[int, str]:
-    res = git("ls-tree", "--name-only", tag, f"{FORMATS_DIR}/", check=False)
-    if res.returncode != 0:
-        return {}
-    snaps = {}
-    for line in res.stdout.decode("utf-8").splitlines():
-        rel = line.strip()
-        if not rel:
-            continue
-        name = os.path.basename(rel)
-        m = SNAP_RE.match(name)
-        if m:
-            snaps[int(m.group(1))] = rel
-    return snaps
+def tag_snapshots(tag: str) -> dict:
+    """Format number -> repository path of each snapshot at `tag`."""
+    result = git("ls-tree", "--name-only", tag, f"{FORMATS_DIR}/", check=False)
+    snapshots = {}
+    if result.returncode != 0:
+        return snapshots
+    for line in result.stdout.decode("utf-8").splitlines():
+        path = line.strip()
+        version = snapshot_version(Path(path).name)
+        if version is not None:
+            snapshots[version] = path
+    return snapshots
 
 
-def format_at_tag(tag: str) -> int:
-    snaps = tag_snapshot_files(tag)
-    if snaps:
-        return max(snaps)
-    res = git("show", f"{tag}:{STORE_MOD}", check=False)
-    if res.returncode != 0:
-        fail(f"could not read {STORE_MOD} at tag {tag}")
-    _, fmt = parse_store_mod(res.stdout.decode("utf-8"), f"{tag}:{STORE_MOD}")
-    return fmt
+def format_at(tag: str) -> int:
+    snapshots = tag_snapshots(tag)
+    if not snapshots:
+        return FORMAT_BEFORE_SNAPSHOTS
+    return max(snapshots)
 
 
-# 1. Check working-tree snapshots and consistency with store/mod.rs.
-mod_src = Path(STORE_MOD).read_text(encoding="utf-8")
-baseline, current_fmt = parse_store_mod(mod_src, STORE_MOD)
+def check_released_unchanged(tags: list, snapshots: dict) -> None:
+    for tag in tags:
+        for version, path in sorted(tag_snapshots(tag.name).items()):
+            if version not in snapshots:
+                fail(f"released snapshot {path} (from {tag.name}) was deleted")
+            released = git("show", f"{tag.name}:{path}").stdout
+            if snapshots[version].read_bytes() != released:
+                fail(f"released snapshot {path} (from {tag.name}) was modified; never edit published formats")
 
-formats_path = Path(FORMATS_DIR)
-if not formats_path.is_dir():
-    fail(f"missing snapshot directory {FORMATS_DIR}")
 
-working_snaps: dict[int, Path] = {}
-for entry in sorted(formats_path.iterdir()):
-    m = SNAP_RE.match(entry.name)
-    if not m or not entry.is_file():
-        fail(f"unexpected entry in {FORMATS_DIR}: {entry.name}")
-    working_snaps[int(m.group(1))] = entry
+def cargo_version() -> Version:
+    with open("Cargo.toml", "rb") as f:
+        cargo = tomllib.load(f)
+    try:
+        text = cargo["workspace"]["package"]["version"]
+    except KeyError:
+        fail("could not find version in [workspace.package] of Cargo.toml")
+    version = Version.parse(text)
+    if version.rc is not None:
+        fail(f"Cargo.toml version {text} should not carry -rc.N; release candidates are tags")
+    return version
 
-expected_versions = list(range(baseline, current_fmt + 1))
-if sorted(working_snaps) != expected_versions:
-    fail(
-        f"{FORMATS_DIR} must contain v{baseline}.sql..v{current_fmt}.sql "
-        f"(found: {', '.join(f'v{n}.sql' for n in sorted(working_snaps)) or 'none'})"
-    )
 
-expected_include = f'include_str!("formats/v{current_fmt}.sql")'
-if expected_include not in mod_src:
-    fail(f"SCHEMA in {STORE_MOD} must use {expected_include}")
-
-# 2. Check released snapshots have never been modified or removed.
-target_arg = sys.argv[1].strip()
-target_ver = parse_semver(target_arg) if target_arg else None
-all_tags = released_tags()
-prior_tags = (
-    [t for t in all_tags if t[0] < semver_key(target_ver)]
-    if target_ver is not None
-    else all_tags
-)
-
-for _, tag, _ in prior_tags:
-    for ver, rel in sorted(tag_snapshot_files(tag).items()):
-        if ver not in working_snaps:
-            fail(f"released snapshot {rel} (from {tag}) was deleted")
-        old_bytes = git("show", f"{tag}:{rel}").stdout
-        cur_bytes = working_snaps[ver].read_bytes()
-        if cur_bytes != old_bytes:
-            fail(f"released snapshot {rel} (from {tag}) was modified; never edit published formats")
-
-# 3. Check SemVer format progression and RC freeze rules against the previous tag.
-if not prior_tags:
-    print(f"formats ok: format {current_fmt} (no prior 1.0+ tag)")
-    sys.exit(0)
-
-_, prev_tag, prev_ver = prior_tags[-1]
-prev_fmt = format_at_tag(prev_tag)
-
-if current_fmt < prev_fmt:
-    fail(f"database format decreased from {prev_fmt} ({prev_tag}) to {current_fmt}")
-if current_fmt - prev_fmt > 1:
-    fail(
-        f"database format jumped from {prev_fmt} ({prev_tag}) to {current_fmt}; "
-        f"at most one new format is allowed per minor version"
-    )
-
-if target_ver is not None:
-    tm, tmin, tpatch, trc = target_ver
-    pm, pmin, ppatch, prc = prev_ver
-    if tpatch > 0 and current_fmt != prev_fmt:
+def check_release(target: Version, previous: Tag, current: int, previous_format: int) -> None:
+    changed = current != previous_format
+    if target.patch > 0 and changed:
         fail(
-            f"patch release {fmt_version(target_ver)} must keep database format {prev_fmt} "
-            f"(from {prev_tag}), found {current_fmt}; bump the minor version instead"
+            f"patch release {target} must keep database format {previous_format} "
+            f"(from {previous.name}), found {current}; bump the minor version instead"
         )
-    if trc is not None and trc >= 2 and current_fmt != prev_fmt:
+    if target.rc is not None and target.rc >= 2 and changed:
         fail(
-            f"release candidate {fmt_version(target_ver)} cannot change database format after rc.1 "
-            f"({prev_tag} is format {prev_fmt}, current is {current_fmt})"
+            f"release candidate {target} cannot change database format after rc.1 "
+            f"({previous.name} is format {previous_format}, current is {current})"
         )
-    if trc is None and (pm, pmin, ppatch) == (tm, tmin, tpatch) and prc is not None and current_fmt != prev_fmt:
+    finishes_candidates = previous.version.rc is not None and previous.version.base() == target.base()
+    if target.rc is None and finishes_candidates and changed:
         fail(
-            f"final release {fmt_version(target_ver)} must keep the database format frozen by "
-            f"{prev_tag} ({prev_fmt}), found {current_fmt}"
-        )
-else:
-    cm, cmin, cpatch = parse_cargo_marketing()
-    pm, pmin, ppatch, prc = prev_ver
-    if prc is not None and (cm, cmin, cpatch) == (pm, pmin, ppatch) and current_fmt != prev_fmt:
-        fail(
-            f"database format is frozen for {cm}.{cmin}.{cpatch} after {prev_tag} "
-            f"(format {prev_fmt}), found {current_fmt}"
-        )
-    if cpatch > 0 and (cm, cmin, cpatch) > (pm, pmin, ppatch) and current_fmt != prev_fmt:
-        fail(
-            f"Cargo.toml patch version {cm}.{cmin}.{cpatch} must keep database format {prev_fmt} "
-            f"(from {prev_tag}), found {current_fmt}; bump the minor version instead"
+            f"final release {target} must keep the database format frozen by "
+            f"{previous.name} ({previous_format}), found {current}"
         )
 
-mode = f"release {fmt_version(target_ver)}" if target_ver is not None else "CI"
-print(f"formats ok ({mode}): format {current_fmt} (previous {prev_tag} was {prev_fmt})")
+
+def check_main(cargo: Version, previous: Tag, current: int, previous_format: int) -> None:
+    changed = current != previous_format
+    in_candidates = previous.version.rc is not None and previous.version.base() == cargo.base()
+    if in_candidates and changed:
+        fail(
+            f"database format is frozen for {cargo} after {previous.name} "
+            f"(format {previous_format}), found {current}"
+        )
+    if cargo.patch > 0 and cargo.base() > previous.version.base() and changed:
+        fail(
+            f"Cargo.toml patch version {cargo} must keep database format {previous_format} "
+            f"(from {previous.name}), found {current}; bump the minor version instead"
+        )
+
+
+def main() -> None:
+    target_arg = sys.argv[1].strip()
+    target = Version.parse(target_arg) if target_arg else None
+
+    # 1. The snapshots in the working tree.
+    snapshots = working_snapshots()
+    current = check_contiguous(snapshots)
+
+    # 2. Writes keep columns from newer formats.
+    check_no_row_replacing_writes()
+
+    # 3. Released snapshots are never modified or removed.
+    prior = []
+    for tag in released_tags():
+        if target is None or tag.version.sort_key() < target.sort_key():
+            prior.append(tag)
+    check_released_unchanged(prior, snapshots)
+
+    # 4. SemVer format progression and the release-candidate freeze.
+    if not prior:
+        print(f"formats ok: format {current} (no prior 1.0+ tag)")
+        return
+    previous = prior[-1]
+    previous_format = format_at(previous.name)
+    if current < previous_format:
+        fail(f"database format decreased from {previous_format} ({previous.name}) to {current}")
+    if current - previous_format > 1:
+        fail(
+            f"database format jumped from {previous_format} ({previous.name}) to {current}; "
+            f"at most one new format is allowed per minor version"
+        )
+    if target is not None:
+        check_release(target, previous, current, previous_format)
+        mode = f"release {target}"
+    else:
+        check_main(cargo_version(), previous, current, previous_format)
+        mode = "CI"
+    print(f"formats ok ({mode}): format {current} (previous {previous.name} was {previous_format})")
+
+
+main()
 PY

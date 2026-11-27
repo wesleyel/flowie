@@ -28,15 +28,19 @@
 //!    TABLE`, `CREATE TABLE`/`INDEX`, and filling in data for existing rows).
 //!    Mark `additive: true` only if older builds can keep reading and writing
 //!    safely (new tables, indexes, or columns with defaults); otherwise
-//!    `additive: false` advances `MIN_READER`. It runs inside the upgrade's
+//!    `additive: false` advances `MIN_READER`. `additive_migrations_only_add`
+//!    checks the layout side of that, but not meaning: a new column older
+//!    builds would leave stale (like 5 → 6's sync clocks) still makes a step
+//!    non-additive. It runs inside the upgrade's
 //!    transaction: don't commit, don't set `user_version` or `min_reader`, and
 //!    never edit or reorder earlier entries, which users' databases have
 //!    already been through.
 //! 3. Test it: `every_format_snapshot_upgrades_to_match_a_fresh_database`
 //!    automatically upgrades every `formats/v*.sql` snapshot and checks its
-//!    layout against a fresh database. Also add a data test for the new step,
-//!    and run `scripts/check-formats.sh`. The framework itself is tested in
-//!    `store/migrate.rs`.
+//!    layout (`store/layout.rs`) against a fresh database. Also add a data
+//!    test for the new step, and run `scripts/check-formats.sh`, which also
+//!    rejects `INSERT OR REPLACE`/`REPLACE INTO` in code that writes the
+//!    database. The framework itself is tested in `store/migrate.rs`.
 //! 4. Add a CHANGELOG entry: an upgrade is user-visible, since it leaves a
 //!    backup beside the database (and if non-additive, older Flowies can't
 //!    open the result).
@@ -45,6 +49,8 @@ mod blobs;
 mod imports;
 #[cfg(not(feature = "writer-thread"))]
 mod inline_writer;
+#[cfg(test)]
+mod layout;
 mod migrate;
 #[cfg(feature = "writer-thread")]
 mod writer;
@@ -371,6 +377,7 @@ fn write_nodes_tx(tx: &rusqlite::Transaction<'_>, dirty: &Dirty, meta: &[(String
 
 #[cfg(test)]
 mod tests {
+    use super::layout::Layout;
     use super::*;
     use crate::hlc::Clocks;
     use crate::tree::ROOT;
@@ -378,56 +385,57 @@ mod tests {
     /// Format 5 (1.0) as 1.0 created it. Never edit: users' databases are in this format.
     const V5_SCHEMA: &str = include_str!("formats/v5.sql");
 
-    /// Each table's columns and each index's columns, to compare a migrated database with a
-    /// new one.
-    fn layout(conn: &Connection) -> Vec<String> {
-        let mut stmt = conn.prepare("SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").unwrap();
-        let objects: Vec<(String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(Result::unwrap).collect();
-        let mut out = Vec::new();
-        for (kind, name) in objects {
-            let sql = if kind == "table" {
-                "SELECT name || ' ' || type || ' ' || \"notnull\" || ' ' || ifnull(dflt_value, '-') || ' ' || pk FROM pragma_table_info(?1)"
-            } else {
-                "SELECT name FROM pragma_index_info(?1)"
-            };
-            let mut cols = conn.prepare(sql).unwrap();
-            let cols: Vec<String> = cols.query_map([&name], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
-            out.push(format!("{kind} {name}: {}", cols.join(", ")));
+    /// One `formats/v<N>.sql` file.
+    struct Snapshot {
+        version: i64,
+        sql: String,
+    }
+
+    /// Every `formats/v*.sql` snapshot, oldest first.
+    fn snapshots() -> Vec<Snapshot> {
+        let formats_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/store/formats");
+        let mut snapshots = Vec::new();
+        for entry in std::fs::read_dir(&formats_dir).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+            let version = name.strip_prefix('v').and_then(|s| s.strip_suffix(".sql")).and_then(|s| s.parse::<i64>().ok());
+            let Some(version) = version else { panic!("unexpected file in store/formats: {name}") };
+            snapshots.push(Snapshot { version, sql: std::fs::read_to_string(&path).unwrap() });
         }
-        out
+        snapshots.sort_by_key(|snapshot| snapshot.version);
+        snapshots
+    }
+
+    /// The layout of a database created by `sql`.
+    fn layout_of(sql: &str) -> Layout {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(sql).unwrap();
+        Layout::read(&conn).unwrap()
+    }
+
+    #[test]
+    fn there_is_one_snapshot_per_format_and_schema_is_the_newest() {
+        let snapshots = snapshots();
+        let mut versions = Vec::new();
+        for snapshot in &snapshots {
+            versions.push(snapshot.version);
+        }
+        let expected: Vec<i64> = (BASELINE..=FORMAT).collect();
+        assert_eq!(versions, expected, "store/formats must hold one snapshot per format from BASELINE to FORMAT");
+        assert_eq!(SCHEMA, snapshots.last().unwrap().sql, "SCHEMA must be formats/v{FORMAT}.sql");
     }
 
     #[test]
     fn every_format_snapshot_upgrades_to_match_a_fresh_database() {
-        let formats_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/store/formats");
-        let mut snapshots: Vec<(i64, std::path::PathBuf)> = std::fs::read_dir(&formats_dir)
-            .unwrap()
-            .map(|entry| {
-                let path = entry.unwrap().path();
-                let name = path.file_name().unwrap().to_str().unwrap();
-                let version: i64 = name
-                    .strip_prefix('v')
-                    .and_then(|s| s.strip_suffix(".sql"))
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or_else(|| panic!("unexpected file in store/formats: {name}"));
-                (version, path)
-            })
-            .collect();
-        snapshots.sort_by_key(|(v, _)| *v);
-        let versions: Vec<i64> = snapshots.iter().map(|(v, _)| *v).collect();
-        let expected: Vec<i64> = (BASELINE..=FORMAT).collect();
-        assert_eq!(versions, expected, "store/formats must hold one snapshot per format from BASELINE to FORMAT");
-
         let dir = tempfile::tempdir().unwrap();
-        let fresh = open(&dir.path().join("fresh.sqlite")).unwrap();
-        let fresh_layout = layout(&fresh);
+        let fresh = Layout::read(&open(&dir.path().join("fresh.sqlite")).unwrap()).unwrap();
 
-        for (version, sql_path) in snapshots {
-            let sql = std::fs::read_to_string(&sql_path).unwrap();
+        for snapshot in snapshots() {
+            let version = snapshot.version;
             let db_path = dir.path().join(format!("from-v{version}.sqlite"));
             {
                 let conn = Connection::open(&db_path).unwrap();
-                conn.execute_batch(&sql).unwrap();
+                conn.execute_batch(&snapshot.sql).unwrap();
                 conn.pragma_update(None, "user_version", version).unwrap();
             }
             let conn = open(&db_path).unwrap();
@@ -437,7 +445,27 @@ mod tests {
                 let min_reader: String = conn.query_row("SELECT value FROM meta WHERE key = 'min_reader'", [], |r| r.get(0)).unwrap();
                 assert_eq!(min_reader, MIN_READER.to_string(), "v{version} did not set min_reader");
             }
-            assert_eq!(layout(&conn), fresh_layout, "database upgraded from v{version} differs from a fresh database");
+            let differences = Layout::read(&conn).unwrap().differences(&fresh);
+            assert!(differences.is_empty(), "database upgraded from v{version} differs from a fresh database:\n{}", differences.join("\n"));
+        }
+    }
+
+    #[test]
+    fn additive_migrations_only_add() {
+        let snapshots = snapshots();
+        for (i, migration) in MIGRATIONS.iter().enumerate() {
+            if !migration.additive {
+                continue;
+            }
+            let (old, new) = (&snapshots[i], &snapshots[i + 1]);
+            let problems = layout_of(&new.sql).additive_problems(&layout_of(&old.sql));
+            assert!(
+                problems.is_empty(),
+                "the migration from v{} to v{} is marked additive, but older builds can't safely write the result:\n{}",
+                old.version,
+                new.version,
+                problems.join("\n")
+            );
         }
     }
 
@@ -492,7 +520,8 @@ mod tests {
         let min_reader: String = conn.query_row("SELECT value FROM meta WHERE key = 'min_reader'", [], |r| r.get(0)).unwrap();
         assert_eq!(min_reader, MIN_READER.to_string());
         let fresh = open(&dir.path().join("fresh.sqlite")).unwrap();
-        assert_eq!(layout(&conn), layout(&fresh), "the upgrade builds what a new database has");
+        let differences = Layout::read(&conn).unwrap().differences(&Layout::read(&fresh).unwrap());
+        assert!(differences.is_empty(), "the upgrade builds what a new database has:\n{}", differences.join("\n"));
 
         // Old rows get clocks from their times, and their own parent as the one moved from.
         let (nodes, _) = load(&conn).unwrap();

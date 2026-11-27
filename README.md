@@ -83,33 +83,29 @@ you scroll.
 
 ## Get Flowie
 
-### macOS
+### macOS 13+
 
-Requires macOS 13 or later on Apple silicon or Intel.
+- [Mac App Store](https://apps.apple.com/app/id6835913837)
+- [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
+- **Homebrew**: `brew install --cask wesleyel/tap/flowie`
 
-- **Mac App Store** — a signed, sandboxed build with automatic updates. Buying it supports development. [Get it on the Mac App Store](https://apps.apple.com/app/id6835913837).
-- **Homebrew** — install with `brew install --cask wesleyel/tap/flowie` and update with `brew upgrade --cask wesleyel/tap/flowie`.
-- **GitHub** — download `Flowie-<version>-macos.zip`, unzip it and move `Flowie.app` to Applications. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest).
-
-The Homebrew and GitHub builds are not notarized, so macOS won't open them at first. After moving Flowie to Applications (or installing it with Homebrew), clear the quarantine flag in Terminal, then open it; do this again after each update:
+The Homebrew and GitHub builds are not notarized, so macOS may initially prevent them from opening. After moving Flowie to Applications (or installing it with Homebrew), run the following command in Terminal to remove the quarantine flag, then open Flowie. Repeat after each update:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Flowie.app
 ```
 
-### Windows (preview)
+### Windows 10/11 (x64) preview
 
-Requires Windows 10 or 11 (x64). Download `Flowie-<version>-windows-x64.zip`, unzip it and run `Flowie.exe`. There is no native Windows ARM64 package. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest).
+— [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
 
-### Linux (preview)
+### Linux x86_64 preview
 
-For x86_64 with glibc 2.35 or later (Ubuntu 22.04 and newer). Download `Flowie-<version>-linux-x86_64.AppImage`, make it executable and run it, or extract `Flowie-<version>-linux-x86_64.tar.gz` into `~/.local` (`tar -xzf Flowie-<version>-linux-x86_64.tar.gz -C ~/.local --strip-components=1`) and run `flowie`. [Download from GitHub Releases](https://github.com/wesleyel/flowie/releases/latest). The Linux build is a preview; [what it needs](docs/building.md#linux).
-
-Homebrew follows the newest version, including [release candidates](https://github.com/wesleyel/flowie/releases). The latest-release link is for stable versions. See the [installation guide](https://wesleyel.github.io/flowie/download.html) for checksums and how to preserve an outline when upgrading from a candidate to 1.0.
+— [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
 
 ### Build from source
 
-You can build Flowie on macOS, Windows or Linux. [Build guide](docs/building.md).
+— [Build guide](docs/building.md).
 
 ## Learn more
 

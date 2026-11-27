@@ -82,33 +82,29 @@ Flowie 是原生 Rust 应用，用 [GPUI](https://gpui.rs) 在 GPU 上绘制。�
 
 ## 获取 Flowie
 
-### macOS
+### macOS 13+
 
-需要 macOS 13 或更高版本，支持 Apple 芯片和 Intel。
+- [Mac App Store](https://apps.apple.com/app/id6835913837)
+- [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
+- **Homebrew**: `brew install --cask wesleyel/tap/flowie`
 
-- **Mac App Store** 版本经过签名，在沙盒中运行，可自动更新。购买可以支持开发。中国大陆地区暂未上架。[前往 Mac App Store](https://apps.apple.com/app/id6835913837)。
-- **Homebrew** 用 `brew install --cask wesleyel/tap/flowie` 安装，用 `brew upgrade --cask wesleyel/tap/flowie` 更新。
-- **GitHub** 下载 `Flowie-<版本号>-macos.zip`，解压后把 `Flowie.app` 移到「应用程序」。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。
-
-Homebrew 和 GitHub 提供的版本未经公证，macOS 一开始会拒绝打开。把 Flowie 移到「应用程序」（或用 Homebrew 安装）之后，在终端运行下面的命令去掉隔离标记，再打开它；每次更新后都要再运行一次：
+Homebrew 和 GitHub 提供的版本未经公证，macOS 一开始会拒绝打开。把 Flowie 移到「应用程序」（或用 Homebrew 安装）之后，在终端运行下面的命令去掉隔离标记，再打开它；更新后重复此操作
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Flowie.app
 ```
 
-### Windows（预览）
+### Windows 10/11（x64）预览版
 
-需要 Windows 10 或 11（x64）。下载 `Flowie-<版本号>-windows-x64.zip`，解压后运行 `Flowie.exe`。暂不提供原生 Windows ARM64 包。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。
+— [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
 
-### Linux（预览）
+### Linux x86_64 预览版
 
-适用于 x86_64、glibc 2.35 及以上（Ubuntu 22.04 及更新版本）。下载 `Flowie-<版本号>-linux-x86_64.AppImage`，加上可执行权限后运行；或把 `Flowie-<版本号>-linux-x86_64.tar.gz` 解压到 `~/.local`（`tar -xzf Flowie-<版本号>-linux-x86_64.tar.gz -C ~/.local --strip-components=1`），再运行 `flowie`。[前往 GitHub Releases 下载](https://github.com/wesleyel/flowie/releases/latest)。Linux 版目前是预览版，[运行要求见这里](docs/building.md#linux)。
-
-Homebrew 跟随最新版本，包括[候选版](https://github.com/wesleyel/flowie/releases)；GitHub 的「最新版本」链接指向正式版。[安装指南](https://wesleyel.github.io/flowie/download.html)有文件校验和从候选版升级到 1.0 时保留大纲的说明。
+— [GitHub Releases](https://github.com/wesleyel/flowie/releases/latest)
 
 ### 从源码构建
 
-macOS、Windows 和 Linux 都可以从源码构建。[编译指南](docs/building.md)。
+— [编译指南](docs/building.md)。
 
 ## 了解更多
 

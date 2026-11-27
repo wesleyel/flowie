@@ -437,6 +437,13 @@ public final class PageModel: ObservableObject {
         edit { try store.outline.setCollapsed(id: row.id, collapsed: !row.collapsed) }
     }
 
+    /// Show `levels` levels of the page, as the desktop's Show N Levels: `1` folds every
+    /// top-level row (Collapse All), `.max` unfolds everything (Expand All). One undo step.
+    public func expandToLevel(_ levels: UInt32) {
+        guard !isUnmadeDay else { return }
+        edit { try store.outline.expandToLevel(root: root, levels: levels) }
+    }
+
     /// How many children a row has as the page would show them (completed ones left out when
     /// hidden), for VoiceOver; a collapsed row's are read from the outline. Nil when unknown.
     public func childCount(_ row: RowView) -> Int? {

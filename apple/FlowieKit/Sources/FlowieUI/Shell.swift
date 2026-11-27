@@ -325,7 +325,7 @@ private struct Subtitle: ViewModifier {
 }
 
 /// A page's "…" menu, the only button at its top right (§4.4): star, show or hide completed,
-/// copy link.
+/// fold the page to a level, copy link.
 struct PageMenu: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var page: PageModel
@@ -346,6 +346,13 @@ struct PageMenu: View {
                 systemImage: store.hideCompleted ? "eye" : "eye.slash"
             ) {
                 store.setHideCompleted(!store.hideCompleted)
+            }
+            if page.rows.contains(where: \.hasChildren) {
+                Section {
+                    ForEach(FoldLevel.allCases, id: \.self) { level in
+                        Button(level.title, systemImage: level.symbol) { page.expandToLevel(level.levels) }
+                    }
+                }
             }
             if let id = page.root {
                 Button(NSLocalizedString("Copy Link", comment: "Menu item"), systemImage: "link") {

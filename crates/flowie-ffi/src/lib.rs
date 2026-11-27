@@ -654,6 +654,22 @@ impl Outline {
         })
     }
 
+    /// Show `levels` levels of the page at `root` (none: Home), as the desktop's Show N Levels
+    /// and Expand All: bullets with children above that depth unfold, the ones at it fold.
+    /// `1` folds every top-level row (Collapse All); `u32::MAX` unfolds everything. One undo
+    /// step; folding doesn't sync (each device keeps its own).
+    pub fn expand_to_level(&self, root: Option<String>, levels: u32) -> Result<EditOutcome, FlowieError> {
+        let mut state = self.lock();
+        let root = page_root(&state.ws.tree, root)?;
+        let levels = if levels == u32::MAX { usize::MAX } else { levels as usize };
+        Ok(tracked(&mut state, false, |ws| {
+            let root = ws.tree.source(root);
+            ws.tree.expand_to_level(root, levels);
+            ws.commit_with_imports(None, None, None);
+            None
+        }))
+    }
+
     /// Move a bullet, with what is under it, to the end of `parent` (none: Home), unfolding
     /// `parent` so it shows there: the desktop's Move To. Nothing changes when `parent` is the
     /// bullet itself or under it. An undo step.
@@ -1281,6 +1297,31 @@ mod tests {
         assert_eq!(outline.page(None).unwrap().len(), 2);
         assert!(outline.undo().structure_changed);
         assert_eq!(outline.page(None).unwrap().len(), 1, "undo folds it again");
+    }
+
+    #[test]
+    fn expanding_to_a_level_folds_below_it_and_undoes() {
+        let outline = Outline::in_memory();
+        let a = add(&outline, None, 0, "a");
+        let b = add(&outline, Some(&a), 0, "b");
+        add(&outline, Some(&b), 0, "c");
+        add(&outline, None, 1, "d");
+        let names = |o: &Outline| o.page(None).unwrap().into_iter().map(|r| r.text).collect::<Vec<_>>();
+        let out = outline.expand_to_level(None, 1).unwrap();
+        assert!(out.structure_changed);
+        assert_eq!(names(&outline), ["a", "d"], "collapse all");
+        outline.expand_to_level(None, 2).unwrap();
+        assert_eq!(names(&outline), ["a", "b", "d"]);
+        assert!(outline.page(None).unwrap()[1].collapsed);
+        outline.expand_to_level(None, u32::MAX).unwrap();
+        assert_eq!(names(&outline), ["a", "b", "c", "d"]);
+        assert!(outline.expand_to_level(None, u32::MAX).unwrap().is_empty(), "already expanded");
+        assert!(outline.undo().structure_changed);
+        assert_eq!(names(&outline), ["a", "b", "d"], "one undo step");
+        // On a bullet's page, levels count from it.
+        outline.expand_to_level(Some(a.clone()), 1).unwrap();
+        assert_eq!(outline.page(Some(a.clone())).unwrap().len(), 1);
+        assert!(outline.expand_to_level(Some("nope".into()), 1).is_err());
     }
 
     #[test]

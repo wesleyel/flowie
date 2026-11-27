@@ -61,6 +61,21 @@ enum QuickAction {
 
 /// SwiftUI apps hear about quick actions through a scene delegate.
 final class CaptureAppDelegate: NSObject, UIApplicationDelegate {
+    /// CKSyncEngine hears of changes in iCloud through silent pushes (its own subscription).
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        application.registerForRemoteNotifications()
+        return true
+    }
+
+    /// A push from iCloud, also while in the background: fetch what changed, and save it
+    /// before iOS suspends the app again.
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        guard let store = Launch.shared.store else { return .noData }
+        await store.fetchFromICloud()
+        try? store.flush()
+        return .newData
+    }
+
     func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         let config = UISceneConfiguration(name: nil, sessionRole: session.role)

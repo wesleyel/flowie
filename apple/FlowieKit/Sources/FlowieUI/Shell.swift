@@ -294,6 +294,15 @@ struct PageScreen: View {
             .safeAreaInset(edge: .top) {
                 if let problem = store.problem {
                     Text(problem).font(.footnote).foregroundStyle(.red).padding(8)
+                } else if top && store.fetchingFirst {
+                    // A new install of someone with a Mac: their outline is on its way (§4.3).
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Syncing your outline from iCloud…")
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(8)
                 }
             }
     }
@@ -569,12 +578,62 @@ struct SettingsView: View {
         return "\(short) (\(build))"
     }
 
+    /// iCloud sync's state, in a few words.
+    private var iCloudStatus: String {
+        switch store.iCloud {
+        case .off: return NSLocalizedString("Off", comment: "iCloud sync status")
+        case .checking: return NSLocalizedString("Checking…", comment: "iCloud sync status")
+        case .syncing: return NSLocalizedString("Syncing…", comment: "iCloud sync status")
+        case .synced: return NSLocalizedString("Up to Date", comment: "iCloud sync status")
+        case .failed: return NSLocalizedString("Waiting to Sync", comment: "iCloud sync status")
+        case .unavailable(let access):
+            switch access {
+            case .noAccount: return NSLocalizedString("Not Signed In", comment: "iCloud sync status")
+            case .restricted: return NSLocalizedString("Restricted", comment: "iCloud sync status")
+            case .notEntitled: return NSLocalizedString("Unavailable in This Build", comment: "iCloud sync status")
+            default: return NSLocalizedString("Unavailable", comment: "iCloud sync status")
+            }
+        }
+    }
+
+    /// What iCloud sync's state means, and what to do about it.
+    private var iCloudFooter: String {
+        switch store.iCloud {
+        case .off:
+            return NSLocalizedString("Your outline syncs with your Mac through iCloud when this iPhone is signed in to iCloud.", comment: "Settings footer")
+        case .checking, .syncing:
+            return NSLocalizedString("Your outline syncs with your Mac through your iCloud account.", comment: "Settings footer")
+        case .synced(let date):
+            return String(format: NSLocalizedString("Your outline syncs with your Mac through your iCloud account. Last synced %@.", comment: "Settings footer; %@ is a time"),
+                          date.formatted(date: .omitted, time: .shortened))
+        case .failed(let error):
+            return String(format: NSLocalizedString("Can’t reach iCloud right now (%@). Your edits are kept on this iPhone and sent when it can.", comment: "Settings footer; %@ is the error"), error)
+        case .unavailable(let access):
+            switch access {
+            case .noAccount:
+                return NSLocalizedString("Sign in to iCloud in the Settings app to sync your outline with your Mac. Your outline stays on this iPhone meanwhile.", comment: "Settings footer")
+            case .restricted:
+                return NSLocalizedString("iCloud is restricted on this iPhone (Screen Time or a device profile), so your outline stays on this iPhone.", comment: "Settings footer")
+            case .notEntitled:
+                return NSLocalizedString("This build of Flowie isn’t signed for iCloud, so your outline stays on this device.", comment: "Settings footer")
+            case .unsupported:
+                return NSLocalizedString("iCloud sync needs a newer version of iOS.", comment: "Settings footer")
+            case .temporarilyUnavailable:
+                return NSLocalizedString("iCloud is temporarily unavailable. Flowie tries again by itself.", comment: "Settings footer")
+            case .failed(let error):
+                return String(format: NSLocalizedString("Couldn’t check iCloud (%@). Flowie tries again by itself.", comment: "Settings footer; %@ is the error"), error)
+            case .available:
+                return ""
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     LabeledContent(NSLocalizedString("iCloud Sync", comment: "Settings row")) {
-                        Text("Not available yet").foregroundStyle(.secondary)
+                        Text(iCloudStatus).foregroundStyle(.secondary)
                     }
                     if showsSelfHosted {
                         NavigationLink(NSLocalizedString("Self-Hosted Server", comment: "Settings row")) {
@@ -585,9 +644,12 @@ struct SettingsView: View {
                 } header: {
                     Text("Sync")
                 } footer: {
-                    Text(showsSelfHosted
-                        ? "iCloud sync between your iPhone and Mac comes in a later build. The self-hosted server is for testing, and isn’t in App Store builds."
-                        : "iCloud sync between your iPhone and Mac comes in a later build.")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(iCloudFooter)
+                        if showsSelfHosted {
+                            Text("The self-hosted server is for testing, and isn’t in App Store builds. While it syncs, iCloud is off.")
+                        }
+                    }
                 }
                 Section {
                     NavigationLink {

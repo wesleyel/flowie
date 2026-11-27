@@ -26,7 +26,10 @@ public struct SyncSettingsView: View {
                     Button("Sync") { store.startSync(server: server, token: token) }
                         .disabled(server.isEmpty || token.isEmpty)
                 } else {
-                    Button("Stop Syncing", role: .destructive) { store.stopSync() }
+                    Button("Stop Syncing", role: .destructive) {
+                        store.stopSync()
+                        store.resumeICloud()
+                    }
                 }
                 Text(statusText)
                     .font(.footnote)

@@ -9,6 +9,14 @@ import FlowieFFI
 public final class OutlineStore: ObservableObject {
     public let outline: Outline
     @Published public private(set) var syncStatus: SyncStatus = .off
+    /// Sync through iCloud (CloudSyncing.swift).
+    @Published public internal(set) var iCloud: ICloudStatus = .off
+    /// A new install fetching the outline from iCloud for the first time (§4.3).
+    @Published public internal(set) var fetchingFirst = false
+    /// The running `CloudController` (iOS 17 and macOS 14 only, so kept untyped), and where
+    /// its state is kept.
+    var cloud: AnyObject?
+    var cloudStateURL: URL?
     /// The last edit that failed, to show.
     @Published public var problem: String?
     /// Whether pages leave out completed rows (this device's setting, as on the desktop).
@@ -51,6 +59,7 @@ public final class OutlineStore: ObservableObject {
         if outline.pumpSync() {
             reloadAll()
         }
+        queueForICloud()
     }
 
     /// Every page reads its rows again (sync brought changes, or a setting changed).
@@ -178,8 +187,9 @@ public final class OutlineStore: ObservableObject {
 
     // MARK: Sync
 
-    /// Sync with a self-hosted server (`flowie-server`) from now on.
+    /// Sync with a self-hosted server (`flowie-server`) from now on, instead of iCloud.
     public func startSync(server: String, token: String) {
+        stopICloud()
         outline.startSync(server: server, token: token, observer: Pump(store: self))
         syncStatus = outline.syncStatus()
     }
@@ -187,6 +197,13 @@ public final class OutlineStore: ObservableObject {
     public func stopSync() {
         outline.stopSync()
         syncStatus = outline.syncStatus()
+    }
+
+    /// Sync through iCloud again, after a self-hosted server's sync stopped.
+    public func resumeICloud() {
+        if let url = cloudStateURL, iCloud == .off {
+            startICloud(stateURL: url)
+        }
     }
 
     /// Take what sync finished; the outline changed if it brought records.

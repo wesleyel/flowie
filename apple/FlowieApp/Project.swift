@@ -31,15 +31,23 @@ let project = Project(
                     "UIApplicationShortcutItemIconSymbolName": "square.and.pencil",
                 ]],
                 "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": false],
+                // CKSyncEngine's silent pushes wake the app to fetch iCloud changes.
+                "UIBackgroundModes": ["remote-notification"],
                 "ITSAppUsesNonExemptEncryption": false,
             ]),
             sources: ["Sources/**", "Shared/**"],
             // The app's own strings, in English and Simplified Chinese.
             resources: ["Resources/**"],
-            // The outline lives in the App Group container (wiki: iOS-Cross-Platform §5). The
-            // Simulator needs nothing more; device builds need the group registered on the App ID.
+            // The outline lives in the App Group container (wiki: iOS-Cross-Platform §5), and
+            // syncs through iCloud's private database (CloudKit, with pushes for changes; wiki:
+            // Per-Node-Sync §5.2). The Simulator needs nothing more; device builds need the group
+            // registered on the App ID, and a profile with it, iCloud and push. Archiving for
+            // the App Store turns aps-environment to production.
             entitlements: .dictionary([
                 "com.apple.security.application-groups": .array([.string("group.flowie.spokey.cn")]),
+                "com.apple.developer.icloud-container-identifiers": .array([.string("iCloud.flowie.spokey.cn")]),
+                "com.apple.developer.icloud-services": .array([.string("CloudKit")]),
+                "aps-environment": .string("development"),
             ]),
             dependencies: [
                 // Embedded in the app.

@@ -63,6 +63,9 @@ final class Launch: ObservableObject {
             store = nil
             self.error = error
         }
+        // iCloud sync starts at launch, and runs while an account is signed in (wiki:
+        // Per-Node-Sync §5.2). CKSyncEngine keeps its place beside the database.
+        store?.startICloud(stateURL: database.deletingLastPathComponent().appendingPathComponent("icloud-sync-state.json"))
         #if DEBUG
         testing = true
         #else

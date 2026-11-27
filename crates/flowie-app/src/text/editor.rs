@@ -9,22 +9,9 @@ use gpui::{
     Point, StyledText, TextLayout, TextRun, UTF16Selection, Window,
 };
 
+use flowie_doc::utf16::{from_utf16, to_utf16};
+
 use crate::outline::Outline;
-
-fn to_utf16(text: &str, offset: usize) -> usize {
-    text[..offset.min(text.len())].encode_utf16().count()
-}
-
-fn from_utf16(text: &str, offset: usize) -> usize {
-    let mut utf16 = 0;
-    for (i, ch) in text.char_indices() {
-        if utf16 >= offset {
-            return i;
-        }
-        utf16 += ch.len_utf16();
-    }
-    text.len()
-}
 
 impl Outline {
     fn range_to_utf16(&self, r: &Range<usize>) -> Range<usize> {

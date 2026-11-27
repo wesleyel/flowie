@@ -15,6 +15,7 @@ pub use sync::{LostCopy, SyncState};
 mod driver;
 pub mod keys;
 mod sync;
+pub mod utf16;
 
 /// An open outline and what saving it needs.
 pub struct Workspace {

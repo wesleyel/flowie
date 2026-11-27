@@ -34,8 +34,6 @@ public struct OutlinePage: UIViewControllerRepresentable {
     }
 }
 
-/// Sizes of a row at the current text size and width (§4.1). At the default (Large) size:
-/// 17pt text on 22pt lines, 3pt above and below, a 20pt bullet slot, 16pt a level.
 /// How far the page's "…" menu and ⌃-number keys fold the page: the desktop's Show 1 Level
 /// (here Collapse All), Show 2 and 3 Levels, and Expand All, with its keys.
 enum FoldLevel: CaseIterable {
@@ -79,6 +77,11 @@ enum FoldLevel: CaseIterable {
     }
 }
 
+/// Sizes of a row at the current text size and width (§4.1). At the default (Large) size:
+/// 17pt text on 22pt lines, 3pt above and below, a 20pt bullet slot, 16pt a level. In a
+/// regular-width window (iPad full screen, wide Split View or Stage Manager windows) rows sit
+/// closer, as in a desktop outliner: 2pt above and below, 14pt a level. Not a setting (§2.2);
+/// the text size still follows Dynamic Type.
 struct RowMetrics: Equatable {
     var font: UIFont
     var lineHeight: CGFloat
@@ -97,6 +100,7 @@ struct RowMetrics: Equatable {
     init(width: CGFloat, traits: UITraitCollection) {
         let body = UIFontMetrics(forTextStyle: .body)
         let footnote = UIFontMetrics(forTextStyle: .footnote)
+        let regular = traits.horizontalSizeClass == .regular
         font = body.scaledFont(for: .systemFont(ofSize: 17), compatibleWith: traits)
         lineHeight = ceil(body.scaledValue(for: 22, compatibleWith: traits))
         noteFont = footnote.scaledFont(for: .systemFont(ofSize: 13), compatibleWith: traits)
@@ -104,7 +108,8 @@ struct RowMetrics: Equatable {
         slot = body.scaledValue(for: 20, compatibleWith: traits)
         bullet = body.scaledValue(for: 6, compatibleWith: traits)
         ring = body.scaledValue(for: 16, compatibleWith: traits)
-        indent = min(body.scaledValue(for: 16, compatibleWith: traits), 22)
+        pad = regular ? 2 : 3
+        indent = regular ? min(body.scaledValue(for: 14, compatibleWith: traits), 20) : min(body.scaledValue(for: 16, compatibleWith: traits), 22)
         let room = width * 0.45 - leading - trailing - slot
         maxIndent = max(0, Int(floor(room / indent)))
     }
@@ -255,7 +260,9 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             undoToast.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -32),
         ])
 
-        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
+        // The text size, or the width class (Split View, Stage Manager, rotation): rows are
+        // measured again with the metrics for it.
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitHorizontalSizeClass.self]) { (self: Self, _) in
             self.remeasure()
         }
         iCloud = page.store.iCloud.isOn
@@ -345,7 +352,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         }
     }
 
-    /// The text size or the width changed: every row is measured again.
+    /// The text size, the width or the width class changed: every row is measured again.
     private func remeasure() {
         guard isViewLoaded, dataSource != nil else { return }
         metrics = RowMetrics(width: view.bounds.width, traits: traitCollection)

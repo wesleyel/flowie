@@ -104,6 +104,24 @@ update-mime-database ~/.local/share/mime
 Both name the desktop entry, icon and window `flowie.spokey.cn`, so Wayland matches the window
 to its icon.
 
+### iOS (in development)
+
+The iOS app (`apple/FlowieApp`) is FlowieUI's SwiftUI views over the Rust core through
+`flowie-ffi`. It runs in the iOS Simulator only for now (no signing set up). It needs Xcode and
+[Tuist](https://tuist.dev):
+
+```bash
+scripts/build-ios-ffi.sh                  # build/ios/FlowieFFI.xcframework + Swift bindings
+cd apple/FlowieApp && tuist generate --no-open
+xcodebuild -workspace Flowie.xcworkspace -scheme Flowie \
+    -destination 'platform=iOS Simulator,name=iPhone Air' -derivedDataPath ../../build/ios/DerivedData build
+xcrun simctl install booted ../../build/ios/DerivedData/Build/Products/Debug-iphonesimulator/Flowie.app
+xcrun simctl launch booted flowie.spokey.cn
+```
+
+Run `scripts/build-ios-ffi.sh` again after changing Rust code. The outline is kept in the app's
+`Library/Application Support/Flowie/flowie.sqlite`.
+
 ### One instance per outline
 
 Launching Flowie again while it is open brings the open window forward instead of opening
@@ -151,6 +169,7 @@ crates/flowie-core   tree, operations, undo, flattening, search, markup parser, 
 crates/flowie-doc    Workspace: opens an outline and commits edits (undo history, writer), no GPUI
 crates/flowie-math   RaTeX layout and native GPUI painting of formulas
 crates/flowie-app    the GPUI application (UI, settings, i18n, MCP server)
+apple/               FlowieKit (Swift package over flowie-ffi) and the iOS app (FlowieApp)
 scripts/             app bundle, Linux packages, App Store package, icon
 appstore/            Mac App Store release: fastlane, listing, screenshots, sandbox files
 website/             flowie's GitHub Pages site (home, privacy policy, terms of use)

@@ -6,7 +6,7 @@ set -eu
 cd "$(dirname "$0")/.."
 targets="aarch64-apple-ios aarch64-apple-ios-sim"
 # rusqlite's bundled SQLite and the Rust code target the app's minimum iOS.
-export IPHONEOS_DEPLOYMENT_TARGET=17.0
+export IPHONEOS_DEPLOYMENT_TARGET=26.0
 rustup target add $targets >/dev/null
 for target in $targets; do
     cargo build -p flowie-ffi --locked --release --target "$target"

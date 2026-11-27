@@ -10,7 +10,7 @@ import PackageDescription
 
 let package = Package(
     name: "FlowieKit",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v14), .iOS("26.0")],
     products: [
         .library(name: "FlowieCloudKit", targets: ["FlowieCloudKit"]),
         .library(name: "FlowieUI", targets: ["FlowieUI"]),

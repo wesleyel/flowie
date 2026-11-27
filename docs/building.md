@@ -119,8 +119,11 @@ xcrun simctl install booted ../../build/ios/DerivedData/Build/Products/Debug-iph
 xcrun simctl launch booted flowie.spokey.cn
 ```
 
-Run `scripts/build-ios-ffi.sh` again after changing Rust code. The outline is kept in the app's
-`Library/Application Support/Flowie/flowie.sqlite`.
+Run `scripts/build-ios-ffi.sh` again after changing Rust code. The app needs iOS 26 or later. The
+outline is kept in the App Group container (`group.flowie.spokey.cn`), in
+`Library/Application Support/Flowie/flowie.sqlite` (`xcrun simctl get_app_container booted
+flowie.spokey.cn groups` shows where); one left in the app's own Application Support by an
+earlier build moves there on launch.
 
 ### One instance per outline
 

@@ -16,7 +16,7 @@ let project = Project(
             product: .app,
             // The App Store record the Mac app ships under (Universal Purchase).
             bundleId: "flowie.spokey.cn",
-            deploymentTargets: .iOS("17.0"),
+            deploymentTargets: .iOS("26.0"),
             infoPlist: .extendingDefault(with: [
                 "CFBundleDisplayName": "Flowie",
                 "UILaunchScreen": [:],
@@ -26,6 +26,11 @@ let project = Project(
             sources: ["Sources/**"],
             // The app's own strings, in English and Simplified Chinese.
             resources: ["Resources/**"],
+            // The outline lives in the App Group container (wiki: iOS-Cross-Platform §5). The
+            // Simulator needs nothing more; device builds need the group registered on the App ID.
+            entitlements: .dictionary([
+                "com.apple.security.application-groups": .array([.string("group.flowie.spokey.cn")]),
+            ]),
             dependencies: [
                 .package(product: "FlowieUI"),
                 // flowie-ffi's static library, from scripts/build-ios-ffi.sh.

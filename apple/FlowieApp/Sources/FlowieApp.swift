@@ -1,14 +1,11 @@
-// Flowie for iOS: FlowieUI's views over the outline kept in Application Support.
+// Flowie for iOS: FlowieUI's views over the outline kept in the App Group container.
 import SwiftUI
 import FlowieFFI
 import FlowieUI
 
 @main
 struct FlowieApp: App {
-    @StateObject private var launch = Launch(
-        database: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Flowie/flowie.sqlite")
-    )
+    @StateObject private var launch = Launch(database: OutlineLocation.database())
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {

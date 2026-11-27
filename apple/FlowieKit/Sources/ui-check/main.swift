@@ -106,6 +106,47 @@ func run() throws {
     print("FlowieUI check: ok")
 }
 
+/// The iOS app's outline moves into the App Group container whole, and only when the
+/// container has none.
+@MainActor
+func checkLocation() throws {
+    let fm = FileManager.default
+    let base = fm.temporaryDirectory.appendingPathComponent("flowie-location-check-\(UUID().uuidString)")
+    let old = base.appendingPathComponent("support/Flowie")
+    let new = base.appendingPathComponent("group/Library/Application Support/Flowie")
+    do {
+        let store = try OutlineStore.open(databaseAt: old.appendingPathComponent(OutlineLocation.fileName))
+        store.add("kept across the move")
+        // Not flushed: what is queued is saved when the outline closes.
+    }
+    try fm.createDirectory(at: old.appendingPathComponent("flowie.sqlite.images/ab"), withIntermediateDirectories: true)
+    try Data("img".utf8).write(to: old.appendingPathComponent("flowie.sqlite.images/ab/abcd"))
+    let moved = OutlineLocation.adopt(from: old, to: new)
+    check(moved == new.appendingPathComponent(OutlineLocation.fileName), "the database is in the container")
+    check(!fm.fileExists(atPath: old.path), "the old folder moved")
+    check(fm.fileExists(atPath: new.appendingPathComponent("flowie.sqlite.images/ab/abcd").path), "images moved with it")
+    let store = try OutlineStore.open(databaseAt: moved)
+    check(store.rows.map(\.text) == ["kept across the move"], "the outline reads the same: \(store.rows.map(\.text))")
+
+    // Both places have one: the container's is used, the old one is left alone.
+    try fm.createDirectory(at: old, withIntermediateDirectories: true)
+    try Data("old".utf8).write(to: old.appendingPathComponent(OutlineLocation.fileName))
+    check(OutlineLocation.adopt(from: old, to: new) == moved, "the container's database wins")
+    check(fm.fileExists(atPath: old.appendingPathComponent(OutlineLocation.fileName).path), "and the old one stays")
+
+    // A container folder without a database is kept aside, not replaced.
+    let other = base.appendingPathComponent("group2/Flowie")
+    try fm.createDirectory(at: other, withIntermediateDirectories: true)
+    try Data("x".utf8).write(to: other.appendingPathComponent("stray.txt"))
+    OutlineLocation.adopt(from: old, to: other)
+    check(fm.fileExists(atPath: other.appendingPathComponent(OutlineLocation.fileName).path), "moved into the container")
+    let aside = try fm.contentsOfDirectory(atPath: other.deletingLastPathComponent().path).filter { $0.hasPrefix("Flowie (before move") }
+    check(aside.count == 1, "the stray folder is kept aside: \(aside)")
+    try? fm.removeItem(at: base)
+    print("Outline location check: ok")
+}
+
 try MainActor.assumeIsolated {
     try run()
+    try checkLocation()
 }

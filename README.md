@@ -116,7 +116,7 @@ You can build Flowie on macOS, Windows or Linux. [Build guide](docs/building.md)
 - [Using Flowie](docs/usage.md) — shortcuts, markup and search syntax
 - [AI assistants (MCP)](docs/mcp.md)
 - [Translating Flowie](docs/translations.md)
-- [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Issues](https://github.com/wesleyel/flowie/issues) · [Privacy policy](https://wesleyel.github.io/flowie/privacy.html)
+- [Changelog](CHANGELOG.md) · [Roadmap](https://github.com/wesleyel/flowie/wiki) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Issues](https://github.com/wesleyel/flowie/issues) · [Privacy policy](https://wesleyel.github.io/flowie/privacy.html)
 
 ## Credits
 

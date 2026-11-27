@@ -1,6 +1,8 @@
 # Contributing to Flowie
 
-Bug reports, ideas and pull requests are welcome.
+Bug reports, ideas and pull requests are welcome. What's planned, and the design notes behind it, are in the
+[roadmap wiki](https://github.com/wesleyel/flowie/wiki) (in Chinese); it's kept by the maintainer, so please
+bring ideas to [Discussions](https://github.com/wesleyel/flowie/discussions) or a feature request.
 
 ## Before you open a pull request
 

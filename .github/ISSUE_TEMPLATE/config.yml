@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Roadmap
+    url: https://github.com/wesleyel/flowie/wiki
+    about: What's planned; check here before suggesting a feature.
   - name: Questions and help
     url: https://wesleyel.github.io/flowie/#support
     about: FAQ and how to reach the developer.

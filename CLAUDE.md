@@ -55,16 +55,19 @@ workflow checks Pages on pull requests and deploys it from `main`. Other env var
 - **Maintain database compatibility**: 1.0 freezes SQLite `BASELINE` at 5. Update `SCHEMA` and append an ordered `MIGRATIONS` step for each new database format; never change the baseline or reorder released steps. Test opening an old database and compare its upgraded schema against a fresh one. RC and development formats below 5 are kept aside, not migrated.
 - **UI text** goes through `t!(…)`, with keys in `crates/flowie-app/locales/en.json` and `zh-CN.json`. `cargo test -p flowie-app i18n` checks both files. New features also get a lesson in the tutorial (`crates/flowie-app/tutorial/<locale>.md`).
 - **Docs scope**: the README, website, `llms.txt` and the App Store text cover core features only. Never add UX polish there. A big change in one area goes only in that area's doc (e.g. `docs/mcp.md`). Do fix wording that a change has made wrong.
-- **Feature requests**: when the user describes a feature, clarify it and record it in the backlog (`docs/roadmap/`). Don't implement it unless they ask you to build it.
-- Keep a feature's state, actions and rendering together. New editing logic should not depend on GPUI where that can be avoided (see `docs/roadmap/ios-cross-platform.md`).
+- **Feature requests**: when the user describes a feature, clarify it and record it in the backlog (the wiki, see below). Don't implement it unless they ask you to build it.
+- Keep a feature's state, actions and rendering together. New editing logic should not depend on GPUI where that can be avoided (see the wiki's `iOS-Cross-Platform` page).
 
 ## Backlog and direction
 
-The backlog lives in `docs/roadmap/`, which is **not part of this repository**: it's a separate, local-only
-git repo (hidden through `.git/info/exclude`), so commit roadmap edits inside `docs/roadmap/` and never add it
-here. One Markdown file per item (written in Chinese), indexed in `docs/roadmap/README.md`, which holds each
-item's status (长期 / 待办 / 进行中 / 已完成). Discuss and revise designs by editing those files. Long-term designs:
+The backlog and design notes live in the **GitHub wiki** (<https://github.com/wesleyel/flowie/wiki>), the
+only source of truth for them. `docs/roadmap/` is a local clone of the wiki (branch `master`, hidden from this
+repo through `.git/info/exclude`): edit, commit and push there, never add it here. Pushing the wiki runs no CI and
+leaves no commits in this repo. One page per item, written in Chinese, named in English Title-Case
+(`Per-Node-Sync.md`; the name is the page's URL, so don't rename pages); link pages as `[text](Page-Name)`
+without `.md`. `Home.md` holds each item's status as its Now/Next/Later/Done group (进行中 / 待办 / 长期 / 已完成);
+keep `_Sidebar.md` in step. Code comments cite pages as `wiki: Page-Name §n`. Long-term designs:
 - **Per-node sync**: an LWW-per-field engine (`flowie-sync`) with CloudKit and self-hosted backends. The format it needs (fractional-index ranks, soft deletes, deterministic journal IDs, per-field clocks, outbox and tombstones) is in place since database format 6.
-- **iOS and cross-platform**: a native iOS app (SwiftUI + UIKit, a reduced feature set) over the Rust core through UniFFI (`flowie-ffi` over `flowie-doc`); the desktop stays on GPUI; the browser comes last as a TypeScript UI over a wasm core. See `docs/roadmap/release-plan.md` for the order.
+- **iOS and cross-platform**: a native iOS app (SwiftUI + UIKit, a reduced feature set) over the Rust core through UniFFI (`flowie-ffi` over `flowie-doc`); the desktop stays on GPUI; the browser comes last as a TypeScript UI over a wasm core. See the wiki's `Release-Plan` for the order.
 
 More docs: `docs/building.md` (platforms, data paths), `docs/usage.md`, `docs/mcp.md`, `docs/sync.md` (the self-hosted sync server), `docs/translations.md`, `CONTRIBUTING.md`.

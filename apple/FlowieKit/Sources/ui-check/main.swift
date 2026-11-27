@@ -265,6 +265,59 @@ func checkLaunchRule() {
     print("Launch rule check: ok")
 }
 
+/// A window's history (wiki: Sliding-Panes §1): the desktop's Back and Forward, opening from
+/// either pane, the journal's days replacing their entry, and pages since deleted left out.
+func checkPageHistory() {
+    let a = PageRef.bullet("a"), b = PageRef.bullet("b"), c = PageRef.bullet("c"), d = PageRef.bullet("d")
+    var history = PageHistory(.home)
+    check(!history.canGoBack && !history.canGoForward && history.previous == nil, "one page: nowhere to go")
+    history.push(PageEntry(a, opener: "a"))
+    history.push(PageEntry(b))
+    check(history.entries.map(\.page) == [.home, a, b] && history.index == 2, "pushed")
+    check(history.previous?.page == a && history.current.page == b, "two panes: the page before on the left")
+    check(history.goBack() && history.current.page == a && history.canGoForward, "back")
+    check(history.goBack() && !history.goBack() && history.current.page == .home, "back to the start, and no further")
+    check(history.goForward() && history.goForward() && !history.goForward() && history.current.page == b, "forward to the end, and no further")
+    check(history.backList.map(\.entry.page) == [a, .home] && history.forwardList.isEmpty, "back menu, nearest first")
+    // Opening from the right pane (the current page) pushes and drops what was ahead.
+    history.go(to: 1)
+    history.push(PageEntry(c))
+    check(history.entries.map(\.page) == [.home, a, c] && history.index == 2, "a new page drops the forward pages: \(history.entries.map(\.page))")
+    // From the left pane: the right pane is replaced, the left one stays.
+    history.open(PageEntry(d, opener: "x"), from: 1)
+    check(history.entries.map(\.page) == [.home, a, d] && history.index == 2 && history.current.opener == "x", "the left pane replaces the right")
+    history.goBack()
+    history.goBack()
+    history.open(PageEntry(a, opener: "y"), from: 0)
+    check(history.entries.map(\.page) == [.home, a, d] && history.index == 1 && history.current.opener == "y", "the page already next is gone forward to, keeping the rest")
+    history.open(PageEntry(a), from: 1)
+    check(history.entries.count == 3 && history.index == 1, "a link to the page itself opens nothing")
+    // The journal's days replace their entry, keeping its place.
+    var days = PageHistory(.day("2026-11-27"))
+    let id = days.current.id
+    days.update(id) { $0.topRow = "r"; $0.offset = 4 }
+    days.replace(at: 0, with: .day("2026-11-28"))
+    check(days.entries.count == 1 && days.current.id == id && days.current.page == .day("2026-11-28") && days.current.topRow == nil, "another day, the same entry")
+    // Pages since deleted are left out, and the same page twice in a row becomes one.
+    var gone = PageHistory(.home)
+    for page in [a, b, a, c] { gone.push(PageEntry(page)) }
+    gone.go(to: 3)
+    gone.prune { $0 != b }
+    check(gone.entries.map(\.page) == [.home, a, c] && gone.current.page == a, "deleted pages left out: \(gone.entries.map(\.page)) at \(gone.index)")
+    gone.prune { _ in false }
+    check(gone.entries.map(\.page) == [.home], "never empty")
+    // It keeps the last hundred pages.
+    var long = PageHistory(.home)
+    for i in 0..<150 { long.push(PageEntry(.bullet("\(i)"))) }
+    check(long.entries.count == PageHistory.limit && long.current.page == .bullet("149") && long.index == PageHistory.limit - 1, "the oldest pages go")
+    // Saved and read back (LaunchMemory).
+    let data = try! JSONEncoder().encode(history)
+    check(try! JSONDecoder().decode(PageHistory.self, from: data) == history, "saved and read back")
+    check(PageHistory(entries: [], index: 0) == nil && PageHistory(entries: history.entries, index: 9)?.index == 2, "a saved history is checked")
+    check(PageRef.search("x").identity == PageRef.search("y").identity && PageRef.day("1").identity != PageRef.day("2").identity, "a search stays one page while typed")
+    print("Page history check: ok")
+}
+
 /// The iOS app's outline moves into the App Group container whole, and only when the
 /// container has none.
 @MainActor
@@ -426,6 +479,7 @@ try MainActor.assumeIsolated {
     try run()
     try checkLocation()
     checkLaunchRule()
+    checkPageHistory()
     try checkRendering()
     try checkReadingMode()
 }

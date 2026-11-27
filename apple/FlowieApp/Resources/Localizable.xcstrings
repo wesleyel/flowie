@@ -224,7 +224,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "返回"
+            "value": "后退"
           }
         }
       }
@@ -657,6 +657,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "Flowie 没有删除、移动或替换你的大纲。"
+          }
+        }
+      }
+    },
+    "Forward": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forward"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前进"
+          }
+        }
+      }
+    },
+    "Go": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前往"
           }
         }
       }
@@ -1905,6 +1937,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "进入"
+          }
+        }
+      }
+    },
+    "Zoom Out": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom Out"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回上级"
           }
         }
       }

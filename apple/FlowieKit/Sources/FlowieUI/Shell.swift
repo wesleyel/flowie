@@ -4,91 +4,145 @@ import UIKit
 import FlowieFFI
 
 /// The app's tabs (wiki: iOS-Cross-Platform §4.3).
-public enum AppTab: String, Hashable {
+public enum AppTab: String, Hashable, CaseIterable {
     case today, home, stars, search
-}
 
-/// A page pushed on a tab's navigation stack: a bullet's page (nil: Home), and maybe a row on
-/// it to scroll to and point out (a search result).
-public struct Route: Hashable {
-    public var id: String?
-    public var reveal: String?
-
-    public init(id: String?, reveal: String? = nil) {
-        self.id = id
-        self.reveal = reveal
-    }
-
-    /// The pages down to `bullet`'s own page, each pushed in turn, so Back goes up one level
-    /// and holding Back lists the whole path.
-    static func into(_ bullet: BulletView) -> [Route] {
-        bullet.path.map { Route(id: $0.id) } + [Route(id: bullet.id)]
-    }
-
-    /// The pages down to the page `bullet` is on, pointing it out there.
-    static func toward(_ bullet: BulletView) -> [Route] {
-        var routes = bullet.path.map { Route(id: $0.id) }
-        if routes.isEmpty {
-            routes = [Route(id: nil)]
+    /// The page a tab starts on.
+    var root: PageRef {
+        switch self {
+        case .today: return .day(LaunchMemory.today)
+        case .home: return .home
+        case .stars: return .stars
+        case .search: return .search("")
         }
-        routes[routes.count - 1].reveal = bullet.id
-        return routes
     }
 }
 
-/// Which tab shows, each tab's navigation stack, and the day the Today tab shows.
+/// Which tab shows, and each tab's history (wiki: Sliding-Panes §1): a browser's Back and
+/// Forward, as the desktop's.
 @MainActor
 final class Navigation: ObservableObject {
     @Published var tab: AppTab = .home
-    @Published var today: [Route] = []
-    @Published var home: [Route] = []
-    @Published var stars: [Route] = []
-    @Published var search: [Route] = []
-    /// The day the Today tab shows (YYYY-MM-DD).
-    @Published var day = LaunchMemory.today
-    /// What the Search tab searches for.
-    let query = Local("")
+    @Published private(set) var histories: [AppTab: PageHistory] = Dictionary(uniqueKeysWithValues: AppTab.allCases.map { ($0, PageHistory($0.root)) })
+    weak var store: OutlineStore?
 
-    func path(_ tab: AppTab) -> [Route] {
-        switch tab {
-        case .today: return today
-        case .home: return home
-        case .stars: return stars
-        case .search: return search
+    func history(_ tab: AppTab) -> PageHistory {
+        histories[tab] ?? PageHistory(tab.root)
+    }
+
+    private func change(_ tab: AppTab, _ body: (inout PageHistory) -> Void) {
+        var history = history(tab)
+        body(&history)
+        histories[tab] = history
+    }
+
+    /// Open a page from the one at `position` of a tab's history.
+    func open(_ entry: PageEntry, from position: Int, in tab: AppTab) {
+        change(tab) { $0.open(entry, from: position) }
+    }
+
+    /// Show another page in an entry without a new one (the journal's days).
+    func replace(at position: Int, with page: PageRef, in tab: AppTab) {
+        change(tab) { $0.replace(at: position, with: page) }
+    }
+
+    /// Pages whose bullet is gone are left out first, as the desktop's Back skips them.
+    private func prune(_ history: inout PageHistory) {
+        guard let store else { return }
+        history.prune { page in
+            if case .bullet(let id) = page { return store.bullet(id) != nil }
+            return true
         }
     }
 
-    func setPath(_ path: [Route], for tab: AppTab) {
-        switch tab {
-        case .today: today = path
-        case .home: home = path
-        case .stars: stars = path
-        case .search: search = path
+    var canGoBack: Bool { history(tab).canGoBack }
+    var canGoForward: Bool { history(tab).canGoForward }
+
+    func back() {
+        change(tab) { history in
+            prune(&history)
+            history.goBack()
         }
     }
 
-    func binding(_ tab: AppTab) -> Binding<[Route]> {
-        Binding(get: { self.path(tab) }, set: { self.setPath($0, for: tab) })
+    func forward() {
+        change(tab) { history in
+            prune(&history)
+            history.goForward()
+        }
     }
 
-    func push(_ route: Route, in tab: AppTab) {
-        setPath(path(tab) + [route], for: tab)
+    /// Go to a page of the history, from the back or forward button's menu.
+    func go(to position: Int) {
+        change(tab) { history in
+            let id = history.entries[min(position, history.entries.count - 1)].id
+            prune(&history)
+            history.go(to: history.position(of: id) ?? history.index)
+        }
     }
 
-    func push(_ routes: [Route], in tab: AppTab) {
-        setPath(path(tab) + routes, for: tab)
+    /// The page above the current one (⌘[, the desktop's Zoom Out), its row pointed out.
+    func zoomOut() {
+        let history = history(tab)
+        guard case .bullet(let id) = history.current.page, let bullet = store?.bullet(id) else { return }
+        open(PageEntry(bullet.path.last.map { .bullet($0.id) } ?? .home, opener: id), from: history.index, in: tab)
+    }
+
+    /// What a page of the history is called, in the back and forward buttons' menus.
+    func title(_ page: PageRef) -> String {
+        switch page {
+        case .home: return NSLocalizedString("Home", comment: "Title of the outline's top page")
+        case .bullet(let id): return store?.bullet(id)?.title ?? NSLocalizedString("Untitled", comment: "Title of a page whose bullet has no text")
+        case .day(let day): return DayNames.title(day)
+        case .stars: return NSLocalizedString("Stars", comment: "Title of the Stars tab")
+        case .search(let query):
+            return query.isEmpty ? NSLocalizedString("Search", comment: "Title of the Search tab") : query
+        }
+    }
+
+    /// The navigation stack of a tab: the pages after its first, up to the current one. Popping
+    /// it (not done by the stack itself: its back button is ours) goes back.
+    func path(_ tab: AppTab) -> [UUID] {
+        let history = history(tab)
+        return history.index == 0 ? [] : history.entries[1...history.index].map(\.id)
+    }
+
+    func binding(_ tab: AppTab) -> Binding<[UUID]> {
+        Binding(get: { self.path(tab) }, set: { path in
+            if path.count < self.path(tab).count {
+                self.change(tab) { $0.go(to: path.count) }
+            }
+        })
     }
 
     /// Search for `query` in the Search tab (a tapped tag or date, as on the desktop).
     func showSearch(_ query: String) {
-        self.query.value = query
-        search = []
+        histories[.search] = PageHistory(.search(query))
         tab = .search
     }
 
-    /// Where the app is, to remember.
+    /// A day of the journal, at the top of the Today tab.
+    func showDay(_ day: String) {
+        histories[.today] = PageHistory(.day(day))
+        tab = .today
+    }
+
+    /// Today's journal, at the top of the Today tab.
+    func showToday() {
+        showDay(LaunchMemory.today)
+    }
+
+    /// Where the app is, to remember: the tab and the pages after its first ("" for Home).
     var place: LaunchMemory.Place {
-        LaunchMemory.Place(tab: tab.rawValue, path: path(tab).map { $0.id ?? "" })
+        let history = history(tab)
+        let path = history.entries[...history.index].dropFirst().compactMap { entry -> String? in
+            switch entry.page {
+            case .home: return ""
+            case .bullet(let id): return id
+            default: return nil
+            }
+        }
+        return LaunchMemory.Place(tab: tab.rawValue, path: Array(path))
     }
 
     /// Open what the launch rule says (§4.3), the outline checked for pages since gone.
@@ -100,29 +154,21 @@ final class Navigation: ObservableObject {
             showToday()
         case .place(let place):
             let tab = AppTab(rawValue: place.tab) ?? .home
-            // Pages deleted since are left off (and what was pushed after them).
-            var routes: [Route] = []
+            // Pages deleted since are left off (and what was opened after them).
+            var history = PageHistory(tab.root)
             for id in place.path {
                 if id.isEmpty {
-                    routes.append(Route(id: nil))
+                    history.push(PageEntry(.home))
                 } else if store.bullet(id) != nil {
-                    routes.append(Route(id: id))
+                    history.push(PageEntry(.bullet(id)))
                 } else {
                     break
                 }
             }
+            histories[tab] = history
             self.tab = tab
-            setPath(routes, for: tab)
-            day = LaunchMemory.today
             LaunchMemory.armScroll()
         }
-    }
-
-    /// Today's journal, at the top of the Today tab.
-    func showToday() {
-        day = LaunchMemory.today
-        today = []
-        tab = .today
     }
 }
 
@@ -145,20 +191,10 @@ public struct FlowieShell: View {
 
     public var body: some View {
         TabView(selection: $nav.tab) {
-            Tab("Today", systemImage: "sun.max", value: AppTab.today) {
-                stack(.today) { TodayScreen(store: store, nav: nav) }
-            }
-            Tab("Home", systemImage: "house", value: AppTab.home) {
-                stack(.home) {
-                    PageScreen(store: store, kind: .home, nav: nav, tab: .home, top: true, onSettings: { settings.value = true })
-                }
-            }
-            Tab("Stars", systemImage: "star", value: AppTab.stars) {
-                stack(.stars) { StarsScreen(store: store, nav: nav) }
-            }
-            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
-                stack(.search) { SearchScreen(store: store, nav: nav, query: nav.query) }
-            }
+            Tab("Today", systemImage: "sun.max", value: AppTab.today) { stack(.today) }
+            Tab("Home", systemImage: "house", value: AppTab.home) { stack(.home) }
+            Tab("Stars", systemImage: "star", value: AppTab.stars) { stack(.stars) }
+            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { stack(.search) }
         }
         .tabViewStyle(.sidebarAdaptable)
         .tabBarMinimizeBehavior(.onScrollDown)
@@ -167,9 +203,12 @@ public struct FlowieShell: View {
                 .preferredColorScheme(scheme)
         }
         .preferredColorScheme(scheme)
+        // Back, Forward and Zoom Out in the menu bar and with their keys (FlowieCommands).
+        .focusedSceneObject(nav)
         .onAppear {
             guard !started.value else { return }
             started.value = true
+            nav.store = store
             nav.start(LaunchMemory.start(), store: store)
             #if DEBUG
             ScreenshotArguments.apply(to: nav, store: store)
@@ -197,9 +236,7 @@ public struct FlowieShell: View {
     private func showCapture() {
         guard started.value, let capture = store.capture else { return }
         settings.value = false
-        nav.day = capture.day
-        nav.today = []
-        nav.tab = .today
+        nav.showDay(capture.day)
     }
 
     private var scheme: ColorScheme? {
@@ -210,11 +247,118 @@ public struct FlowieShell: View {
         }
     }
 
-    private func stack<Root: View>(_ tab: AppTab, @ViewBuilder root: () -> Root) -> some View {
+    private func stack(_ tab: AppTab) -> some View {
         NavigationStack(path: nav.binding(tab)) {
-            root().navigationDestination(for: Route.self) { route in
-                PageScreen(store: store, kind: route.id.map { .bullet($0) } ?? .home, reveal: route.reveal, nav: nav, tab: tab)
+            pane(tab, at: 0)
+                .navigationDestination(for: UUID.self) { id in
+                    if let position = nav.history(tab).position(of: id) {
+                        pane(tab, at: position)
+                    }
+                }
+        }
+    }
+
+    private func pane(_ tab: AppTab, at position: Int) -> some View {
+        let history = nav.history(tab)
+        let entry = history.entries[min(position, history.entries.count - 1)]
+        return PaneContent(store: store, nav: nav, tab: tab, position: position, entry: entry,
+                           onSettings: tab == .home && position == 0 ? { settings.value = true } : nil)
+    }
+}
+
+/// The page of an entry of a tab's history, with the history's back and forward buttons.
+struct PaneContent: View {
+    @ObservedObject var store: OutlineStore
+    @ObservedObject var nav: Navigation
+    let tab: AppTab
+    let position: Int
+    let entry: PageEntry
+    let onSettings: (() -> Void)?
+
+    var body: some View {
+        Group {
+            switch entry.page {
+            case .home, .bullet, .day:
+                PageScreen(store: store, entry: entry, nav: nav, tab: tab, position: position, top: position == 0, onSettings: onSettings)
+            case .stars:
+                StarsScreen(store: store, nav: nav, tab: tab, position: position)
+            case .search(let query):
+                SearchScreen(store: store, nav: nav, tab: tab, position: position, query: query)
             }
+        }
+        // Another day of the journal is another page; a search stays one while it is typed.
+        .id("\(entry.id) \(entry.page.identity)")
+        .navigationBarBackButtonHidden(true)
+        .toolbar { HistoryButtons(nav: nav, history: nav.history(tab)) }
+    }
+}
+
+/// Back and Forward at the top left, each listing the history its way when held, as in Safari
+/// (wiki: Sliding-Panes §4): for those who don't swipe.
+struct HistoryButtons: ToolbarContent {
+    let nav: Navigation
+    let history: PageHistory
+
+    var body: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarLeading) {
+            if history.canGoBack {
+                Menu {
+                    list(history.backList)
+                } label: {
+                    Label(NSLocalizedString("Back", comment: "Goes back to the page before in the history"), systemImage: "chevron.backward")
+                } primaryAction: {
+                    nav.back()
+                }
+            }
+            if history.canGoForward {
+                Menu {
+                    list(history.forwardList)
+                } label: {
+                    Label(NSLocalizedString("Forward", comment: "Goes forward to the next page in the history"), systemImage: "chevron.forward")
+                } primaryAction: {
+                    nav.forward()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func list(_ items: [(position: Int, entry: PageEntry)]) -> some View {
+        ForEach(items, id: \.entry.id) { item in
+            Button(nav.title(item.entry.page), systemImage: Self.symbol(item.entry.page)) {
+                nav.go(to: item.position)
+            }
+        }
+    }
+
+    static func symbol(_ page: PageRef) -> String {
+        switch page {
+        case .home: return "house"
+        case .bullet: return "circle.fill"
+        case .day: return "sun.max"
+        case .stars: return "star"
+        case .search: return "magnifyingglass"
+        }
+    }
+}
+
+/// The history's keys, as on the desktop (`keymap.rs`), in the iPad menu bar and the list shown
+/// while ⌘ is held: ⌥⌘← Back, ⌥⌘→ Forward, ⌘[ Zoom Out (⌘] Zoom In is the edited row's).
+public struct FlowieCommands: Commands {
+    @FocusedObject private var nav: Navigation?
+
+    public init() {}
+
+    public var body: some Commands {
+        CommandMenu(Text("Go", comment: "Menu bar menu with Back, Forward and Zoom Out")) {
+            Button(NSLocalizedString("Back", comment: "Goes back to the page before in the history")) { nav?.back() }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                .disabled(!(nav?.canGoBack ?? false))
+            Button(NSLocalizedString("Forward", comment: "Goes forward to the next page in the history")) { nav?.forward() }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .disabled(!(nav?.canGoForward ?? false))
+            Button(NSLocalizedString("Zoom Out", comment: "Opens the page above the current one")) { nav?.zoomOut() }
+                .keyboardShortcut("[", modifiers: .command)
         }
     }
 }
@@ -229,19 +373,22 @@ struct PageScreen: View {
     @StateObject private var page: PageModel
     @ObservedObject var nav: Navigation
     let tab: AppTab
-    /// Whether this is a top page of its tab (not pushed).
+    /// Where its entry is in the tab's history.
+    let position: Int
+    /// Whether this is a top page of its tab (not opened from another).
     let top: Bool
     let onSettings: (() -> Void)?
 
-    init(store: OutlineStore, kind: PageKind, reveal: String? = nil, nav: Navigation, tab: AppTab, top: Bool = false, onSettings: (() -> Void)? = nil) {
+    init(store: OutlineStore, entry: PageEntry, nav: Navigation, tab: AppTab, position: Int, top: Bool = false, onSettings: (() -> Void)? = nil) {
         self.store = store
         _page = StateObject(wrappedValue: {
-            let page = store.page(kind)
-            page.reveal = reveal
+            let page = store.page(entry.page.kind ?? .home)
+            page.reveal = entry.reveal
             return page
         }())
         self.nav = nav
         self.tab = tab
+        self.position = position
         self.top = top
         self.onSettings = onSettings
     }
@@ -263,7 +410,9 @@ struct PageScreen: View {
     }
 
     var body: some View {
-        OutlinePage(page: page, open: { id in nav.push(Route(id: id), in: tab) }, search: { query in nav.showSearch(query) })
+        OutlinePage(page: page, open: { id, opener in
+            nav.open(PageEntry(.bullet(id), opener: opener), from: position, in: tab)
+        }, search: { query in nav.showSearch(query) })
             // The page keeps its rows above the keyboard itself (an inset), and
             // its list scrolls under the tab bar.
             .ignoresSafeArea(.keyboard)
@@ -278,10 +427,10 @@ struct PageScreen: View {
                 if case .day(let day) = page.kind {
                     ToolbarItemGroup(placement: .topBarLeading) {
                         Button(NSLocalizedString("Previous Day", comment: "Journal toolbar button"), systemImage: "chevron.left") {
-                            nav.day = LaunchMemory.day(day, offset: -1)
+                            nav.replace(at: position, with: .day(LaunchMemory.day(day, offset: -1)), in: tab)
                         }
                         Button(NSLocalizedString("Next Day", comment: "Journal toolbar button"), systemImage: "chevron.right") {
-                            nav.day = LaunchMemory.day(day, offset: 1)
+                            nav.replace(at: position, with: .day(LaunchMemory.day(day, offset: 1)), in: tab)
                         }
                     }
                 }
@@ -294,7 +443,9 @@ struct PageScreen: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    PageMenu(store: store, page: page, nav: nav)
+                    PageMenu(store: store, page: page) { day in
+                        nav.replace(at: position, with: .day(day), in: tab)
+                    }
                 }
                 if let onSettings {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -333,11 +484,11 @@ private struct Subtitle: ViewModifier {
 }
 
 /// A page's "…" menu, the only button at its top right (§4.4): star, show or hide completed,
-/// reading mode, fold the page to a level, copy link.
+/// reading mode, fold the page to a level, copy link. `showDay`: show another day in its place.
 struct PageMenu: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var page: PageModel
-    @ObservedObject var nav: Navigation
+    let showDay: (String) -> Void
 
     var body: some View {
         Menu {
@@ -372,7 +523,7 @@ struct PageMenu: View {
             }
             if case .day(let day) = page.kind, day != LaunchMemory.today {
                 Button(NSLocalizedString("Go to Today", comment: "Menu item"), systemImage: "sun.max") {
-                    nav.day = LaunchMemory.today
+                    showDay(LaunchMemory.today)
                 }
             }
         } label: {
@@ -401,17 +552,6 @@ enum DayNames {
     }
 }
 
-/// The Today tab: a day of the journal (today at first), the days before and after a tap away.
-struct TodayScreen: View {
-    @ObservedObject var store: OutlineStore
-    @ObservedObject var nav: Navigation
-
-    var body: some View {
-        PageScreen(store: store, kind: .day(nav.day), nav: nav, tab: .today, top: true)
-            .id(nav.day)
-    }
-}
-
 // MARK: Lists
 
 /// A bullet in a list: its text and the path to it.
@@ -437,6 +577,8 @@ struct BulletLine: View {
 struct StarsScreen: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var nav: Navigation
+    let tab: AppTab
+    let position: Int
 
     var body: some View {
         let stars = store.starred()
@@ -451,7 +593,7 @@ struct StarsScreen: View {
                 List {
                     ForEach(stars, id: \.id) { bullet in
                         Button {
-                            nav.push(Route.into(bullet), in: .stars)
+                            nav.open(PageEntry(.bullet(bullet.id), opener: bullet.id), from: position, in: tab)
                         } label: {
                             BulletLine(bullet: bullet)
                         }
@@ -476,7 +618,17 @@ struct StarsScreen: View {
 struct SearchScreen: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var nav: Navigation
-    @ObservedObject var query: Local<String>
+    let tab: AppTab
+    let position: Int
+    @StateObject private var query: Local<String>
+
+    init(store: OutlineStore, nav: Navigation, tab: AppTab, position: Int, query: String) {
+        self.store = store
+        self.nav = nav
+        self.tab = tab
+        self.position = position
+        _query = StateObject(wrappedValue: Local(query))
+    }
 
     /// Filters to start from: what to type, and what it finds.
     private let filters: [(String, String)] = [
@@ -507,7 +659,8 @@ struct SearchScreen: View {
             } else {
                 ForEach(hits, id: \.id) { bullet in
                     Button {
-                        nav.push(Route.toward(bullet), in: .search)
+                        // The page it is on, pointing it out.
+                        nav.open(PageEntry(bullet.path.last.map { .bullet($0.id) } ?? .home, opener: bullet.id, reveal: bullet.id), from: position, in: tab)
                     } label: {
                         BulletLine(bullet: bullet)
                     }
@@ -527,6 +680,10 @@ struct SearchScreen: View {
         .searchable(text: $query.value, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("Search or filter"))
         .autocorrectionDisabled()
         .textInputAutocapitalization(.never)
+        // The history keeps what was searched for, to come back to.
+        .onChange(of: query.value) { _, value in
+            nav.replace(at: position, with: .search(value), in: tab)
+        }
     }
 }
 

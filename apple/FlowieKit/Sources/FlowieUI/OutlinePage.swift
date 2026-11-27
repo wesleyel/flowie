@@ -13,12 +13,13 @@ import FlowieFFI
 /// `flowie:` link opens its bullet, a web link the browser, a tag or a date a search (`search`).
 public struct OutlinePage: UIViewControllerRepresentable {
     let page: PageModel
-    /// Open a bullet as a page (push it).
-    let open: (String) -> Void
+    /// Open a bullet as a page, and the row of this page that opened it (its own row, or the
+    /// row with the link).
+    let open: (String, String?) -> Void
     /// Search for this (a tapped tag or date), as the desktop does.
     let search: (String) -> Void
 
-    public init(page: PageModel, open: @escaping (String) -> Void, search: @escaping (String) -> Void = { _ in }) {
+    public init(page: PageModel, open: @escaping (String, String?) -> Void, search: @escaping (String) -> Void = { _ in }) {
         self.page = page
         self.open = open
         self.search = search
@@ -147,7 +148,7 @@ struct RowMetrics: Equatable {
 
 public final class OutlinePageController: UIViewController, UICollectionViewDelegate, UITextViewDelegate, UIGestureRecognizerDelegate, UIContextMenuInteractionDelegate {
     let page: PageModel
-    var open: (String) -> Void
+    var open: (String, String?) -> Void
     var search: (String) -> Void
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
@@ -181,7 +182,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     /// Keeps the toast above the docked keyboard (and its bar).
     private var toastBottom: NSLayoutConstraint!
 
-    init(page: PageModel, open: @escaping (String) -> Void, search: @escaping (String) -> Void) {
+    init(page: PageModel, open: @escaping (String, String?) -> Void, search: @escaping (String) -> Void) {
         self.page = page
         self.open = open
         self.search = search
@@ -638,13 +639,12 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     // MARK: Actions
 
-    /// Open a bullet as a page (tapping its bullet or depth number): pushed on the navigation
-    /// stack.
+    /// Open a bullet as a page (tapping its bullet or depth number), in the window's history.
     func zoom(into row: RowView) {
         view.endEditing(true)
         LaunchMemory.zoomedOnce = true
         updateHint()
-        open(row.id)
+        open(row.id, row.id)
     }
 
     /// A tap on a row's rendered text: on a link, a tag or a date it does what the desktop does;
@@ -657,7 +657,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         case .bullet(let target):
             view.endEditing(true)
             if page.store.bullet(target) != nil {
-                open(target)
+                open(target, id)
             } else {
                 page.store.problem = NSLocalizedString("That bullet was deleted.", comment: "Shown when a tapped link points to a deleted bullet")
             }

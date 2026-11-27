@@ -18,6 +18,8 @@ struct FlowieApp: App {
                 OpenFailureView(error: error, database: launch.database)
             }
         }
+        // Back, Forward and Zoom Out, with the desktop's keys.
+        .commands { FlowieCommands() }
         .onChange(of: scenePhase) { _, phase in
             // iOS may end the app any time once it's in the background (§5): typing ends first,
             // so text still being composed is kept, then everything queued is saved and no

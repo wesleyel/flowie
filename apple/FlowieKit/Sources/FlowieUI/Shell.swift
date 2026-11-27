@@ -285,6 +285,14 @@ struct PageScreen: View {
                         }
                     }
                 }
+                if store.readingMode {
+                    // Reading mode is on (for the whole app): tapping turns it off.
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(NSLocalizedString("Turn Off Reading Mode", comment: "Navigation bar button shown while reading mode is on"), systemImage: "book") {
+                            store.setReadingMode(false)
+                        }
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     PageMenu(store: store, page: page, nav: nav)
                 }
@@ -325,7 +333,7 @@ private struct Subtitle: ViewModifier {
 }
 
 /// A page's "…" menu, the only button at its top right (§4.4): star, show or hide completed,
-/// fold the page to a level, copy link.
+/// reading mode, fold the page to a level, copy link.
 struct PageMenu: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var page: PageModel
@@ -346,6 +354,9 @@ struct PageMenu: View {
                 systemImage: store.hideCompleted ? "eye" : "eye.slash"
             ) {
                 store.setHideCompleted(!store.hideCompleted)
+            }
+            Toggle(isOn: Binding(get: { store.readingMode }, set: { store.setReadingMode($0) })) {
+                Label(NSLocalizedString("Reading Mode", comment: "Page menu toggle: nothing can be edited while on"), systemImage: "book")
             }
             if page.rows.contains(where: \.hasChildren) {
                 Section {
@@ -718,12 +729,15 @@ struct RecentlyDeletedView: View {
                             store.restore(entry.id)
                         }
                         .buttonStyle(.borderless)
+                        // Reading mode: nothing is edited, restoring included.
+                        .disabled(store.readingMode)
                     }
                     .swipeActions {
                         Button(NSLocalizedString("Restore", comment: "Brings back a deleted bullet"), systemImage: "arrow.uturn.backward") {
                             store.restore(entry.id)
                         }
                         .tint(.accentColor)
+                        .disabled(store.readingMode)
                     }
                 }
             } footer: {

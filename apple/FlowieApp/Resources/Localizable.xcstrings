@@ -1125,6 +1125,22 @@
         }
       }
     },
+    "Reading Mode": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading Mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阅读模式"
+          }
+        }
+      }
+    },
     "Recently Deleted": {
       "localizations": {
         "en": {
@@ -1585,6 +1601,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "明天"
+          }
+        }
+      }
+    },
+    "Turn Off Reading Mode": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off Reading Mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭阅读模式"
           }
         }
       }

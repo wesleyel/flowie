@@ -175,6 +175,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     /// Whether the outline syncs through iCloud, for image rows whose file is missing.
     private var iCloud = false
     private var iCloudWatch: AnyCancellable?
+    private var readingWatch: AnyCancellable?
     /// "Deleted · Undo", after a bullet is deleted.
     private let undoToast = UndoToast()
     /// Keeps the toast above the docked keyboard (and its bar).
@@ -268,6 +269,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         iCloud = page.store.iCloud.isOn
         iCloudWatch = page.store.$iCloud.map(\.isOn).removeDuplicates().dropFirst().sink { [weak self] on in
             self?.iCloudChanged(on)
+        }
+        // Reading mode (`page.isReadOnly`): the hint changes (no "tap here to write").
+        readingWatch = page.store.$readingMode.removeDuplicates().dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.updateHint() }
         }
         page.onChange = { [weak self] change in self?.pageChanged(change) }
         page.finishEditor = { [weak self] in self?.finishEditor() }
@@ -412,7 +417,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         page.focus = nil
         // The row taking the caret takes it first, while the one losing it is still there:
         // the keyboard stays up when the edited row goes (Backspace joining rows).
-        if let focus, let cell = cell(for: focus.id), !cell.textView.isFirstResponder {
+        if let focus, !page.isReadOnly, let cell = cell(for: focus.id), !cell.textView.isFirstResponder {
             placing = true
             cell.textView.becomeFirstResponder()
             placing = false
@@ -484,9 +489,9 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     /// Put the caret where an edit said, scrolling its row into view: not at all when it is in
     /// view already, as little as needed when it is near (a new row under the keyboard),
-    /// centered when it was far off screen.
+    /// centered when it was far off screen. Never in reading mode.
     private func place(_ focus: Focus) {
-        guard let index = indexByID[focus.id] else { return }
+        guard !page.isReadOnly, let index = indexByID[focus.id] else { return }
         let path = IndexPath(item: index, section: 0)
         placing = true
         defer { placing = false }
@@ -546,6 +551,9 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         if textView.delegate == nil {
             textView.delegate = self
             textView.pageUndo = pageUndo
+            // Reading mode: the row's text never takes the caret, whatever asks (a tap, VoiceOver,
+            // the hardware keyboard, an edit's focus).
+            textView.isReadOnly = { [weak self] in self?.page.isReadOnly ?? false }
             if traitCollection.userInterfaceIdiom == .pad {
                 // iPad: the commands sit in the shortcuts bar, above the docked keyboard and at
                 // the bottom with a hardware keyboard. An accessory view would be pinned to the
@@ -640,10 +648,11 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     }
 
     /// A tap on a row's rendered text: on a link, a tag or a date it does what the desktop does;
-    /// elsewhere the row is edited, the caret where the finger was.
+    /// elsewhere the row is edited, the caret where the finger was (not in reading mode).
     private func tapped(_ tap: RowCell.TextTap, in id: String) {
         switch tap {
         case .caret(let offset):
+            guard !page.isReadOnly else { return }
             place(Focus(id: id, start: offset, end: offset))
         case .bullet(let target):
             view.endEditing(true)
@@ -686,11 +695,12 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     }
 
     /// A bullet's note in a sheet, to read and edit (§2.1); saved as one undo step.
+    /// In reading mode the note is only read.
     func presentNote(_ row: RowView) {
         view.endEditing(true)
         let page = self.page
         let title = page.store.bullet(row.id)?.title ?? ""
-        let sheet = NoteSheet(note: row.note, title: title) { note in
+        let sheet = NoteSheet(note: row.note, title: title, readOnly: page.isReadOnly) { note in
             // The row as it is now (the sheet may have been open a while).
             let current = page.rows.first { $0.id == row.id } ?? row
             page.setNote(current, note)
@@ -712,6 +722,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     }
 
     @objc private func tappedBelowRows() {
+        guard !page.isReadOnly else { return }
         // A new row at the end of the page; an empty last row takes the caret instead.
         if let last = order.last, let row = rowsByID[last], row.depth == 0, row.text.isEmpty {
             place(Focus(id: last, start: 0, end: 0))
@@ -726,7 +737,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         let text: String?
         if case .home = page.kind, !LaunchMemory.zoomedOnce {
             text = NSLocalizedString("Tap a bullet to open it", comment: "Hint under the rows of Home for new users")
-        } else if case .day = page.kind, order.isEmpty {
+        } else if case .day = page.kind, order.isEmpty, !page.isReadOnly {
             text = NSLocalizedString("Tap here to write in this day", comment: "Hint on a day of the journal with nothing in it")
         } else {
             text = nil
@@ -795,17 +806,17 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         return UITargetedPreview(view: cell.contentView, parameters: parameters)
     }
 
+    /// In reading mode, only what doesn't edit: folding, star (a mark, not content), the note
+    /// (read only), Copy Link and Zoom In.
     private func menu(for row: RowView) -> UIMenu {
         let store = page.store
         let starred = store.bullet(row.id)?.starred ?? false
+        let readOnly = page.isReadOnly
         var items: [UIMenuElement] = [
             UIAction(
                 title: starred ? NSLocalizedString("Unstar", comment: "Menu item") : NSLocalizedString("Star", comment: "Menu item"),
                 image: UIImage(systemName: starred ? "star.slash" : "star")
             ) { _ in store.setStarred(row.id, !starred) },
-            UIAction(title: NSLocalizedString("Move To…", comment: "Menu item"), image: UIImage(systemName: "arrow.turn.down.right")) { [weak self] _ in
-                self?.presentMoveTo(row)
-            },
             UIAction(title: NSLocalizedString("Note", comment: "Menu item and title of the sheet with a bullet's note"), image: UIImage(systemName: "note.text")) { [weak self] _ in
                 self?.presentNote(row)
             },
@@ -816,11 +827,16 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
                 self?.zoom(into: row)
             },
         ]
-        items.append(UIMenu(options: .displayInline, children: [
-            UIAction(title: NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
-                self?.delete(row)
-            },
-        ]))
+        if !readOnly {
+            items.insert(UIAction(title: NSLocalizedString("Move To…", comment: "Menu item"), image: UIImage(systemName: "arrow.turn.down.right")) { [weak self] _ in
+                self?.presentMoveTo(row)
+            }, at: 1)
+            items.append(UIMenu(options: .displayInline, children: [
+                UIAction(title: NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+                    self?.delete(row)
+                },
+            ]))
+        }
         if row.hasChildren {
             items.insert(
                 UIAction(
@@ -854,7 +870,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     }
 
     /// What VoiceOver's actions rotor offers on a row: the keyboard bar's and the long-press
-    /// menu's commands, on that row whether or not it is edited.
+    /// menu's commands, on that row whether or not it is edited. In reading mode, only those that
+    /// don't edit (as the menu).
     private func accessibilityActions(for id: String) -> [UIAccessibilityCustomAction] {
         guard let row = rowsByID[id] else { return [] }
         let store = page.store
@@ -870,7 +887,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             }
         }
         let starred = store.bullet(id)?.starred ?? false
-        var actions = [
+        let readOnly = page.isReadOnly
+        var actions = readOnly ? [] : [
             action(NSLocalizedString("Indent", comment: "Keyboard bar button"), "increase.indent", stays: true) { $0.page.indent($1) },
             action(NSLocalizedString("Outdent", comment: "Keyboard bar button"), "decrease.indent", stays: true) { $0.page.outdent($1) },
             action(NSLocalizedString("Move Up", comment: "Keyboard bar button"), "arrow.up", stays: true) { $0.page.moveUp($1) },
@@ -888,7 +906,11 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         }
         actions += [
             action(NSLocalizedString("Zoom In", comment: "Opens a bullet as the page, for VoiceOver"), "arrow.up.left.and.arrow.down.right") { $0.zoom(into: $1) },
-            action(NSLocalizedString("Move To…", comment: "Menu item"), "arrow.turn.down.right") { $0.presentMoveTo($1) },
+        ]
+        if !readOnly {
+            actions.append(action(NSLocalizedString("Move To…", comment: "Menu item"), "arrow.turn.down.right") { $0.presentMoveTo($1) })
+        }
+        actions += [
             action(starred ? NSLocalizedString("Unstar", comment: "Menu item") : NSLocalizedString("Star", comment: "Menu item"), starred ? "star.slash" : "star") { _, row in
                 store.setStarred(row.id, !starred)
             },
@@ -899,7 +921,9 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
                 controller.presentImage(path)
             })
         }
-        actions.append(action(NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), "trash") { $0.delete($1) })
+        if !readOnly {
+            actions.append(action(NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), "trash") { $0.delete($1) })
+        }
         return actions
     }
 
@@ -1727,6 +1751,8 @@ final class BulletTextView: UITextView {
     var rowID: String?
     var onBackspaceAtStart: (() -> Void)?
     var willEdit: (() -> Void)?
+    /// Reading mode: the text view never takes the caret.
+    var isReadOnly: (() -> Bool)?
     /// VoiceOver activated the row while it wasn't edited.
     var onActivate: (() -> Void)?
     /// The page's undo manager: ⌘Z, shake and the shortcuts bar undo outline steps.
@@ -1748,8 +1774,13 @@ final class BulletTextView: UITextView {
 
     override var undoManager: UndoManager? { pageUndo ?? super.undoManager }
 
+    override var canBecomeFirstResponder: Bool {
+        isReadOnly?() == true && !isFirstResponder ? false : super.canBecomeFirstResponder
+    }
+
     @discardableResult override func becomeFirstResponder() -> Bool {
         if !isFirstResponder {
+            guard isReadOnly?() != true else { return false }
             willEdit?()
         }
         return super.becomeFirstResponder()
@@ -1875,8 +1906,8 @@ final class PageUndoManager: UndoManager {
         levelsOfUndo = 1
     }
 
-    override var canUndo: Bool { MainActor.assumeIsolated { page?.store.outline.canUndo() ?? false } }
-    override var canRedo: Bool { MainActor.assumeIsolated { page?.store.outline.canRedo() ?? false } }
+    override var canUndo: Bool { MainActor.assumeIsolated { page.map { !$0.isReadOnly && $0.store.outline.canUndo() } ?? false } }
+    override var canRedo: Bool { MainActor.assumeIsolated { page.map { !$0.isReadOnly && $0.store.outline.canRedo() } ?? false } }
     override var undoActionName: String { "" }
     override var redoActionName: String { "" }
     override var undoMenuItemTitle: String { NSLocalizedString("Undo", comment: "Keyboard bar button; hold to redo") }

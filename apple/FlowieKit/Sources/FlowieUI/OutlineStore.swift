@@ -21,6 +21,10 @@ public final class OutlineStore: ObservableObject {
     @Published public var problem: String?
     /// Whether pages leave out completed rows (this device's setting, as on the desktop).
     @Published public private(set) var hideCompleted: Bool
+    /// Reading mode: nothing on the pages can be edited (rows don't take the caret, menus leave
+    /// out what edits), while links, zooming in, folding and stars still work. This device's
+    /// view setting for the whole app, kept across launches; a capture turns it off.
+    @Published public private(set) var readingMode: Bool
     /// Goes up with every change, so lists (stars, search results, Recently Deleted) read again.
     @Published public private(set) var revision = 0
     /// The pages alive now (weakly held).
@@ -34,7 +38,10 @@ public final class OutlineStore: ObservableObject {
     public init(outline: Outline) {
         self.outline = outline
         hideCompleted = outline.hideCompleted()
+        readingMode = UserDefaults.standard.bool(forKey: Self.readingModeKey)
     }
+
+    static let readingModeKey = "readingMode"
 
     /// The outline in the database at `url` (made if it isn't there).
     public static func open(databaseAt url: URL) throws -> OutlineStore {
@@ -89,7 +96,8 @@ public final class OutlineStore: ObservableObject {
 
     /// "Add to Today's Journal" (Shortcuts, Siri): `text` at the end of today's journal, one
     /// bullet a line, and saved before returning. A row being typed in stays. Pages showing the
-    /// day read it. False when `text` is blank (nothing changed).
+    /// day read it. False when `text` is blank (nothing changed). Reading mode stays as it is:
+    /// asked for explicitly, this writes past it, and no row takes the caret.
     @discardableResult
     public func appendToToday(_ text: String) throws -> Bool {
         let outcome = try outline.journalAppend(date: LaunchMemory.today, text: text)
@@ -100,7 +108,8 @@ public final class OutlineStore: ObservableObject {
     }
 
     /// The capture entries: today's journal with the caret on its empty last row, made only
-    /// when there isn't one (so two devices don't each add one, §4.3).
+    /// when there isn't one (so two devices don't each add one, §4.3). The user asked to write:
+    /// reading mode turns off.
     public func captureToday() throws {
         try captureToday(typed: "")
     }
@@ -108,6 +117,7 @@ public final class OutlineStore: ObservableObject {
     /// A capture with `typed` already in its row and the caret after it (debug builds'
     /// screenshots, `ScreenshotArguments`).
     func captureToday(typed: String) throws {
+        setReadingMode(false)
         finishEditing()
         let day = LaunchMemory.today
         var outcome = try outline.journalCapture(date: day)
@@ -136,6 +146,16 @@ public final class OutlineStore: ObservableObject {
     }
 
     // MARK: Settings and lists
+
+    /// Turn reading mode on or off. Turning it on ends typing first (the keyboard goes).
+    public func setReadingMode(_ on: Bool) {
+        guard on != readingMode else { return }
+        if on {
+            finishEditing()
+        }
+        readingMode = on
+        UserDefaults.standard.set(on, forKey: Self.readingModeKey)
+    }
 
     public func setHideCompleted(_ hide: Bool) {
         outline.setHideCompleted(hide: hide)
@@ -184,9 +204,10 @@ public final class OutlineStore: ObservableObject {
     }
 
     /// Bring back a deleted bullet where it was (an undo step). Returns it, with the path to
-    /// it, to go to.
+    /// it, to go to. Nothing in reading mode.
     @discardableResult
     public func restore(_ id: String) -> BulletView? {
+        guard !readingMode else { return nil }
         do {
             let outcome = try outline.restore(id: id)
             edited(EditOutcome(changedIds: outcome.changedIds, structureChanged: outcome.structureChanged, focus: nil), from: nil)
@@ -279,6 +300,8 @@ public final class PageModel: ObservableObject {
     var finishEditor: (() -> Void)?
     /// Set by the page view: a capture was asked for (`OutlineStore.captureToday`).
     var onCapture: (() -> Void)?
+    /// Reading mode (`OutlineStore.readingMode`): the page's edits do nothing, except folding.
+    public var isReadOnly: Bool { store.readingMode }
     /// Whether the page is on screen. Pages off screen don't read changes as they happen: they
     /// read the page again when they come back.
     public var isVisible = true {
@@ -351,8 +374,11 @@ public final class PageModel: ObservableObject {
         apply(EditOutcome(changedIds: outcome.changedIds, structureChanged: outcome.structureChanged, focus: nil))
     }
 
-    /// Run an edit, then show what it changed (or why it failed).
-    private func edit(_ change: () throws -> EditOutcome) {
+    /// Run an edit, then show what it changed (or why it failed). In reading mode only a view
+    /// change (folding: `writes` false) runs; this is the one gate every edit of the page's
+    /// content goes through.
+    private func edit(writes: Bool = true, _ change: () throws -> EditOutcome) {
+        guard !writes || !isReadOnly else { return }
         do {
             let outcome = try change()
             store.problem = nil
@@ -434,14 +460,14 @@ public final class PageModel: ObservableObject {
     /// Fold a bullet with children, or unfold it (one undo step).
     public func toggleFold(_ row: RowView) {
         guard row.hasChildren else { return }
-        edit { try store.outline.setCollapsed(id: row.id, collapsed: !row.collapsed) }
+        edit(writes: false) { try store.outline.setCollapsed(id: row.id, collapsed: !row.collapsed) }
     }
 
     /// Show `levels` levels of the page, as the desktop's Show N Levels: `1` folds every
     /// top-level row (Collapse All), `.max` unfolds everything (Expand All). One undo step.
     public func expandToLevel(_ levels: UInt32) {
         guard !isUnmadeDay else { return }
-        edit { try store.outline.expandToLevel(root: root, levels: levels) }
+        edit(writes: false) { try store.outline.expandToLevel(root: root, levels: levels) }
     }
 
     /// How many children a row has as the page would show them (completed ones left out when

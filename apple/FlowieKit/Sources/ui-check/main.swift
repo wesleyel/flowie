@@ -377,9 +377,55 @@ func checkRendering() throws {
     print("Rendering check: ok")
 }
 
+/// Reading mode: the page's edits do nothing, folding and stars still work, the setting is
+/// kept for the next launch, and a capture turns it off ("Add to Today's Journal" writes past it).
+@MainActor
+func checkReadingMode() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("flowie-ui-check-\(UUID().uuidString)")
+    defer {
+        UserDefaults.standard.removeObject(forKey: "readingMode")
+        try? FileManager.default.removeItem(at: dir)
+    }
+    let docs = try OutlineStore.open(databaseAt: dir.appendingPathComponent("outline.sqlite"))
+    let home = docs.page(.home)
+    home.add("parent")
+    _ = try docs.outline.create(parent: home.rows[0].id, index: 0, text: "child")
+    home.reload()
+    docs.setReadingMode(true)
+    check(home.isReadOnly && UserDefaults.standard.bool(forKey: "readingMode"), "reading mode is on, and kept")
+    check(OutlineStore(outline: docs.outline).readingMode, "a new launch is still in reading mode")
+    let rows = home.rows
+    home.add("new", focus: true)
+    home.setText(rows[0], "changed")
+    home.setNote(rows[0], "note")
+    home.toggle(rows[0])
+    home.indent(rows[1])
+    home.outdent(rows[1])
+    home.moveDown(rows[0])
+    home.enter(rows[0], from: 0, to: 0)
+    home.backspaceAtStart(rows[1])
+    home.delete(rows[1])
+    home.undo()
+    check(home.rows.map(\.text) == ["parent", "child"] && home.rows == rows && home.focus == nil, "nothing edits in reading mode: \(home.rows.map(\.text))")
+    home.toggleFold(rows[0])
+    check(home.rows.count == 1 && home.rows[0].collapsed, "folding still works")
+    home.expandToLevel(.max)
+    check(home.rows.count == 2, "unfolding still works")
+    docs.setStarred(rows[0].id, true)
+    check(docs.bullet(rows[0].id)?.starred == true, "starring still works")
+    check(try docs.appendToToday("from Siri") && docs.readingMode, "Add to Today's Journal writes, reading mode stays")
+    try docs.captureToday()
+    check(!docs.readingMode && !UserDefaults.standard.bool(forKey: "readingMode"), "a capture turns reading mode off")
+    home.setText(home.rows[0], "edited")
+    check(home.rows[0].text == "edited", "editing works again")
+    try docs.flush()
+    print("Reading mode check: ok")
+}
+
 try MainActor.assumeIsolated {
     try run()
     try checkLocation()
     checkLaunchRule()
     try checkRendering()
+    try checkReadingMode()
 }

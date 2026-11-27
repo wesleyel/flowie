@@ -201,11 +201,14 @@ final class ImageViewer: UIViewController, UIScrollViewDelegate {
 final class NoteSheet: UIViewController, UIAdaptivePresentationControllerDelegate {
     private var original: String
     private let save: (String) -> Void
+    /// Reading mode: the note is shown, not edited.
+    private let readOnly: Bool
     let textView = UITextView()
 
-    init(note: String, title: String, save: @escaping (String) -> Void) {
+    init(note: String, title: String, readOnly: Bool = false, save: @escaping (String) -> Void) {
         original = note
         self.save = save
+        self.readOnly = readOnly
         super.init(nibName: nil, bundle: nil)
         navigationItem.title = NSLocalizedString("Note", comment: "Menu item and title of the sheet with a bullet's note")
         navigationItem.subtitle = title
@@ -229,6 +232,7 @@ final class NoteSheet: UIViewController, UIAdaptivePresentationControllerDelegat
         textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no
         textView.alwaysBounceVertical = true
+        textView.isEditable = !readOnly
         textView.keyboardDismissMode = .interactive
         textView.frame = view.bounds
         textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -241,7 +245,7 @@ final class NoteSheet: UIViewController, UIAdaptivePresentationControllerDelegat
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        if original.isEmpty {
+        if original.isEmpty && !readOnly {
             textView.becomeFirstResponder()
         }
     }
@@ -251,7 +255,7 @@ final class NoteSheet: UIViewController, UIAdaptivePresentationControllerDelegat
     }
 
     func saveDraft() {
-        guard isViewLoaded else { return }
+        guard isViewLoaded, !readOnly else { return }
         textView.unmarkText()
         textView.resignFirstResponder()
         if !textView.text.utf8.elementsEqual(original.utf8) {

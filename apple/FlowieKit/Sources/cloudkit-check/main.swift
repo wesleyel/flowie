@@ -34,6 +34,15 @@ check(record.recordID.recordName == id && record.recordType == CloudRecordCodec.
 guard let back = CloudRecordCodec.wire(from: record) else { check(false, "the record reads back"); exit(1) }
 check(back.envelope == saves[0].envelope && back.id == id && back.etag != nil, "the envelope comes back as sent")
 
+// A later version's record types (image files as `Blob`) are never read, not even one named
+// like a bullet and carrying its envelope; nor is a `Record` without one.
+let blob = CKRecord(recordType: "Blob", recordID: record.recordID)
+blob.encryptedValues[CloudRecordCodec.field] = saves[0].envelope
+check(CloudRecordCodec.wire(from: blob) == nil, "a Blob is no Flowie record")
+check(CloudRecordCodec.wire(from: CKRecord(recordType: CloudRecordCodec.recordType, recordID: record.recordID)) == nil,
+      "a Record without an envelope is none either")
+check(CloudRecordCodec.wires(from: [blob, record]) == [back], "only the Record is passed on")
+
 // Saved: the system fields become the etag; the next save starts from them.
 await host.onSaved([.saved(id: id, etag: back.etag!)])
 check(await host.unsentIDs().isEmpty, "nothing left to send")

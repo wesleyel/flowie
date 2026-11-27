@@ -47,10 +47,18 @@ public enum CloudRecordCodec {
         return record
     }
 
-    /// The Flowie record in a fetched or saved CKRecord; nil for one that isn't Flowie's.
+    /// The Flowie record in a fetched or saved CKRecord; nil for one that isn't a `Record`
+    /// with an envelope. A later version may add record types to the zone (image files as
+    /// `Blob`, wiki: Per-Node-Sync §3.5) under names that are also a bullet's id: this version
+    /// never reads them, so they can't stand for a bullet.
     public static func wire(from record: CKRecord) -> CloudWire? {
         guard record.recordType == recordType, let envelope = record.encryptedValues[field] as? String else { return nil }
         return CloudWire(id: record.recordID.recordName, etag: systemFields(of: record), envelope: envelope)
+    }
+
+    /// The Flowie records among fetched ones, the rest left out.
+    public static func wires(from records: [CKRecord]) -> [CloudWire] {
+        records.compactMap(wire)
     }
 
     /// A record's system fields (ids, change tag), archived as text.

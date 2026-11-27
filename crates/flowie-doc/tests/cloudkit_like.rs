@@ -186,3 +186,55 @@ fn a_device_with_an_outline_sends_all_of_it_when_it_starts_with_icloud() {
     assert!(!ws.use_remote("icloud"));
     assert!(!ws.sync.has_unsent());
 }
+
+/// A later version may put new kinds of records in the zone (image files as `Blob`, wiki:
+/// Per-Node-Sync §3.5). FlowieCloudKit hands over only `Record`s and never a deletion; inside
+/// a `Record`, an envelope this version can't read must leave the bullet whose name it
+/// carries alone: not removed, not overwritten, and not sent back as if it were.
+#[test]
+fn a_record_this_version_cant_read_never_touches_a_bullet() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cloud = FakeCloudKit::default();
+    let mut mac = Device::open(&dir.path().join("mac.sqlite"));
+    let id = mac.ws.tree.create_at(ROOT, 0, "keep me");
+    mac.ws.commit_with_imports(None, None, None);
+    mac.sync(&mut cloud);
+    let name = id.to_string();
+    let (sent, _, _) = cloud.records[&name].clone();
+
+    // The bullet's own record, changed the way a later version might: another kind (with a
+    // removal in it), encrypted, or not JSON at all.
+    let mut envelope: serde_json::Value = serde_json::from_str(&sent).unwrap();
+    envelope["payload"]["removed"] = "ffffffffffff-0000-ffffffffffffffff".into();
+    let mut blob = envelope.clone();
+    blob["kind"] = "blob".into();
+    let mut encrypted = envelope.clone();
+    encrypted["enc"] = serde_json::json!({"alg": "later", "key_id": "k", "nonce": "n"});
+    let unreadable = [blob.to_string(), encrypted.to_string(), "not json".to_string()];
+    let wires: Vec<Wire> = unreadable
+        .iter()
+        .enumerate()
+        .map(|(i, envelope)| Wire { id: name.clone(), etag: Some(format!("later:{i}")), envelope: envelope.clone() })
+        .collect();
+
+    assert!(!mac.native.on_fetched(&mut mac.ws, &wires, ""), "nothing changes");
+    assert_eq!(mac.ws.tree.children(ROOT), [id]);
+    assert_eq!(mac.ws.tree.node(id).text, "keep me");
+    assert!(NativeSync::unsent_ids(&mac.ws, 10).is_empty(), "and nothing is sent back");
+
+    // A conflict answered with such a record: the bullet stays as it is here and goes out
+    // again later.
+    mac.ws.tree.set_text(id, "edited");
+    mac.ws.commit_with_imports(None, None, None);
+    let saves = mac.native.next_saves(&mut mac.ws, 10);
+    assert_eq!(saves.len(), 1);
+    mac.native.on_saved(&mut mac.ws, wires.into_iter().map(|server| NativeSaved::Conflict { server }).collect());
+    assert_eq!(mac.ws.tree.node(id).text, "edited");
+    assert_eq!(NativeSync::unsent_ids(&mac.ws, 10), std::slice::from_ref(&name));
+
+    // The same removal as a bullet's record does remove it: the ones above were ignored for
+    // what they are, not for what they carry.
+    let removal = Wire { id: name, etag: Some("now".into()), envelope: envelope.to_string() };
+    assert!(mac.native.on_fetched(&mut mac.ws, &[removal], ""));
+    assert!(mac.ws.tree.children(ROOT).is_empty());
+}

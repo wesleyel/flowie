@@ -193,7 +193,10 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
                 await zoneLost(syncEngine)
             }
         case .fetchedRecordZoneChanges(let changes):
-            let records = changes.modifications.compactMap { CloudRecordCodec.wire(from: $0.record) }
+            // Deletions are never passed on, whatever their type: Flowie removes a bullet with
+            // a removal inside its record and never deletes a CKRecord, so a deletion here is a
+            // later version's record (a `Blob`) or one this version doesn't keep.
+            let records = CloudRecordCodec.wires(from: changes.modifications.map(\.record))
             if !records.isEmpty {
                 await host.onFetched(records)
             }

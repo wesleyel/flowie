@@ -21,7 +21,7 @@ SEARCH
 
 YOUR OUTLINE, ON YOUR DEVICE
 • Your outline is kept on your iPhone or iPad and works offline. No account needed
-• Sync with Flowie on your Mac through iCloud
+• Sync your bullets and notes with Flowie on your Mac through iCloud. Images aren't synced through iCloud
 • Restore deleted bullets from Recently Deleted
 
 Text formatting, tags, dates and links show as they do on the Mac. Available in English and Simplified Chinese.

@@ -14,6 +14,15 @@ public enum ICloudStatus: Equatable, Sendable {
     case synced(Date)
     /// The last fetch or send failed; CKSyncEngine tries again.
     case failed(String)
+
+    /// Whether the outline syncs through iCloud (not a self-hosted server, and iCloud can be
+    /// used): image files don't come with it yet (wiki: Per-Node-Sync §3.5).
+    public var isOn: Bool {
+        switch self {
+        case .off, .unavailable: return false
+        case .checking, .syncing, .synced, .failed: return true
+        }
+    }
 }
 
 /// The outline as CloudKit sync's host: flowie-ffi's native sync calls (flowie-doc's

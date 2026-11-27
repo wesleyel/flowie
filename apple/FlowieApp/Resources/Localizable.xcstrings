@@ -627,6 +627,22 @@
         }
       }
     },
+    "Image not synced through iCloud yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image not synced through iCloud yet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片尚未通过 iCloud 同步"
+          }
+        }
+      }
+    },
     "Indent": {
       "localizations": {
         "en": {

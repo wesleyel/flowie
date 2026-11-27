@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import Combine
 import SwiftUI
 import UIKit
 import FlowieFFI
@@ -123,6 +124,9 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     private let hint = UILabel()
     /// Whether the rows have been shown once (the remembered scroll position applies then).
     private var shownOnce = false
+    /// Whether the outline syncs through iCloud, for image rows whose file is missing.
+    private var iCloud = false
+    private var iCloudWatch: AnyCancellable?
 
     init(page: PageModel, open: @escaping (String) -> Void, search: @escaping (String) -> Void) {
         self.page = page
@@ -196,6 +200,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
             self.remeasure()
+        }
+        iCloud = page.store.iCloud.isOn
+        iCloudWatch = page.store.$iCloud.map(\.isOn).removeDuplicates().dropFirst().sink { [weak self] on in
+            self?.iCloudChanged(on)
         }
         page.onChange = { [weak self] change in self?.pageChanged(change) }
         page.finishEditor = { [weak self] in self?.finishEditor() }
@@ -316,6 +324,18 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         }
         placing = true
         dataSource.apply(snapshot, animatingDifferences: animated)
+        placing = false
+    }
+
+    /// iCloud sync started or stopped: image rows say again why their file is missing.
+    private func iCloudChanged(_ on: Bool) {
+        iCloud = on
+        let images = order.filter { rowsByID[$0]?.image != nil }
+        guard isViewLoaded, !images.isEmpty else { return }
+        var snapshot = dataSource.snapshot()
+        snapshot.reconfigureItems(images)
+        placing = true
+        dataSource.apply(snapshot, animatingDifferences: false)
         placing = false
     }
 
@@ -465,7 +485,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         cell.onImageTap = { [weak self] path in
             self?.presentImage(path)
         }
-        cell.configure(row: row, metrics: metrics, strong: strong[row.id] ?? 0)
+        cell.configure(row: row, metrics: metrics, strong: strong[row.id] ?? 0, iCloud: iCloud)
     }
 
     // MARK: Guide lines
@@ -916,6 +936,9 @@ final class RowCell: UICollectionViewCell {
     private let note = UILabel()
     private let picture = UIImageView()
     private let placeholder = UIImageView(image: UIImage(systemName: "photo"))
+    /// Under the placeholder, when the file isn't on this device and the outline syncs through
+    /// iCloud, which doesn't carry image files yet (wiki: Per-Node-Sync §3.5).
+    private let notSynced = UILabel()
     var onTextTap: ((TextTap) -> Void)?
     var onNoteTap: (() -> Void)?
     /// A tap on the picture, with its file.
@@ -934,6 +957,10 @@ final class RowCell: UICollectionViewCell {
     private var showsStored = false
     /// The picture's file shown (or loading).
     private var picturePath: String?
+    /// Whether the outline syncs through iCloud (a missing file then says why).
+    private var iCloud = false
+    /// The picture's file isn't on this device.
+    private var pictureMissing = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -976,6 +1003,16 @@ final class RowCell: UICollectionViewCell {
         placeholder.tintColor = .tertiaryLabel
         placeholder.contentMode = .center
         picture.addSubview(placeholder)
+        notSynced.text = NSLocalizedString("Image not synced through iCloud yet", comment: "Caption of an image row whose file hasn't come to this device; iCloud sync carries no image files yet")
+        notSynced.font = .preferredFont(forTextStyle: .caption1)
+        notSynced.adjustsFontForContentSizeCategory = true
+        notSynced.textColor = .secondaryLabel
+        notSynced.textAlignment = .center
+        notSynced.numberOfLines = 2
+        notSynced.adjustsFontSizeToFitWidth = true
+        notSynced.minimumScaleFactor = 0.7
+        notSynced.isHidden = true
+        picture.addSubview(notSynced)
         contentView.addSubview(slot)
         contentView.addSubview(picture)
         contentView.addSubview(textView)
@@ -994,7 +1031,8 @@ final class RowCell: UICollectionViewCell {
         }
     }
 
-    func configure(row: RowView, metrics: RowMetrics, strong: Int) {
+    func configure(row: RowView, metrics: RowMetrics, strong: Int, iCloud: Bool) {
+        self.iCloud = iCloud
         let rowChanged = textView.rowID != row.id
         textView.rowID = row.id
         self.row = row
@@ -1141,21 +1179,33 @@ final class RowCell: UICollectionViewCell {
         guard let image, let path = image.path, let size = pictureSize(width: bounds.width > 0 ? bounds.width : window?.bounds.width ?? 390) else {
             picturePath = nil
             picture.image = nil
-            placeholder.isHidden = false
+            pictureMissing = false
+            showPlaceholder()
             return
         }
         if picturePath != path {
             picture.image = nil
+            pictureMissing = false
         }
         picturePath = path
         let scale = traitCollection.displayScale > 0 ? traitCollection.displayScale : 2
         let ready = Thumbnails.shared.image(at: path, size: size, scale: scale) { [weak self] loaded in
-            guard let self, picturePath == path, let loaded else { return }
+            guard let self, picturePath == path else { return }
             picture.image = loaded
-            placeholder.isHidden = true
+            pictureMissing = loaded == nil && !FileManager.default.fileExists(atPath: path)
+            showPlaceholder()
         }
         if let ready { picture.image = ready }
+        showPlaceholder()
+    }
+
+    /// The placeholder while there is no picture, and why when the file is missing for iCloud.
+    private func showPlaceholder() {
         placeholder.isHidden = picture.image != nil
+        let waiting = picture.image == nil && pictureMissing && iCloud
+        notSynced.isHidden = !waiting
+        picture.accessibilityValue = waiting ? notSynced.text : nil
+        setNeedsLayout()
     }
 
     // MARK: Layout
@@ -1191,6 +1241,14 @@ final class RowCell: UICollectionViewCell {
         if let size = pictureSize(width: bounds.width) {
             picture.frame = CGRect(x: x, y: y, width: size.width, height: size.height)
             placeholder.frame = picture.bounds
+            if !notSynced.isHidden {
+                // The icon a little above the middle, the caption below it.
+                let inset = picture.bounds.insetBy(dx: 8, dy: 6)
+                let caption = notSynced.sizeThatFits(CGSize(width: inset.width, height: .greatestFiniteMagnitude))
+                let captionHeight = min(caption.height, max(0, inset.height / 2))
+                placeholder.frame = CGRect(x: 0, y: 0, width: picture.bounds.width, height: picture.bounds.height - captionHeight - 6)
+                notSynced.frame = CGRect(x: inset.minX, y: placeholder.frame.maxY, width: inset.width, height: captionHeight)
+            }
             y += size.height + 4
         }
         let height = textHeight(width: width)

@@ -778,6 +778,24 @@ impl Outline {
         }))
     }
 
+    /// "Add to Today's Journal": `text` at the end of the journal page for `date`
+    /// (YYYY-MM-DD), one bullet a line, taken literally (`flowie_doc::capture::append`). The
+    /// page is made as the desktop makes it, with the same id on every device; its lone blank
+    /// line is replaced unless it is being typed in. One undo step; the focus is the end of the
+    /// last bullet added, none (and nothing changed) when `text` is blank.
+    pub fn journal_append(&self, date: String, text: String) -> Result<EditOutcome, FlowieError> {
+        let date = day(&date)?;
+        Ok(tracked(&mut self.lock(), false, |ws| ws.journal_append(date, &text)))
+    }
+
+    /// Open the journal page for `date` (YYYY-MM-DD) to capture into: the focus goes to its
+    /// last row when that is empty, otherwise to a new empty row at the end
+    /// (`flowie_doc::capture::capture_row`). An undo step when it made something.
+    pub fn journal_capture(&self, date: String) -> Result<EditOutcome, FlowieError> {
+        let date = day(&date)?;
+        Ok(tracked(&mut self.lock(), false, |ws| Some(ws.journal_capture(date))))
+    }
+
     /// The bullet whose text is being typed in (a mirror row's source is found from it): what
     /// another device changes in it waits until editing ends. None ends editing.
     pub fn set_editing(&self, id: Option<String>) -> Result<(), FlowieError> {
@@ -1190,6 +1208,38 @@ mod tests {
         assert_eq!(days, ["2026-11-28", "2026-11-27"]);
         assert!(matches!(outline.open_day("2026-11-27; drop".into()), Err(FlowieError::NotADate { .. })));
         assert!(matches!(outline.journal_day("tomorrow".into()), Err(FlowieError::NotADate { .. })));
+    }
+
+    #[test]
+    fn journal_capture_and_append_use_the_desktops_day() {
+        let outline = Outline::in_memory();
+        let date = "2026-11-27";
+        let page = Some(journal::day_id(date).to_string());
+        assert!(matches!(outline.journal_append("yesterday".into(), "oops".into()), Err(FlowieError::NotADate { .. })));
+        assert!(matches!(outline.journal_capture("2026-13-01".into()), Err(FlowieError::NotADate { .. })));
+
+        // Capturing opens the day with the desktop's blank first line, again and again.
+        let out = outline.journal_capture(date.into()).unwrap();
+        let blank = journal::day_blank_id(date).to_string();
+        assert_eq!(out.focus, Some(FocusView { id: blank.clone(), start: 0, end: 0 }));
+        assert!(out.structure_changed);
+        assert_eq!(outline.journal_capture(date.into()).unwrap().focus.map(|f| f.id), Some(blank.clone()));
+        assert_eq!(outline.page(page.clone()).unwrap().len(), 1);
+
+        // Appending replaces that blank line; the focus is in UTF-16.
+        let raw = " **日😀** \nsecond";
+        let out = outline.journal_append(date.into(), raw.into()).unwrap();
+        let rows = outline.page(page.clone()).unwrap();
+        assert_eq!(rows.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(), ["**日😀**", "second"]);
+        assert_eq!(out.focus, Some(FocusView { id: rows[1].id.clone(), start: 6, end: 6 }));
+        assert_eq!(outline.journal_day(date.into()).unwrap(), page);
+        let blank_out = outline.journal_append(date.into(), " \n ".into()).unwrap();
+        assert!(blank_out.focus.is_none() && blank_out.changed_ids.is_empty());
+
+        outline.undo();
+        let rows = outline.page(page.clone()).unwrap();
+        assert_eq!(rows.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(), [""], "one step");
+        assert_eq!(rows[0].id, blank);
     }
 
     #[test]

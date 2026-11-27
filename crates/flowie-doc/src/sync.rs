@@ -118,6 +118,11 @@ impl Workspace {
         applied
     }
 
+    /// The record being edited (`begin_edit`), if any.
+    pub fn editing(&self) -> Option<NodeId> {
+        self.sync.editing
+    }
+
     /// Editing ended: apply what came in for the record meanwhile, merged with the edits
     /// made here. Returns the ids whose record changed.
     pub fn end_edit(&mut self) -> Vec<NodeId> {

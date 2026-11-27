@@ -12,6 +12,7 @@ use flowie_core::{Caret, History, HistoryKind, NodeId, Tree};
 pub use outcome::Outcome;
 pub use sync::{LostCopy, SyncState};
 
+pub mod capture;
 #[cfg(feature = "native")]
 mod driver;
 pub mod find;

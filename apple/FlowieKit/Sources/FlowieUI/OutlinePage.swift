@@ -170,6 +170,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     /// Whether the outline syncs through iCloud, for image rows whose file is missing.
     private var iCloud = false
     private var iCloudWatch: AnyCancellable?
+    /// "Deleted · Undo", after a bullet is deleted.
+    private let undoToast = UndoToast()
+    /// Keeps the toast above the docked keyboard (and its bar).
+    private var toastBottom: NSLayoutConstraint!
 
     init(page: PageModel, open: @escaping (String) -> Void, search: @escaping (String) -> Void) {
         self.page = page
@@ -240,6 +244,16 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         hint.textColor = .tertiaryLabel
         hint.numberOfLines = 0
         collectionView.addSubview(hint)
+
+        undoToast.translatesAutoresizingMaskIntoConstraints = false
+        undoToast.onUndo = { [weak self] in self?.undo() }
+        view.addSubview(undoToast)
+        toastBottom = undoToast.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
+        NSLayoutConstraint.activate([
+            toastBottom,
+            undoToast.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            undoToast.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -32),
+        ])
 
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
             self.remeasure()
@@ -321,6 +335,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         }
         collectionView.contentInset.bottom = covered
         collectionView.verticalScrollIndicatorInsets.bottom = covered
+        toastBottom.constant = -12 - covered
     }
 
     public override func viewWillLayoutSubviews() {
@@ -384,6 +399,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     /// The page changed its rows, inside the edit that changed them.
     private func pageChanged(_ change: PageChange) {
+        // Undo would now undo something else than the delete.
+        undoToast.hide()
         let focus = page.focus
         page.focus = nil
         // The row taking the caret takes it first, while the one losing it is still there:
@@ -766,7 +783,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         ]
         items.append(UIMenu(options: .displayInline, children: [
             UIAction(title: NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
-                self?.page.delete(row)
+                self?.delete(row)
             },
         ]))
         if row.hasChildren {
@@ -847,7 +864,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
                 controller.presentImage(path)
             })
         }
-        actions.append(action(NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), "trash") { $0.page.delete($1) })
+        actions.append(action(NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), "trash") { $0.delete($1) })
         return actions
     }
 
@@ -944,7 +961,15 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     @objc func collapse() { if let row = editingRow, row.hasChildren, !row.collapsed { page.toggleFold(row) } }
     @objc func expand() { if let row = editingRow, row.collapsed { page.toggleFold(row) } }
     @objc func zoomIntoEdited() { if let row = editingRow { zoom(into: row) } }
-    @objc func deleteEdited() { if let row = editingRow { page.delete(row) } }
+    @objc func deleteEdited() { if let row = editingRow { delete(row) } }
+
+    /// Move a bullet to Recently Deleted, offering to undo it for a few seconds.
+    func delete(_ row: RowView) {
+        page.delete(row)
+        if page.store.problem == nil {
+            undoToast.show()
+        }
+    }
     @objc func moveToFromKeyboard() { moveTo() }
     func undo() { pageUndo.undo() }
     func redo() { pageUndo.redo() }

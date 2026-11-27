@@ -1,11 +1,10 @@
 //! Settings → Sync: off, iCloud (macOS) or a self-hosted server (its address and this
 //! device's token), and how sync is doing.
 
-use flowie_cloudkit::CloudPhase;
-use flowie_doc::SyncPhase;
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, Window};
 
 use crate::app::i18n::t;
+use crate::outline::sync::SyncTone;
 use crate::outline::{Field, Outline, Target};
 
 impl Outline {
@@ -84,34 +83,7 @@ impl Outline {
         }));
         let server = self.sync_field(Field::SyncServer, "sync-server", "https://sync.example.com".into(), false, window, cx);
         let token = self.sync_field(Field::SyncToken, "sync-token", t!("settings.sync.token.placeholder").into(), true, window, cx);
-        let session = self.sync.session().map(|s| (s.phase().clone(), s.cloud().cloned(), s.last_synced));
-        let unavailable = self.sync.icloud_unavailable().cloned();
-        let synced = |at: Option<chrono::DateTime<chrono::Local>>| at.map(|at| at.format("%H:%M").to_string()).unwrap_or_default();
-        let (icon, color, status) = match session {
-            None if icloud => match unavailable {
-                Some(access) => ("cloud-off", theme.muted, crate::outline::sync::access_text(&access)),
-                None => ("cloud-off", theme.muted, t!("settings.sync.status.off").to_string()),
-            },
-            None if on => ("cloud-off", theme.muted, t!("settings.sync.status.incomplete").to_string()),
-            None => ("cloud-off", theme.muted, t!("settings.sync.status.off").to_string()),
-            Some((_, Some(CloudPhase::Unavailable(access)), _)) => ("cloud-off", theme.muted, crate::outline::sync::access_text(&access)),
-            Some((_, Some(CloudPhase::Checking), _)) => {
-                ("refresh-cw", theme.accent, t!("settings.sync.icloud.status.checking").to_string())
-            }
-            Some((_, Some(CloudPhase::Offline(error)), _)) => {
-                ("cloud-off", theme.danger, t!("settings.sync.icloud.status.offline", error = error))
-            }
-            Some((SyncPhase::Syncing, _, _)) => ("refresh-cw", theme.accent, t!("settings.sync.status.syncing").to_string()),
-            Some((SyncPhase::Synced, _, at)) => ("cloud", theme.accent, t!("settings.sync.status.synced", time = synced(at))),
-            Some((SyncPhase::Offline(error), _, _)) => ("cloud-off", theme.danger, t!("settings.sync.status.offline", error = error)),
-        };
-        let status = div()
-            .flex()
-            .items_start()
-            .gap_2()
-            .text_size(px(12.))
-            .child(crate::ui::icons::icon(icon, crate::ui::icons::SM, color))
-            .child(div().flex_1().min_w_0().text_color(theme.muted).child(status));
+        let status = self.render_sync_status();
         let lost = self.render_lost(cx);
         let field = |label: String, hint: String, control: AnyElement| {
             div()
@@ -119,7 +91,7 @@ impl Outline {
                 .flex_col()
                 .gap_2()
                 .py_3()
-                .border_b_1()
+                .border_t_1()
                 .border_color(theme.divider)
                 .child(
                     div()
@@ -166,24 +138,10 @@ impl Outline {
                             .child(t!("settings.sync.beta")),
                     ),
             )
-            .child(div().text_size(px(12.)).text_color(theme.muted).pb_3().child(if cfg!(target_os = "macos") {
-                t!("settings.sync.intro_icloud")
-            } else {
-                t!("settings.sync.intro")
-            }))
-            .child(div().flex().flex_col().gap_2().pb_3().border_b_1().border_color(theme.divider).child(toggle).child(status))
-            .when(icloud, |d| {
-                d.child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(theme.muted)
-                        .py_3()
-                        .border_b_1()
-                        .border_color(theme.divider)
-                        .child(t!("settings.sync.icloud.hint")),
-                )
-            })
-            .when(!icloud, |d| {
+            .child(div().text_size(px(12.)).text_color(theme.muted).pb_3().child(t!("settings.sync.intro")))
+            // The way to sync, and where it stands right under it.
+            .child(div().flex().flex_col().gap_3().pb_3().child(toggle).child(status))
+            .when(on && !icloud, |d| {
                 d.child(field(t!("settings.sync.server.label").into(), t!("settings.sync.server.hint").into(), server)).child(field(
                     t!("settings.sync.token.label").into(),
                     t!("settings.sync.token.hint").into(),
@@ -196,12 +154,17 @@ impl Outline {
                     div()
                         .flex()
                         .flex_col()
-                        .gap_1()
+                        .gap_2()
                         .py_3()
-                        .border_b_1()
+                        .border_t_1()
                         .border_color(theme.divider)
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child(t!("settings.sync.start_over.label")))
-                        .child(div().text_size(px(12.)).text_color(theme.muted).child(t!("settings.sync.start_over.hint")))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .child(div().font_weight(FontWeight::SEMIBOLD).child(t!("settings.sync.start_over.label")))
+                                .child(div().text_size(px(12.)).text_color(theme.muted).child(t!("settings.sync.start_over.hint"))),
+                        )
                         .child(
                             div().child(
                                 crate::ui::button::button(theme, "sync-start-over", crate::ui::button::Variant::Link)
@@ -211,7 +174,56 @@ impl Outline {
                         ),
                 )
             })
-            .child(div().pt_3().text_size(px(12.)).text_color(theme.muted).child(t!("settings.sync.backup")))
+            .into_any_element()
+    }
+
+    /// Where sync stands, in a box under the way to sync: its cloud, a few words, when it last
+    /// synced, and a line on what it goes through or what went wrong.
+    fn render_sync_status(&self) -> AnyElement {
+        let theme = self.theme;
+        let status = self.sync_status();
+        let color = match status.tone {
+            SyncTone::Idle => theme.muted,
+            SyncTone::Active => theme.accent,
+            SyncTone::Problem => theme.danger,
+        };
+        div()
+            .flex()
+            .items_start()
+            .gap_3()
+            .px_3()
+            .py_2p5()
+            .rounded(px(crate::ui::theme::R_LG))
+            .bg(theme.code_bg)
+            .child(div().flex_none().h(px(20.)).flex().items_center().child(crate::ui::icons::icon(
+                status.icon,
+                crate::ui::icons::MD,
+                color,
+            )))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap_0p5()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .h(px(20.))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(if status.tone == SyncTone::Problem { theme.danger } else { theme.text })
+                                    .child(status.title),
+                            )
+                            .children(status.time.map(|time| div().flex_none().text_size(px(12.)).text_color(theme.muted).child(time))),
+                    )
+                    .children(status.detail.map(|detail| div().text_size(px(12.)).text_color(theme.muted).child(detail))),
+            )
             .into_any_element()
     }
 
@@ -237,7 +249,7 @@ impl Outline {
                 .flex_col()
                 .gap_1()
                 .py_2()
-                .border_b_1()
+                .border_t_1()
                 .border_color(theme.divider)
                 .child(div().text_size(px(12.)).text_color(theme.muted).child(format!("{whose} · {when}")))
                 .child(div().p_2().rounded_md().bg(theme.code_bg).child(excerpt_long(&copy.value)))
@@ -265,6 +277,8 @@ impl Outline {
                 .flex()
                 .flex_col()
                 .pt_3()
+                .border_t_1()
+                .border_color(theme.divider)
                 .child(div().font_weight(FontWeight::SEMIBOLD).child(t!("settings.sync.lost.label")))
                 .child(div().text_size(px(12.)).text_color(theme.muted).pb_1().child(t!("settings.sync.lost.hint")))
                 .children(rows)

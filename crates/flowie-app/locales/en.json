@@ -272,22 +272,24 @@
     "sync": {
       "title": "Sync",
       "beta": "Beta",
-      "intro": "Keep this outline the same on your computers through a Flowie server you run yourself. Each bullet syncs on its own, so edits made on different devices at once, even offline, all come through.",
-      "intro_icloud": "Keep this outline the same on your devices: through iCloud, with your iPhone and your other Macs, or through a Flowie server you run yourself. Each bullet syncs on its own, so edits made on different devices at once, even offline, all come through.",
+      "intro": "Keep this outline the same on all your devices. Each bullet syncs on its own, so edits made on different devices at once, even offline, all come through.",
       "mode": {
         "off": "Off",
         "icloud": "iCloud",
         "server": "My own server"
       },
       "status": {
-        "off": "Sync is off.",
-        "incomplete": "Enter the server address and this device’s token.",
+        "off": "Sync is off",
+        "incomplete": "Not connected",
+        "incomplete_hint": "Enter the server address and this device’s token below.",
         "syncing": "Syncing…",
-        "synced": "Up to date (last synced {time}).",
-        "offline": "Can’t sync: {error}. Edits are kept here and sent when the server can be reached."
+        "synced": "Up to date",
+        "last_synced": "Last synced {time}",
+        "offline": "Can’t sync",
+        "offline_detail": "{error}. Edits are kept here and sent when the server can be reached."
       },
       "icloud": {
-        "hint": "Syncs through the private iCloud database of the Apple Account this Mac is signed in to (System Settings → Apple Account). Flowie on your iPhone and your other Macs syncs with it when they use the same account.",
+        "hint": "Through the iCloud account this Mac is signed in to, with Flowie on your iPhone and other Macs that use the same account.",
         "status": {
           "checking": "Checking your iCloud account…",
           "no_account": "Not signed in to iCloud. Sign in under System Settings → Apple Account, and sync starts by itself.",
@@ -296,7 +298,9 @@
           "not_entitled": "iCloud is unavailable in this build. Only the Mac App Store version of Flowie can sync through iCloud; this one can sync with your own server.",
           "unsupported": "iCloud sync needs macOS 14 or later.",
           "failed": "Couldn’t check your iCloud account: {error}",
-          "offline": "Can’t reach iCloud: {error}. Edits are kept here and sent when it can be reached."
+          "offline": "Can’t reach iCloud",
+          "offline_detail": "{error}. Edits are kept here and sent when iCloud can be reached.",
+          "unavailable": "iCloud is unavailable"
         }
       },
       "server": {
@@ -327,7 +331,7 @@
         "cancel": "Cancel",
         "failed": "Couldn’t start over: {error}"
       },
-      "backup": "Before the first sync with iCloud or a server, Flowie keeps a copy of this outline’s database beside it (flowie.sqlite.before-sync-<time>)."
+      "backup": "Before the first sync, Flowie keeps a copy of this outline’s database beside it (flowie.sqlite.before-sync-<time>)."
     },
     "about": {
       "tagline": "A fast outliner for thinking in lists.",

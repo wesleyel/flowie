@@ -109,6 +109,32 @@ pub(crate) fn access_text(access: &Access) -> String {
     }
 }
 
+/// How a sync status should look: quiet, at work, or needing attention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SyncTone {
+    Idle,
+    Active,
+    Problem,
+}
+
+/// Where sync stands, as the toolbar's cloud and Settings → Sync show it.
+pub(crate) struct SyncStatus {
+    pub icon: &'static str,
+    pub tone: SyncTone,
+    /// A few words: "Up to date", "Can't sync".
+    pub title: String,
+    /// What it means or why, in a sentence.
+    pub detail: Option<String>,
+    /// When everything was last in sync, shown beside the title.
+    pub time: Option<String>,
+}
+
+impl SyncStatus {
+    fn new(icon: &'static str, tone: SyncTone, title: impl Into<String>, detail: Option<String>) -> Self {
+        SyncStatus { icon, tone, title: title.into(), detail, time: None }
+    }
+}
+
 /// What moves the records: threads talking to a server, or CKSyncEngine.
 enum Driver {
     Server(SyncDriver),
@@ -190,6 +216,64 @@ impl SyncSession {
 }
 
 impl Outline {
+    /// Where sync stands, for the toolbar and Settings → Sync.
+    pub(crate) fn sync_status(&self) -> SyncStatus {
+        use crate::app::i18n::t;
+        let config = &self.config.sync;
+        let icloud = config.enabled && config.icloud;
+        // What a working sync goes through: the account, or the server's address.
+        let through = || {
+            if icloud {
+                t!("settings.sync.icloud.hint").to_string()
+            } else {
+                config.server.trim().to_string()
+            }
+        };
+        let unavailable = |access: &Access| {
+            SyncStatus::new("cloud-off", SyncTone::Problem, t!("settings.sync.icloud.status.unavailable"), Some(access_text(access)))
+        };
+        let Some(session) = self.sync.session() else {
+            return match (config.enabled, self.sync.icloud_unavailable()) {
+                (false, _) => SyncStatus::new(
+                    "cloud-off",
+                    SyncTone::Idle,
+                    t!("settings.sync.status.off"),
+                    Some(t!("settings.sync.backup").to_string()),
+                ),
+                (true, Some(access)) if icloud => unavailable(access),
+                (true, _) => SyncStatus::new(
+                    "cloud-off",
+                    SyncTone::Idle,
+                    t!("settings.sync.status.incomplete"),
+                    Some(t!("settings.sync.status.incomplete_hint").to_string()),
+                ),
+            };
+        };
+        match (session.phase(), session.cloud()) {
+            (_, Some(CloudPhase::Unavailable(access))) => unavailable(access),
+            (_, Some(CloudPhase::Checking)) => {
+                SyncStatus::new("refresh-cw", SyncTone::Active, t!("settings.sync.icloud.status.checking"), Some(through()))
+            }
+            (_, Some(CloudPhase::Offline(error))) => SyncStatus::new(
+                "cloud-alert",
+                SyncTone::Problem,
+                t!("settings.sync.icloud.status.offline"),
+                Some(t!("settings.sync.icloud.status.offline_detail", error = error)),
+            ),
+            (SyncPhase::Syncing, _) => SyncStatus::new("refresh-cw", SyncTone::Active, t!("settings.sync.status.syncing"), Some(through())),
+            (SyncPhase::Synced, _) => SyncStatus {
+                time: session.last_synced.map(|at| t!("settings.sync.status.last_synced", time = at.format("%H:%M").to_string())),
+                ..SyncStatus::new("cloud-check", SyncTone::Active, t!("settings.sync.status.synced"), Some(through()))
+            },
+            (SyncPhase::Offline(error), _) => SyncStatus::new(
+                "cloud-alert",
+                SyncTone::Problem,
+                t!("settings.sync.status.offline"),
+                Some(t!("settings.sync.status.offline_detail", error = error)),
+            ),
+        }
+    }
+
     /// Start, restart or stop sync to match the settings. Not while a sync field is being
     /// typed in: that would connect with half an address.
     pub(crate) fn apply_sync_config(&mut self, cx: &mut Context<Self>) {

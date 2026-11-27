@@ -21,6 +21,7 @@ Homebrew cask follows the newest version, including candidates.
 
 ### Changed
 
+- **Settings → Sync**: the page is laid out more simply: under the choice of Off, iCloud or your own server, one box shows where sync stands (up to date with the time of the last sync, syncing, can’t sync with the reason, or iCloud unavailable), and the server fields only show when your own server is chosen. The top bar’s cloud uses the same states: a check when up to date, red with an alert when sync fails, and it also shows when sync is on but not yet connected.
 - **Markdown export**: code rows are exported (and copied) as fenced code blocks, so they come back as code when the Markdown is imported again, and plain-text export keeps code exactly as written.
 - **Database**: the outline's database moves to a new format that records what syncing bullets between devices will need: when each field of a bullet was last changed, the bullet a moved one came from, and room for fields written by newer versions. Opening an outline upgrades it once and keeps a backup beside it (`flowie.sqlite.backup-v5-<timestamp>`). Flowie 1.0.x can't open the upgraded database.
 

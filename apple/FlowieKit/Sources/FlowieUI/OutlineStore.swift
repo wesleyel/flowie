@@ -18,6 +18,9 @@ public final class OutlineStore: ObservableObject {
     /// Where the caret goes next, after a key moved it to another row: that row's editor takes
     /// it and clears it. Not published: the key's edit already updates the rows.
     public var focus: Focus?
+    /// Told right away, before the edit that changed the rows returns, so a page view can move
+    /// the caret before the next key arrives (two quick Returns land on the new rows).
+    public var onChange: ((PageChange) -> Void)?
 
     public init(outline: Outline) {
         self.outline = outline
@@ -33,7 +36,13 @@ public final class OutlineStore: ObservableObject {
     /// The bullet whose page is shown; nil for Home.
     public var root: String? { pages.last?.id }
 
+    /// Read the page again.
     public func reload() {
+        readPage()
+        onChange?(.rows)
+    }
+
+    private func readPage() {
         do {
             rows = try outline.page(root: root)
         } catch {
@@ -47,13 +56,15 @@ public final class OutlineStore: ObservableObject {
     /// Open a bullet as a page.
     public func open(_ row: RowView) {
         pages.append(row)
-        reload()
+        readPage()
+        onChange?(.page)
     }
 
     /// Back to the page above (Home when there is none).
     public func back() {
         _ = pages.popLast()
-        reload()
+        readPage()
+        onChange?(.page)
     }
 
     /// Run an edit, then show what it changed (or why it failed).
@@ -73,8 +84,12 @@ public final class OutlineStore: ObservableObject {
     /// Show what an edit changed: the page read again when rows came, went or moved, otherwise
     /// just the rows that changed. The caret moves when the edit says where.
     private func apply(_ outcome: EditOutcome) {
+        if let focus = outcome.focus {
+            self.focus = Focus(focus)
+        }
         if outcome.structureChanged {
-            reload()
+            readPage()
+            onChange?(.rows)
         } else {
             let shown = outcome.changedIds.filter { id in rows.contains { $0.id == id } }
             if !shown.isEmpty, let fresh = try? outline.rows(ids: shown, root: root) {
@@ -83,19 +98,20 @@ public final class OutlineStore: ObservableObject {
                         rows[index] = row
                     }
                 }
+                onChange?(.content(fresh.map(\.id)))
+            } else if outcome.focus != nil {
+                onChange?(.content([]))
             }
-        }
-        if let focus = outcome.focus {
-            self.focus = Focus(focus)
         }
     }
 
-    /// Add a bullet at the end of the page shown (the caret stays where it is).
-    public func add(_ text: String) {
+    /// Add a bullet at the end of the page shown. With `focus`, the caret goes to it;
+    /// otherwise it stays where it is.
+    public func add(_ text: String, focus: Bool = false) {
         let index = UInt32(rows.filter { $0.depth == 0 }.count)
         edit {
             var outcome = try outline.create(parent: root, index: index, text: text)
-            outcome.focus = nil
+            if !focus { outcome.focus = nil }
             return outcome
         }
     }
@@ -131,6 +147,17 @@ public final class OutlineStore: ObservableObject {
     /// Move a bullet out to follow its parent, staying on the page shown.
     public func outdent(_ row: RowView) {
         edit { try outline.outdent(id: row.id, root: root) }
+    }
+
+    /// Move a bullet above the one before it, as the desktop's Move Up, staying on the page
+    /// shown.
+    public func moveUp(_ row: RowView) {
+        edit { try outline.moveUp(id: row.id, root: root) }
+    }
+
+    /// Move a bullet below the one after it, as the desktop's Move Down.
+    public func moveDown(_ row: RowView) {
+        edit { try outline.moveDown(id: row.id, root: root) }
     }
 
     /// Move a bullet and what is under it to the Trash.
@@ -173,6 +200,16 @@ public final class OutlineStore: ObservableObject {
             syncStatus = outline.syncStatus()
         }
     }
+}
+
+/// How the rows of the page shown changed.
+public enum PageChange: Equatable {
+    /// Another page is shown.
+    case page
+    /// Rows came, went or moved (or anything may have changed): the rows were read again.
+    case rows
+    /// Only these rows' content changed (none: only the caret moves).
+    case content([String])
 }
 
 /// Where the caret goes: a row, and the selection in its text in UTF-16 offsets (as UIKit and

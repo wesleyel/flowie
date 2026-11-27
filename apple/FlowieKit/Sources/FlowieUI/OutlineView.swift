@@ -12,8 +12,9 @@ final class Local<Value>: ObservableObject {
     }
 }
 
-/// A page of the outline: its bullets indented by level, each to tick off, edit, open as a
-/// page or delete, and a field to add one at the end.
+/// A page of the outline. On iOS, the UIKit page (`OutlinePage`, wiki: iOS-Cross-Platform §4.1);
+/// on the Mac preview, a simple list of the same rows: each to tick off, edit, open as a page or
+/// delete, and a field to add one at the end.
 public struct OutlineView: View {
     @ObservedObject var store: OutlineStore
     @StateObject private var newText = Local("")
@@ -22,7 +23,36 @@ public struct OutlineView: View {
         self.store = store
     }
 
+    private var title: String {
+        store.pages.last.map { $0.text.isEmpty ? NSLocalizedString("Untitled", comment: "Title of a page whose bullet has no text") : $0.text }
+            ?? NSLocalizedString("Home", comment: "Title of the outline's top page")
+    }
+
     public var body: some View {
+        #if canImport(UIKit)
+        OutlinePage(store: store)
+            // The page keeps its rows above the keyboard itself (keyboardLayoutGuide), and
+            // its list scrolls under the home indicator.
+            .ignoresSafeArea(.keyboard)
+            .ignoresSafeArea(.container, edges: .bottom)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if !store.pages.isEmpty {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Back", systemImage: "chevron.left") { store.back() }
+                    }
+                }
+                ToolbarItem {
+                    SyncBadge(status: store.syncStatus)
+                }
+            }
+            .safeAreaInset(edge: .top) {
+                if let problem = store.problem {
+                    Text(problem).font(.footnote).foregroundStyle(.red).padding(8)
+                }
+            }
+        #else
         List {
             ForEach(store.rows, id: \.id) { row in
                 RowLine(store: store, row: row)
@@ -35,7 +65,7 @@ public struct OutlineView: View {
                     newText.value = ""
                 }
         }
-        .navigationTitle(store.pages.last.map { $0.text.isEmpty ? "Untitled" : $0.text } ?? "Home")
+        .navigationTitle(title)
         .toolbar {
             ToolbarItemGroup {
                 if !store.pages.isEmpty {
@@ -53,10 +83,12 @@ public struct OutlineView: View {
                 Text(problem).font(.footnote).foregroundStyle(.red).padding(8)
             }
         }
+        #endif
     }
 }
 
-/// One bullet.
+#if !canImport(UIKit)
+/// One bullet in the Mac preview's list.
 struct RowLine: View {
     @ObservedObject var store: OutlineStore
     let row: RowView
@@ -72,15 +104,11 @@ struct RowLine: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(row.completed ? "Completed" : "Not completed")
-            #if canImport(UIKit)
-            RowTextView(store: store, row: row)
-            #else
             TextField("", text: $text.value, axis: .vertical)
                 .strikethrough(row.completed)
                 .foregroundStyle(row.completed ? .secondary : .primary)
                 .focused($focused)
                 .onSubmit { focused = false }
-            #endif
             if row.hasChildren {
                 Button {
                     store.open(row)
@@ -92,8 +120,7 @@ struct RowLine: View {
             }
         }
         .padding(.leading, CGFloat(row.depth) * 20)
-        #if !canImport(UIKit)
-        // The Mac preview's field: Return ends editing.
+        // Return ends editing.
         .onAppear { text.value = row.text }
         .onChange(of: row.text) { _, new in
             if !focused { text.value = new }
@@ -115,7 +142,6 @@ struct RowLine: View {
                 store.editing(nil)
             }
         }
-        #endif
         .swipeActions(edge: .leading) {
             Button("Indent", systemImage: "increase.indent") { store.indent(row) }
             Button("Outdent", systemImage: "decrease.indent") { store.outdent(row) }
@@ -125,12 +151,15 @@ struct RowLine: View {
         }
         .contextMenu {
             Button("Open as a Page", systemImage: "arrow.right.circle") { store.open(row) }
+            Button("Move Up", systemImage: "arrow.up") { store.moveUp(row) }
+            Button("Move Down", systemImage: "arrow.down") { store.moveDown(row) }
             Button("Indent", systemImage: "increase.indent") { store.indent(row) }
             Button("Outdent", systemImage: "decrease.indent") { store.outdent(row) }
             Button("Delete", systemImage: "trash", role: .destructive) { store.delete(row) }
         }
     }
 }
+#endif
 
 /// How sync is doing, as a small icon.
 struct SyncBadge: View {

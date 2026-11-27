@@ -71,6 +71,29 @@ func run() throws {
     store.backspaceAtStart(store.rows[2])
     check(store.focus == Focus(id: store.rows[1].id, start: 3, end: 3), "the caret after the emoji")
 
+    // Move up and down, as the desktop's Move Up / Move Down.
+    check(store.rows.map(\.text) == ["groceries", "日😀milk", "rye bread"], "before moving: \(store.rows.map(\.text))")
+    store.moveUp(store.rows[2])
+    check(store.rows.map(\.text) == ["groceries", "rye bread", "日😀milk"], "moved up: \(store.rows.map(\.text))")
+    store.moveDown(store.rows[1])
+    check(store.rows.map(\.text) == ["groceries", "日😀milk", "rye bread"], "moved down: \(store.rows.map(\.text))")
+
+    // A page view hears each change inside the edit, with the caret's new place already
+    // known: so a second Return right after the first goes to the new row.
+    var heard: [(PageChange, Focus?)] = []
+    store.onChange = { change in heard.append((change, store.focus)) }
+    store.enter(store.rows[2], from: 9, to: 9)
+    let first = store.rows[3]
+    check(heard.count == 1 && heard[0].0 == .rows && heard[0].1 == Focus(id: first.id, start: 0, end: 0), "Return tells the page where the caret goes: \(heard)")
+    store.enter(first, from: 0, to: 0)
+    check(store.rows.count == 5 && heard.last?.1?.id == store.rows[4].id, "a second Return splits the new row: \(store.rows.map(\.text))")
+    heard = []
+    store.setText(store.rows[4], "jam")
+    check(heard.count == 1 && heard[0].0 == .content([store.rows[4].id]), "typing tells only its row: \(heard)")
+    store.onChange = nil
+    store.add("", focus: true)
+    check(store.focus?.id == store.rows.last?.id && store.rows.last?.text == "", "a row added at the end takes the caret")
+
     store.startSync(server: "http://127.0.0.1:9", token: "t")
     let deadline = Date().addingTimeInterval(10)
     while Date() < deadline {
@@ -83,4 +106,6 @@ func run() throws {
     print("FlowieUI check: ok")
 }
 
-try MainActor.assumeIsolated { try run() }
+try MainActor.assumeIsolated {
+    try run()
+}

@@ -129,8 +129,7 @@ impl Outline {
                 let link = if dragging || this.is_auxiliary_page_open() { None } else { this.link_target_at_point(ev.position) };
                 this.popover_hover_at(link.map(PopoverKind::Link), ev.position, cx);
                 if dragging && ev.pressed_button == Some(MouseButton::Left) {
-                    if let Some(ix) = this.index_for_point(ev.position) {
-                        let e = this.edit.as_mut().unwrap();
+                    if let (Some(ix), Some(e)) = (this.index_for_point(ev.position), this.edit.as_mut()) {
                         let anchor = if e.reversed { e.sel.end } else { e.sel.start };
                         e.sel = anchor.min(ix)..anchor.max(ix);
                         e.reversed = ix < anchor;

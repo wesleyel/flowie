@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use flowie_core::{markup, search::today, BlockKind, NodeId};
 use gpui::{div, point, prelude::*, px, AnyElement, Context, MouseButton, Window};
 
-use crate::outline::{Edit, Outline, Target};
+use crate::outline::{Outline, Target};
 use crate::overlays::palette::{node_label, Action, Entry, Inline, InlineKind, Mode};
 
 pub(crate) struct Cmd {
@@ -153,12 +153,13 @@ impl Outline {
 
     /// After each edit of a bullet's text: open, update or close the popup.
     pub fn check_inline(&mut self, inserted: &str) {
-        let Some(Edit { target: Target::Text(node), .. }) = self.edit.as_ref() else {
+        let Some((node, caret)) = self.edit.as_ref().and_then(|e| match e.target {
+            Target::Text(node) => Some((node, e.caret())),
+            _ => None,
+        }) else {
             self.inline = None;
             return;
         };
-        let node = *node;
-        let caret = self.edit.as_ref().unwrap().caret();
         let text = self.ws.tree.node(node).text.clone();
         if let Some(i) = &self.inline {
             let from = i.start + trigger_len(i.kind);
@@ -235,8 +236,12 @@ impl Outline {
 
     /// Run a command on the bullet being edited (slash menu, palette).
     pub fn run_action(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Target::Text(id)) = self.edit.as_ref().map(|e| e.target) else { return };
-        let caret = self.edit.as_ref().map(|e| e.caret()).unwrap_or(0);
+        let Some((id, caret, sel)) = self.edit.as_ref().and_then(|e| match e.target {
+            Target::Text(id) => Some((id, e.caret(), e.sel.clone())),
+            _ => None,
+        }) else {
+            return;
+        };
         match action {
             Action::Kind(kind) => {
                 let before = Some(flowie_core::Caret { node: id, offset: caret });
@@ -246,7 +251,6 @@ impl Outline {
                 self.commit_structure(before, cx);
             }
             Action::Wrap(open, close) => {
-                let sel = self.edit.as_ref().unwrap().sel.clone();
                 let inner = self.edit_text()[sel.clone()].to_string();
                 self.replace_edit_text(sel.clone(), &format!("{open}{inner}{close}"), false, cx);
                 if let Some(e) = self.edit.as_mut() {
@@ -255,7 +259,6 @@ impl Outline {
                 }
             }
             Action::Color(name) => {
-                let sel = self.edit.as_ref().unwrap().sel.clone();
                 let inner = self.edit_text()[sel.clone()].to_string();
                 let open = format!("{{{name}}}");
                 self.replace_edit_text(sel.clone(), &format!("{open}{inner}{{/}}"), false, cx);
@@ -264,14 +267,8 @@ impl Outline {
                     e.sel = s..s + inner.len();
                 }
             }
-            Action::InsertText(t) => {
-                let sel = self.edit.as_ref().unwrap().sel.clone();
-                self.replace_edit_text(sel, &t, false, cx);
-            }
-            Action::Today => {
-                let sel = self.edit.as_ref().unwrap().sel.clone();
-                self.replace_edit_text(sel, &format!("{} ", today()), false, cx);
-            }
+            Action::InsertText(t) => self.replace_edit_text(sel, &t, false, cx),
+            Action::Today => self.replace_edit_text(sel, &format!("{} ", today()), false, cx),
             Action::Complete => self.toggle_complete(&crate::outline::ToggleComplete, window, cx),
             Action::Note => self.toggle_note(&crate::outline::ToggleNote, window, cx),
             Action::OpenLink => self.open_palette(Mode::LinkTo { node: id, at: caret }, cx),

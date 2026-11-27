@@ -288,7 +288,7 @@ impl Outline {
                 }
             }
         }
-        let p = self.palette.as_mut().unwrap();
+        let Some(p) = self.palette.as_mut() else { return };
         p.selected = p.selected.min(entries.len().saturating_sub(1));
         p.entries = entries;
         self.popup_scroll.scroll_to_item(p.selected);

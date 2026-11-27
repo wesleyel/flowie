@@ -75,8 +75,9 @@ impl Outline {
     pub fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else { return };
         if self.is_auxiliary_page_open() || matches!(self.edit_target(), Some(Target::Field(_))) {
-            if let Some(text) = item.text().filter(|_| matches!(self.edit_target(), Some(Target::Field(_)))) {
-                self.replace_edit_text(self.edit.as_ref().unwrap().sel.clone(), &text, false, cx);
+            let field_sel = self.edit.as_ref().filter(|e| matches!(e.target, Target::Field(_))).map(|e| e.sel.clone());
+            if let (Some(sel), Some(text)) = (field_sel, item.text()) {
+                self.replace_edit_text(sel, &text, false, cx);
             }
             return;
         }
@@ -90,10 +91,9 @@ impl Outline {
             _ => None,
         });
         // Other text pasted into a code row is code: each line goes in as is.
-        if let (None, Some(id)) = (&copied, self.editing_code_row()) {
+        if let (None, Some(id), Some(sel)) = (&copied, self.editing_code_row(), self.edit.as_ref().map(|e| e.sel.clone())) {
             if text.trim_end_matches(['\n', '\r']).contains(['\n', '\r']) {
                 let before = self.caret();
-                let sel = self.edit.as_ref().unwrap().sel.clone();
                 let (row, off) = self.ws.tree.paste_code_lines(id, sel, &text);
                 self.edit = Some(Edit::new(Target::Text(row), off));
                 self.commit_structure(before, cx);
@@ -105,8 +105,8 @@ impl Outline {
                 .unwrap_or_else(|| if text.trim_end_matches('\n').contains('\n') { flowie_core::io::parse_any(&text) } else { Vec::new() });
         self.resolve_item_images(&mut items, None);
         let multiline = !items.is_empty();
-        match self.edit_target() {
-            Some(Target::Text(id)) if multiline && id != self.zoom => {
+        match self.edit.as_ref().map(|e| (e.target, e.sel.clone())) {
+            Some((Target::Text(id), _)) if multiline && id != self.zoom => {
                 let before = self.caret();
                 let parent = self.ws.tree.parent(id);
                 let empty = self.ws.tree.node(id).text.is_empty() && !self.ws.tree.has_children(id);
@@ -121,10 +121,7 @@ impl Outline {
                 }
                 self.commit_structure(before, cx);
             }
-            Some(_) => {
-                let r = self.edit.as_ref().unwrap().sel.clone();
-                self.replace_edit_text(r, &text, false, cx);
-            }
+            Some((_, sel)) => self.replace_edit_text(sel, &text, false, cx),
             None => {
                 if let Some(b) = self.block {
                     let before = self.caret();

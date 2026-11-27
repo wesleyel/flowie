@@ -29,8 +29,8 @@ impl Outline {
         if self.palette_confirm(window, cx) {
             return;
         }
-        match self.edit_target() {
-            Some(Target::Text(id)) => {
+        match self.edit.as_ref().map(|e| (e.target, e.sel.clone())) {
+            Some((Target::Text(id), sel)) => {
                 if id == self.zoom {
                     // Enter in the title adds a first child.
                     let before = self.caret();
@@ -51,30 +51,22 @@ impl Outline {
                     self.commit_structure(before, cx);
                     return;
                 }
-                let caret = self.edit.as_ref().unwrap().caret();
-                if let Some(e) = self.edit.as_ref() {
-                    if !e.sel.is_empty() {
-                        let r = e.sel.clone();
-                        let text = self.edit_text().to_string();
-                        self.ws.tree.set_text(id, &format!("{}{}", &text[..r.start], &text[r.end..]));
-                    }
+                if !sel.is_empty() {
+                    let text = self.edit_text().to_string();
+                    self.ws.tree.set_text(id, &format!("{}{}", &text[..sel.start], &text[sel.end..]));
                 }
-                let caret = self.edit.as_ref().map(|e| e.sel.start).unwrap_or(caret);
-                let (focus, off) = self.ws.tree.split(id, caret);
+                let (focus, off) = self.ws.tree.split(id, sel.start);
                 self.edit = Some(Edit::new(Target::Text(focus), off));
                 self.commit_structure(before, cx);
             }
-            Some(Target::Note(_)) => {
-                let r = self.edit.as_ref().unwrap().sel.clone();
-                self.replace_edit_text(r, "\n", false, cx);
-            }
-            Some(Target::Search) => {
+            Some((Target::Note(_), sel)) => self.replace_edit_text(sel, "\n", false, cx),
+            Some((Target::Search, _)) => {
                 if let Some(first) = self.rows.first().map(|r| r.id) {
                     let len = self.ws.tree.node(first).text.len();
                     self.start_edit(Target::Text(first), len, cx);
                 }
             }
-            Some(Target::Palette | Target::Field(_)) => {}
+            Some((Target::Palette | Target::Field(_), _)) => {}
             None => self.enter_from_idle(cx),
         }
     }

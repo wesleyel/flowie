@@ -362,6 +362,33 @@ impl Outline {
         })
     }
 
+    /// Move a bullet above the one before it; the first of its parent becomes the last child
+    /// of the bullet before its parent, but not out of the page at `root` (none: Home). As the
+    /// desktop's Move Up (`Tree::move_up`); nothing changes if it can't go further. An undo
+    /// step.
+    pub fn move_up(&self, id: String, root: Option<String>) -> Result<EditOutcome, FlowieError> {
+        let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
+        self.edit_row(&id, |ws, id| {
+            if ws.tree.move_up(id, root) {
+                ws.commit_with_imports(None, None, None);
+            }
+            None
+        })
+    }
+
+    /// Move a bullet below the one after it; the last of its parent becomes the first child
+    /// of the bullet after its parent, but not out of the page at `root` (none: Home). As the
+    /// desktop's Move Down (`Tree::move_down`). An undo step.
+    pub fn move_down(&self, id: String, root: Option<String>) -> Result<EditOutcome, FlowieError> {
+        let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
+        self.edit_row(&id, |ws, id| {
+            if ws.tree.move_down(id, root) {
+                ws.commit_with_imports(None, None, None);
+            }
+            None
+        })
+    }
+
     /// Return in a row's text with `start..end` selected (UTF-16 offsets; a caret when equal),
     /// on the page at `root` (none: Home), as on the desktop (`flowie_doc::keys::enter`): the
     /// text after the caret moves to a new bullet below, where the focus goes. An undo step.
@@ -688,6 +715,31 @@ mod tests {
         let undone = outline.undo();
         assert_eq!(undone.focus, Some(FocusView { id: a.clone(), start: 5, end: 5 }));
         assert_eq!(texts(&outline)[0].0, "hello world");
+    }
+
+    #[test]
+    fn rows_move_up_and_down_within_the_page() {
+        let outline = Outline::in_memory();
+        let a = add(&outline, None, 0, "a");
+        let b = add(&outline, None, 1, "b");
+        add(&outline, Some(&a), 0, "a1");
+        let out = outline.move_up(b.clone(), None).unwrap();
+        assert!(out.structure_changed);
+        assert_eq!(texts(&outline), [("b".into(), 0), ("a".into(), 0), ("a1".into(), 1)]);
+        assert!(outline.move_up(b.clone(), None).unwrap().is_empty(), "already first");
+        assert!(outline.move_down(b.clone(), None).unwrap().structure_changed);
+        assert_eq!(texts(&outline), [("a".into(), 0), ("a1".into(), 1), ("b".into(), 0)]);
+        // The first child goes into the bullet before its parent, except out of the page.
+        let b1 = add(&outline, Some(&b), 0, "b1");
+        assert!(outline.move_up(b1.clone(), Some(b.clone())).unwrap().is_empty(), "not out of the page shown");
+        outline.move_up(b1.clone(), None).unwrap();
+        assert_eq!(texts(&outline), [("a".into(), 0), ("a1".into(), 1), ("b1".into(), 1), ("b".into(), 0)]);
+        assert!(outline.move_down(b1.clone(), None).unwrap().structure_changed);
+        assert_eq!(texts(&outline)[2..], [("b".into(), 0), ("b1".into(), 1)]);
+        // Each move is an undo step.
+        outline.undo();
+        assert_eq!(texts(&outline)[2], ("b1".into(), 1));
+        assert!(matches!(outline.move_up("nope".into(), None), Err(FlowieError::NoSuchBullet { .. })));
     }
 
     #[test]

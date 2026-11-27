@@ -401,28 +401,17 @@ impl Outline {
         true
     }
 
-    /// Wrap the selection in `open`/`close`, or insert the pair around the caret.
+    /// Wrap the selection in `open`/`close`, or insert the pair around the caret; unwrap a
+    /// selection already wrapped (`markup::toggle_wrap`, shared with the iOS app).
     pub(crate) fn wrap(&mut self, open: &str, close: &str, cx: &mut Context<Self>) {
         let Some(e) = self.edit.as_ref() else { return };
         if matches!(e.target, Target::Search | Target::Palette | Target::Field(_)) {
             return;
         }
-        let r = e.sel.clone();
-        let inner = self.edit_text()[r.clone()].to_string();
-        // Toggle off when the selection is already wrapped.
-        let text = self.edit_text();
-        if !inner.is_empty() && r.start >= open.len() && text[..r.start].ends_with(open) && text[r.end..].starts_with(close) {
-            let outer = r.start - open.len()..r.end + close.len();
-            self.replace_edit_text(outer.clone(), &inner, false, cx);
-            if let Some(e) = self.edit.as_mut() {
-                e.sel = outer.start..outer.start + inner.len();
-            }
-            return;
-        }
-        self.replace_edit_text(r.clone(), &format!("{open}{inner}{close}"), false, cx);
+        let edit = flowie_core::markup::toggle_wrap(self.edit_text(), e.sel.clone(), open, close);
+        self.replace_edit_text(edit.range.clone(), &edit.insert, false, cx);
         if let Some(e) = self.edit.as_mut() {
-            let s = r.start + open.len();
-            e.sel = s..s + inner.len();
+            e.sel = edit.sel;
         }
         cx.notify();
     }
@@ -448,14 +437,10 @@ impl Outline {
             return;
         }
         let Some(e) = self.edit.as_ref() else { return };
-        let r = e.sel.clone();
-        let label = self.edit_text()[r.clone()].to_string();
-        let label = if label.is_empty() { "link".to_string() } else { label };
-        let insert = format!("[{label}](https://)");
-        self.replace_edit_text(r.clone(), &insert, false, cx);
+        let edit = flowie_core::markup::insert_link(self.edit_text(), e.sel.clone());
+        self.replace_edit_text(edit.range.clone(), &edit.insert, false, cx);
         if let Some(e) = self.edit.as_mut() {
-            let s = r.start + label.len() + 3;
-            e.sel = s..s + "https://".len();
+            e.sel = edit.sel;
         }
         cx.notify();
     }

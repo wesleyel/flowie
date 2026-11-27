@@ -152,6 +152,48 @@ pub fn recolor(s: &str, range: Range<usize>, color: Option<u8>) -> Recolored {
     Recolored { text, range, pieces }
 }
 
+/// A change to a bullet's text made by a format command: `range` of the old text becomes
+/// `insert`, then `sel` (in the new text) is selected. Byte offsets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextEdit {
+    pub range: Range<usize>,
+    pub insert: String,
+    pub sel: Range<usize>,
+}
+
+impl TextEdit {
+    /// `s` with the edit made.
+    pub fn apply(&self, s: &str) -> String {
+        let mut out = String::with_capacity(s.len() + self.insert.len());
+        out.push_str(&s[..self.range.start]);
+        out.push_str(&self.insert);
+        out.push_str(&s[self.range.end..]);
+        out
+    }
+}
+
+/// Bold, italic, code, …: wrap the selection `sel` of `s` in `open`/`close`, the text staying
+/// selected, or put the pair around the caret, the caret between them. A selection already
+/// wrapped in the pair is unwrapped instead.
+pub fn toggle_wrap(s: &str, sel: Range<usize>, open: &str, close: &str) -> TextEdit {
+    let inner = &s[sel.clone()];
+    if !inner.is_empty() && sel.start >= open.len() && s[..sel.start].ends_with(open) && s[sel.end..].starts_with(close) {
+        let outer = sel.start - open.len()..sel.end + close.len();
+        let start = outer.start;
+        return TextEdit { range: outer, insert: inner.to_string(), sel: start..start + inner.len() };
+    }
+    let start = sel.start + open.len();
+    TextEdit { insert: format!("{open}{inner}{close}"), sel: start..start + inner.len(), range: sel }
+}
+
+/// Insert Link: the selection (or `link`) becomes the label of `[label](https://)`, the
+/// address selected to be typed over.
+pub fn insert_link(s: &str, sel: Range<usize>) -> TextEdit {
+    let label = if sel.is_empty() { "link" } else { &s[sel.clone()] };
+    let start = sel.start + label.len() + 3;
+    TextEdit { insert: format!("[{label}](https://)"), sel: start..start + "https://".len(), range: sel }
+}
+
 pub fn is_tag_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '-' || c == '/'
 }

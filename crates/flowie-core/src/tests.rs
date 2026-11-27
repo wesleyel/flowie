@@ -1212,3 +1212,21 @@ fn local_writes_stamp_only_the_fields_they_change() {
     assert_eq!(t.node(b).text, "b");
     assert!(t.node(b).sync.clocks.get(Reg::Text) > typed);
 }
+
+#[test]
+fn format_commands_wrap_unwrap_and_insert_links() {
+    let wrap = |s: &str, sel: std::ops::Range<usize>, mark: &str| {
+        let e = markup::toggle_wrap(s, sel, mark, mark);
+        (e.apply(s), e.sel)
+    };
+    // A selection is wrapped and stays selected; wrapping it again takes the pair off.
+    assert_eq!(wrap("say hi", 4..6, "**"), ("say **hi**".to_string(), 6..8));
+    assert_eq!(wrap("say **hi**", 6..8, "**"), ("say hi".to_string(), 4..6));
+    // At the caret, the pair with the caret between.
+    assert_eq!(wrap("ab", 1..1, "=="), ("a====b".to_string(), 3..3));
+    assert_eq!(wrap("a~~b", 1..1, "~~"), ("a~~~~~~b".to_string(), 3..3), "a caret is never unwrapped");
+    let link = markup::insert_link("see docs", 4..8);
+    assert_eq!((link.apply("see docs"), link.sel), ("see [docs](https://)".to_string(), 11..19));
+    let link = markup::insert_link("x", 1..1);
+    assert_eq!(link.apply("x"), "x[link](https://)");
+}

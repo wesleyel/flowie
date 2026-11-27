@@ -360,8 +360,14 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             self?.iCloudChanged(on)
         }
         // Reading mode (`page.isReadOnly`): the hint changes (no "tap here to write").
-        readingWatch = page.store.$readingMode.removeDuplicates().dropFirst().sink { [weak self] _ in
-            DispatchQueue.main.async { self?.updateHint() }
+        readingWatch = page.store.$readingMode.removeDuplicates().dropFirst().sink { [weak self] on in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.updateHint()
+                // The Aa menus go (nothing can be typed in anyway).
+                self.bar.setFormatHidden(on)
+                self.formatItems.forEach { $0.isHidden = on }
+            }
         }
         page.onChange = { [weak self] change in self?.pageChanged(change) }
         page.finishEditor = { [weak self] in self?.finishEditor() }
@@ -692,6 +698,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             } else {
                 textView.inputAccessoryView = bar
             }
+            textView.onFormat = { [weak self] format in self?.format(format) }
             textView.onBackspaceAtStart = { [weak self, weak textView] in
                 guard let self, let id = textView?.rowID, let row = rowsByID[id] else { return }
                 page.backspaceAtStart(row)
@@ -1202,6 +1209,31 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         }
     }
     @objc func moveToFromKeyboard() { moveTo() }
+
+    // MARK: Format (Aa)
+
+    /// Bold, italic, …: the desktop's markup around the edited row's selection, or a pair at
+    /// its caret (`TextFormat.apply`), then saved as typing is.
+    func format(_ format: TextFormat) {
+        guard !page.isReadOnly, let id = editingID, let editor = cell(for: id)?.textView,
+              editor.isFirstResponder, editor.markedTextRange == nil else { return }
+        let (text, selection) = format.apply(to: editor.text ?? "", range: editor.selectedRange)
+        let attributes = editor.typingAttributes
+        editor.textStorage.replaceCharacters(in: NSRange(location: 0, length: editor.textStorage.length),
+                                             with: NSAttributedString(string: text, attributes: attributes))
+        editor.selectedRange = selection
+        textViewDidChange(editor)
+    }
+
+    /// The Aa menu: the format commands, with the desktop's keys.
+    lazy var formatMenu: UIMenu = UIMenu(title: NSLocalizedString("Format", comment: "Keyboard bar button: the menu of bold, italic, …"), children: TextFormat.allCases.map { format in
+        UIAction(title: format.title, image: UIImage(systemName: format.symbol)) { [weak self] _ in self?.format(format) }
+    })
+
+    @objc func formatFromKey(_ command: UIKeyCommand) {
+        guard let index = command.propertyList as? Int, TextFormat.allCases.indices.contains(index) else { return }
+        format(TextFormat.allCases[index])
+    }
     func undo() { pageUndo.undo() }
     func redo() { pageUndo.redo() }
     @objc func dismissKeyboard() { view.endEditing(true) }
@@ -1231,7 +1263,14 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             key(NSLocalizedString("Move To…", comment: "Keyboard bar button"), "m", [.command, .shift], #selector(moveToFromKeyboard)),
             key(NSLocalizedString("Zoom In", comment: "Opens a bullet as the page, for VoiceOver"), "]", .command, #selector(zoomIntoEdited)),
             key(NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), UIKeyCommand.inputDelete, [.command, .shift], #selector(deleteEdited)),
-        ]
+        ] + TextFormat.allCases.enumerated().compactMap { index, format in
+            // ⌘B and ⌘I are the system's Bold and Italic: the text view takes them.
+            guard let key = format.key, format != .bold, format != .italic else { return nil }
+            let command = UIKeyCommand(title: format.title, action: #selector(formatFromKey(_:)), input: key.input, modifierFlags: key.flags, propertyList: index)
+            command.discoverabilityTitle = format.title
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
     }()
 
     /// The desktop's keys for folding the whole page to a level (⌃1 ⌃2 ⌃3 ⌃0), edited or not.
@@ -1250,6 +1289,9 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     public override var keyCommands: [UIKeyCommand]? {
         (editingID == nil ? super.keyCommands ?? [] : rowKeyCommands) + pageKeyCommands
     }
+
+    /// The shortcuts bars' Aa buttons, hidden in reading mode.
+    private var formatItems: [UIBarButtonItem] = []
 
     /// iPad: the keyboard bar's commands in the shortcuts bar, after the system's own items.
     /// When the bar is narrow, each group folds into one button with a menu.
@@ -1278,7 +1320,12 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             button("checkmark.circle", NSLocalizedString("Complete", comment: "Keyboard bar button"), #selector(complete)),
             button("arrow.turn.down.right", NSLocalizedString("Move To…", comment: "Keyboard bar button"), #selector(moveToFromKeyboard)),
         ])
-        item.leadingBarButtonGroups += [levels]
+        // Aa: the format menu (§4.4), hidden in reading mode.
+        let aa = UIBarButtonItem(title: nil, image: UIImage(systemName: "textformat"), primaryAction: nil, menu: formatMenu)
+        aa.accessibilityLabel = NSLocalizedString("Format", comment: "Keyboard bar button: the menu of bold, italic, …")
+        aa.isHidden = page.isReadOnly
+        formatItems.append(aa)
+        item.leadingBarButtonGroups += [levels, UIBarButtonItemGroup(barButtonItems: [aa], representativeItem: nil)]
         item.trailingBarButtonGroups = [rows]
     }
 
@@ -1943,6 +1990,8 @@ final class SlotView: UIView, UIPointerInteractionDelegate {
 final class BulletTextView: UITextView {
     var rowID: String?
     var onBackspaceAtStart: (() -> Void)?
+    /// The system's Bold and Italic (⌘B, ⌘I, the iPad's Format menu): the desktop's markup.
+    var onFormat: ((TextFormat) -> Void)?
     var willEdit: (() -> Void)?
     /// Reading mode: the text view never takes the caret.
     var isReadOnly: (() -> Bool)?
@@ -1985,6 +2034,25 @@ final class BulletTextView: UITextView {
         return true
     }
 
+    override func toggleBoldface(_ sender: Any?) {
+        onFormat?(.bold)
+    }
+
+    override func toggleItalics(_ sender: Any?) {
+        onFormat?(.italic)
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(toggleBoldface(_:)) || action == #selector(toggleItalics(_:)) {
+            return isEditable && isFirstResponder && onFormat != nil
+        }
+        // Underline has no markup.
+        if action == #selector(toggleUnderline(_:)) {
+            return false
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
     override func deleteBackward() {
         if selectedRange == NSRange(location: 0, length: 0) && markedTextRange == nil {
             onBackspaceAtStart?()
@@ -1995,11 +2063,13 @@ final class BulletTextView: UITextView {
 }
 
 /// The bar above the keyboard, one for all rows (§4.4): 44pt high, 44pt cells: outdent,
-/// indent, move up, move down, complete, move to…, undo (hold: redo), and dismiss the keyboard
-/// at the right. With a hardware keyboard the bar alone sits at the bottom of the screen: it
+/// indent, move up, move down, complete, Aa (the format menu), undo (hold: redo), and dismiss
+/// the keyboard at the right. Aa took Move To…'s cell: eight cells fit the narrowest iPhone,
+/// and Move To… is in the bullet's menu and on ⇧⌘M. With a hardware keyboard the bar alone sits at the bottom of the screen: it
 /// grows by the safe area there, its buttons above the Home indicator.
 final class KeyboardBar: UIInputView {
     private weak var controller: OutlinePageController?
+    private var aa: UIButton?
 
     init(controller: OutlinePageController) {
         self.controller = controller
@@ -2013,7 +2083,7 @@ final class KeyboardBar: UIInputView {
             ("arrow.up", NSLocalizedString("Move Up", comment: "Keyboard bar button"), #selector(moveUp)),
             ("arrow.down", NSLocalizedString("Move Down", comment: "Keyboard bar button"), #selector(moveDown)),
             ("checkmark.circle", NSLocalizedString("Complete", comment: "Keyboard bar button"), #selector(complete)),
-            ("arrow.turn.down.right", NSLocalizedString("Move To…", comment: "Keyboard bar button"), #selector(moveTo)),
+            ("textformat", NSLocalizedString("Format", comment: "Keyboard bar button: the menu of bold, italic, …"), #selector(format)),
             ("arrow.uturn.backward", NSLocalizedString("Undo", comment: "Keyboard bar button; hold to redo"), #selector(undo)),
         ]
         var x: CGFloat = 4
@@ -2022,6 +2092,14 @@ final class KeyboardBar: UIInputView {
             button.frame = CGRect(x: x, y: 0, width: 44, height: 44)
             addSubview(button)
             x += 44
+            if action == #selector(format) {
+                // A menu, opened by the tap.
+                button.removeTarget(self, action: action, for: .touchUpInside)
+                button.menu = controller.formatMenu
+                button.showsMenuAsPrimaryAction = true
+                button.isHidden = controller.page.isReadOnly
+                aa = button
+            }
             if action == #selector(undo) {
                 button.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(heldUndo)))
                 button.accessibilityHint = NSLocalizedString("Hold to redo", comment: "VoiceOver hint of the Undo button")
@@ -2076,7 +2154,11 @@ final class KeyboardBar: UIInputView {
     @objc private func moveUp() { controller?.moveUp() }
     @objc private func moveDown() { controller?.moveDown() }
     @objc private func complete() { controller?.complete() }
-    @objc private func moveTo() { controller?.moveTo() }
+    @objc private func format() {}
+
+    func setFormatHidden(_ hidden: Bool) {
+        aa?.isHidden = hidden
+    }
     @objc private func undo() { controller?.undo() }
     @objc private func dismissKeyboard() { controller?.dismissKeyboard() }
 

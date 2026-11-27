@@ -170,6 +170,48 @@ pub fn markup(text: String) -> Vec<MarkupRun> {
         .collect()
 }
 
+/// A format command of the text being typed in: the desktop's Bold (⌘B), Italic (⌘I),
+/// Strikethrough, Code (⌘E), Highlight (⇧⌘Y) and Link (⌘K).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum TextFormat {
+    Bold,
+    Italic,
+    Strikethrough,
+    Code,
+    Highlight,
+    Link,
+}
+
+/// A bullet's text after a format command, and what is selected in it (UTF-16 offsets).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FormattedText {
+    pub text: String,
+    pub start: u32,
+    pub end: u32,
+}
+
+/// Format the selection `start..end` (UTF-16) of `text` as the desktop does
+/// (`markup::toggle_wrap`, `markup::insert_link`): wrapped in the markup and still selected, or
+/// unwrapped when it already is; at a caret, the pair with the caret between. Link makes the
+/// selection (or `link`) a link's label and selects its address.
+#[uniffi::export]
+pub fn toggle_format(text: String, start: u32, end: u32, format: TextFormat) -> FormattedText {
+    let (a, b) = (utf16::from_utf16(&text, start as usize), utf16::from_utf16(&text, end as usize));
+    let sel = a.min(b)..a.max(b);
+    let edit = match format {
+        TextFormat::Bold => markup::toggle_wrap(&text, sel, "**", "**"),
+        TextFormat::Italic => markup::toggle_wrap(&text, sel, "*", "*"),
+        TextFormat::Strikethrough => markup::toggle_wrap(&text, sel, "~~", "~~"),
+        TextFormat::Code => markup::toggle_wrap(&text, sel, "`", "`"),
+        TextFormat::Highlight => markup::toggle_wrap(&text, sel, "==", "=="),
+        TextFormat::Link => markup::insert_link(&text, sel),
+    };
+    let text = edit.apply(&text);
+    let start = utf16::to_utf16(&text, edit.sel.start) as u32;
+    let end = utf16::to_utf16(&text, edit.sel.end) as u32;
+    FormattedText { text, start, end }
+}
+
 /// What an edit changed, so the app updates only that (wiki: iOS-Cross-Platform §4.2).
 #[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
 pub struct EditOutcome {
@@ -1225,6 +1267,23 @@ mod tests {
         outline.delete(first.clone()).unwrap();
         assert_eq!(outline.backlinks(page.clone()).unwrap().len(), 2);
         assert!(outline.backlinks("nope".into()).is_err());
+    }
+
+    #[test]
+    fn format_commands_write_the_desktops_markup_in_utf16() {
+        let f = |text: &str, start, end, format| {
+            let out = toggle_format(text.into(), start, end, format);
+            (out.text, out.start, out.end)
+        };
+        // "加粗" is two UTF-16 units, as is the emoji before it.
+        assert_eq!(f("😀加粗 x", 2, 4, TextFormat::Bold), ("😀**加粗** x".into(), 4, 6));
+        assert_eq!(f("😀**加粗** x", 4, 6, TextFormat::Bold), ("😀加粗 x".into(), 2, 4));
+        assert_eq!(f("a b", 2, 3, TextFormat::Italic).0, "a *b*");
+        assert_eq!(f("a b", 2, 3, TextFormat::Strikethrough).0, "a ~~b~~");
+        assert_eq!(f("a b", 2, 3, TextFormat::Code).0, "a `b`");
+        assert_eq!(f("ab", 1, 1, TextFormat::Highlight), ("a====b".into(), 3, 3));
+        assert_eq!(f("a b", 2, 3, TextFormat::Link), ("a [b](https://)".into(), 6, 14));
+        assert_eq!(f("", 0, 0, TextFormat::Link), ("[link](https://)".into(), 7, 15));
     }
 
     #[test]

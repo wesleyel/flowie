@@ -245,6 +245,22 @@
         }
       }
     },
+    "Bold": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bold"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粗体"
+          }
+        }
+      }
+    },
     "Brings back the deleted bullet": {
       "localizations": {
         "en": {
@@ -693,6 +709,22 @@
         }
       }
     },
+    "Format": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "格式"
+          }
+        }
+      }
+    },
     "Forward": {
       "localizations": {
         "en": {
@@ -789,6 +821,22 @@
         }
       }
     },
+    "Highlight": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Highlight"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高亮"
+          }
+        }
+      }
+    },
     "Hold to redo": {
       "localizations": {
         "en": {
@@ -869,6 +917,38 @@
         }
       }
     },
+    "Inline Code": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行内代码"
+          }
+        }
+      }
+    },
+    "Italic": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Italic"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "斜体"
+          }
+        }
+      }
+    },
     "Level %lld": {
       "localizations": {
         "en": {
@@ -897,6 +977,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "浅色"
+          }
+        }
+      }
+    },
+    "Link": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接"
           }
         }
       }
@@ -1537,6 +1633,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "星标"
+          }
+        }
+      }
+    },
+    "Strikethrough": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strikethrough"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除线"
           }
         }
       }

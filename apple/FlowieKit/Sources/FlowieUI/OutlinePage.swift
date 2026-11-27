@@ -385,7 +385,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         placing = false
     }
 
-    /// iCloud sync started or stopped: image rows say again why their file is missing.
+    /// iCloud sync started or stopped: image rows say again whether their file is coming.
     private func iCloudChanged(_ on: Bool) {
         iCloud = on
         let images = order.filter { rowsByID[$0]?.image != nil }
@@ -413,9 +413,16 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         switch change {
         case .rows:
             let before = rowsByID
+            let shown = order
             read()
             let changed = order.filter { id in before[id].map { $0 != rowsByID[id] } ?? false }
-            applySnapshot(reconfigure: changed, animated: true)
+            if focus == nil, order == shown, !changed.isEmpty, changed.allSatisfy({ before[$0]?.image != rowsByID[$0]?.image }) {
+                // Only pictures changed (a file came through sync, with its size): the rows on
+                // screen stay where they are.
+                keepingTopRow { applySnapshot(reconfigure: changed, animated: false) }
+            } else {
+                applySnapshot(reconfigure: changed, animated: true)
+            }
             refreshGuides()
         case .content(let ids):
             var shown: [String] = []
@@ -440,6 +447,27 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         NotificationCenter.default.post(name: .NSUndoManagerCheckpoint, object: pageUndo)
         revealIfAsked()
         layoutHint()
+    }
+
+    /// Do `change` with the top row on screen kept at its place, whatever happened to the
+    /// heights of the rows above it (a picture that came in at another size than its
+    /// placeholder). Not while the list is being dragged, which moves it anyway.
+    private func keepingTopRow(_ change: () -> Void) {
+        collectionView.layoutIfNeeded()
+        let top = visibleRect.minY
+        let anchor = collectionView.indexPathsForVisibleItems
+            .compactMap { path in collectionView.layoutAttributesForItem(at: path).map { (path: path, frame: $0.frame) } }
+            .filter { $0.frame.maxY > top + 1 }
+            .min { $0.path.item < $1.path.item }
+        change()
+        guard let anchor, !collectionView.isTracking else { return }
+        collectionView.layoutIfNeeded()
+        guard let now = collectionView.layoutAttributesForItem(at: anchor.path)?.frame.minY, abs(now - anchor.frame.minY) > 0.5 else { return }
+        let lowest = -collectionView.adjustedContentInset.top
+        let y = max(lowest, collectionView.contentOffset.y + now - anchor.frame.minY)
+        placing = true
+        collectionView.setContentOffset(CGPoint(x: collectionView.contentOffset.x, y: y), animated: false)
+        placing = false
     }
 
     private func cell(for id: String) -> RowCell? {
@@ -1171,7 +1199,8 @@ final class RowCell: UICollectionViewCell {
     private let picture = UIImageView()
     private let placeholder = UIImageView(image: UIImage(systemName: "photo"))
     /// Under the placeholder, when the file isn't on this device and the outline syncs through
-    /// iCloud, which doesn't carry image files yet (wiki: Per-Node-Sync §3.5).
+    /// iCloud: a file comes as a record of its own, maybe after its row (wiki: Per-Node-Sync
+    /// §3.5), or not at all from a Mac too old to send it.
     private let notSynced = UILabel()
     var onTextTap: ((TextTap) -> Void)?
     var onNoteTap: (() -> Void)?
@@ -1244,7 +1273,7 @@ final class RowCell: UICollectionViewCell {
         placeholder.tintColor = .tertiaryLabel
         placeholder.contentMode = .center
         picture.addSubview(placeholder)
-        notSynced.text = NSLocalizedString("Image not synced through iCloud yet", comment: "Caption of an image row whose file hasn't come to this device; iCloud sync carries no image files yet")
+        notSynced.text = NSLocalizedString("Image not downloaded from iCloud yet", comment: "Caption of an image row whose file hasn't come to this device through iCloud (yet); the picture replaces it when it does")
         notSynced.font = .preferredFont(forTextStyle: .caption1)
         notSynced.adjustsFontForContentSizeCategory = true
         notSynced.textColor = .secondaryLabel

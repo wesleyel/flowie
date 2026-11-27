@@ -18,6 +18,8 @@ public struct OutlinePage: UIViewControllerRepresentable {
     let open: (String, String?) -> Void
     /// Search for this (a tapped tag or date), as the desktop does.
     let search: (String) -> Void
+    /// Open Home (a mirror at the top of the outline, under the rows' "Mirrored in").
+    var openHome: () -> Void = {}
     /// The row that opened the page in the pane to the right, pointed out (wiki: Sliding-Panes §1).
     var highlight: String?
     /// Whether the page's pane has the keyboard focus (the key commands act on it).
@@ -30,11 +32,12 @@ public struct OutlinePage: UIViewControllerRepresentable {
     var remember: (PageMemory) -> Void = { _ in }
 
     public init(page: PageModel, open: @escaping (String, String?) -> Void, search: @escaping (String) -> Void = { _ in },
-                highlight: String? = nil, focused: Bool = true, onFocus: @escaping () -> Void = {},
+                openHome: @escaping () -> Void = {}, highlight: String? = nil, focused: Bool = true, onFocus: @escaping () -> Void = {},
                 memory: PageMemory? = nil, remember: @escaping (PageMemory) -> Void = { _ in }) {
         self.page = page
         self.open = open
         self.search = search
+        self.openHome = openHome
         self.highlight = highlight
         self.focused = focused
         self.onFocus = onFocus
@@ -44,6 +47,7 @@ public struct OutlinePage: UIViewControllerRepresentable {
 
     public func makeUIViewController(context: Context) -> OutlinePageController {
         let controller = OutlinePageController(page: page, open: open, search: search)
+        controller.openHome = openHome
         controller.highlight = highlight
         controller.focused = focused
         controller.memory = memory ?? PageMemory()
@@ -54,6 +58,7 @@ public struct OutlinePage: UIViewControllerRepresentable {
     public func updateUIViewController(_ controller: OutlinePageController, context: Context) {
         controller.open = open
         controller.search = search
+        controller.openHome = openHome
         controller.onFocus = onFocus
         controller.remember = remember
         controller.highlight = highlight
@@ -176,6 +181,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     let page: PageModel
     var open: (String, String?) -> Void
     var search: (String) -> Void
+    var openHome: () -> Void = {}
     var onFocus: () -> Void = {}
     /// How the page was left before, put back when it first shows; and how it is left now.
     var restore: PageMemory?
@@ -238,6 +244,12 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     /// A grey line below the rows: how to open a bullet (new users, on Home), or how to start a
     /// day of the journal.
     private let hint = UILabel()
+    /// What links to the page, under the rows (and the hint): read-only, not part of the list.
+    private let backlinksView = BacklinksView()
+    private var backlinksWatch: AnyCancellable?
+    /// How much taller the content is for the backlinks: the gap above them and their height.
+    /// The room to tap for a new row stays below them, and so does the gap above.
+    private var backlinksRoom: CGFloat = 0
     /// Whether the rows have been shown once (the remembered scroll position applies then).
     private var shownOnce = false
     /// Whether the outline syncs through iCloud, for image rows whose file is missing.
@@ -268,9 +280,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         config.backgroundColor = .systemBackground
         // Room below the last row to tap for a new one: part of the content, not an inset, so
         // UIKit's own scrolling to the caret doesn't count it as covered.
-        let layout = UICollectionViewCompositionalLayout { _, environment in
+        // The backlinks sit in that room's top, above the part that is tapped.
+        let layout = UICollectionViewCompositionalLayout { [weak self] _, environment in
             let section = NSCollectionLayoutSection.list(using: config, layoutEnvironment: environment)
-            section.contentInsets.bottom = Self.roomBelow
+            section.contentInsets.bottom = Self.roomBelow + (self?.backlinksRoom ?? 0)
             return section
         }
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
@@ -318,6 +331,14 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         hint.textColor = .tertiaryLabel
         hint.numberOfLines = 0
         collectionView.addSubview(hint)
+
+        backlinksView.isHidden = true
+        backlinksView.onOpen = { [weak self] entry in self?.openBacklink(entry) }
+        collectionView.addSubview(backlinksView)
+        backlinksWatch = page.$backlinks.removeDuplicates().sink { [weak self] _ in
+            // Published before it is set: laid out once it is.
+            DispatchQueue.main.async { self?.layoutBacklinks() }
+        }
 
         undoToast.translatesAutoresizingMaskIntoConstraints = false
         undoToast.onUndo = { [weak self] in self?.undo() }
@@ -414,6 +435,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutHint()
+        layoutBacklinks()
     }
 
     /// Room below the last row, to tap for a new one.
@@ -421,7 +443,12 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     /// Where the rows end, in the content (the room below them follows).
     private var rowsBottom: CGFloat {
-        order.isEmpty ? 0 : max(0, collectionView.collectionViewLayout.collectionViewContentSize.height - Self.roomBelow)
+        guard !order.isEmpty else { return 0 }
+        // The last row's bottom, whatever the room below is while it changes (the backlinks).
+        if let last = collectionView.collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: order.count - 1, section: 0)) {
+            return last.frame.maxY
+        }
+        return max(0, collectionView.collectionViewLayout.collectionViewContentSize.height - Self.roomBelow - backlinksRoom)
     }
 
     /// The keyboard covers the page only when it is docked: on the window's bottom edge and as
@@ -466,6 +493,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         placing = true
         dataSource.apply(snapshot, animatingDifferences: false)
         placing = false
+        layoutBacklinks()
     }
 
     // MARK: Rows
@@ -559,6 +587,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         NotificationCenter.default.post(name: .NSUndoManagerCheckpoint, object: pageUndo)
         revealIfAsked()
         layoutHint()
+        layoutBacklinks()
     }
 
     /// Do `change` with the top row on screen kept at its place, whatever happened to the
@@ -857,6 +886,48 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         hint.frame = CGRect(x: x, y: y, width: width, height: size.height)
     }
 
+    // MARK: Backlinks
+
+    /// The gap between the rows (or the hint) and the backlinks: tapping it adds a row.
+    private static let backlinksGap: CGFloat = 36
+
+    /// The backlinks sit below the rows and the hint, the content growing by their height so
+    /// the room to tap for a new row stays below them.
+    private func layoutBacklinks() {
+        guard collectionView != nil else { return }
+        backlinksView.update(page.backlinks, metrics: metrics)
+        var room: CGFloat = 0
+        if !page.backlinks.isEmpty {
+            let x = metrics.textX(0) - metrics.slot
+            let width = max(0, collectionView.bounds.width - x - metrics.trailing)
+            let height = backlinksView.height(for: width)
+            let bottom = rowsBottom
+            let above = hint.isHidden ? (order.isEmpty ? metrics.pad : bottom) : hint.frame.maxY
+            let y = above + Self.backlinksGap
+            backlinksView.frame = CGRect(x: x, y: y, width: width, height: height)
+            room = y + height - bottom
+        }
+        if room != backlinksRoom {
+            backlinksRoom = room
+            collectionView.collectionViewLayout.invalidateLayout()
+        }
+    }
+
+    /// Open the page of an entry under the rows, in the window's history (pushed beside this
+    /// page in the iPad's panes, as a link would).
+    private func openBacklink(_ entry: BacklinkView) {
+        view.endEditing(true)
+        if let target = entry.target {
+            if page.store.bullet(target) != nil {
+                open(target, nil)
+            } else {
+                page.store.problem = NSLocalizedString("That bullet was deleted.", comment: "Shown when a tapped link points to a deleted bullet")
+            }
+        } else {
+            openHome()
+        }
+    }
+
     /// Scroll to the row the page was opened for (a search result) and point it out.
     private func revealIfAsked() {
         guard view.window != nil, let id = page.reveal, let index = indexByID[id] else { return }
@@ -1105,7 +1176,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     public func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         let point = touch.location(in: collectionView)
-        return point.y > rowsBottom
+        // Below the rows, except on the backlinks (their entries open pages).
+        return point.y > rowsBottom && (backlinksView.isHidden || !backlinksView.frame.contains(point))
     }
 
     var editingRow: RowView? {

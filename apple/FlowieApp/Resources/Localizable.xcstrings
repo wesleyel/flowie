@@ -901,6 +901,22 @@
         }
       }
     },
+    "Linked from %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linked from %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 处链接到这里"
+          }
+        }
+      }
+    },
     "Mark Not Completed": {
       "localizations": {
         "en": {
@@ -913,6 +929,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "标为未完成"
+          }
+        }
+      }
+    },
+    "Mirrored in %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mirrored in %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 处镜像"
           }
         }
       }
@@ -1105,6 +1137,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "关闭"
+          }
+        }
+      }
+    },
+    "Opens its page": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens its page"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开它的页面"
           }
         }
       }

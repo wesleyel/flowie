@@ -291,6 +291,10 @@ public final class PageModel: ObservableObject {
     @Published public private(set) var rows: [RowView] = []
     /// The page's own bullet (none: Home, or a day not made yet): its title and the path to it.
     @Published public private(set) var info: BulletView?
+    /// What points at the page (the bullets linking to it, then its mirrors), listed read-only
+    /// under its rows as on the desktop. Read again after every change: an edit anywhere can
+    /// add or take away a link.
+    @Published public private(set) var backlinks: [BacklinkView] = []
     /// Where the caret goes next, after a key moved it to another row: the page view takes it
     /// and clears it. Not published: the key's edit already updates the rows.
     public var focus: Focus?
@@ -354,6 +358,7 @@ public final class PageModel: ObservableObject {
             if dayID == nil {
                 rows = []
                 info = nil
+                readBacklinks()
                 return
             }
         }
@@ -368,6 +373,14 @@ public final class PageModel: ObservableObject {
 
     func readInfo() {
         info = root.flatMap { store.bullet($0) }
+        readBacklinks()
+    }
+
+    private func readBacklinks() {
+        let fresh = root.flatMap { try? store.outline.backlinks(id: $0) } ?? []
+        if fresh != backlinks {
+            backlinks = fresh
+        }
     }
 
     /// Another page's edit, or sync, changed the outline.
@@ -418,6 +431,8 @@ public final class PageModel: ObservableObject {
             }
             if let root, outcome.changedIds.contains(root) {
                 readInfo()
+            } else {
+                readBacklinks()
             }
         }
     }

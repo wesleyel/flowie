@@ -813,6 +813,7 @@ struct PageScreen: View {
             page: page,
             open: { id, opener in open(.bullet(id), opener: opener) },
             search: { query in nav.showSearch(query, from: slot.position) },
+            openHome: { open(.home) },
             highlight: slot.highlight,
             focused: slot.focused,
             onFocus: { [nav, entry] in

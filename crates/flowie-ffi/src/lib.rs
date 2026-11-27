@@ -212,6 +212,24 @@ pub struct Crumb {
     pub text: String,
 }
 
+/// A bullet elsewhere pointing at a page, as the desktop's footer lists them under the rows:
+/// one whose text links to it (`[label](flowie:ID)`), or a mirror of it.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct BacklinkView {
+    /// The linking bullet, or the mirror.
+    pub id: String,
+    /// The page tapping it opens, as on the desktop: the linking bullet's own page; for a
+    /// mirror, the page it sits on (None: Home).
+    pub target: Option<String>,
+    /// Its text as stored (a mirror's: its source's), to show rendered as rows are.
+    pub text: String,
+    pub completed: bool,
+    /// Whether it is a mirror (listed under "Mirrored in") rather than a link.
+    pub mirror: bool,
+    /// The bullets above it, from the top (Home is not in it).
+    pub path: Vec<Crumb>,
+}
+
 /// A deleted bullet, with what is under it, as Recently Deleted lists it.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TrashView {
@@ -720,6 +738,37 @@ impl Outline {
         Ok(bullet_view(&self.lock().ws.tree, node))
     }
 
+    /// What points at a bullet's page, as the desktop's footer lists it (`Tree::backlinks`, then
+    /// `Tree::mirrors_of`), each in outline order: the bullets linking to it first, then its
+    /// mirrors. A mirror's page points at its source's.
+    pub fn backlinks(&self, id: String) -> Result<Vec<BacklinkView>, FlowieError> {
+        let node = self.existing(&id)?;
+        let state = self.lock();
+        let tree = &state.ws.tree;
+        let src = tree.source(node);
+        let view = |id: NodeId, mirror: bool| {
+            let source = tree.node(tree.source(id));
+            let parent = tree.parent(id);
+            BacklinkView {
+                id: id.to_string(),
+                target: if !mirror {
+                    Some(id.to_string())
+                } else if parent == ROOT {
+                    None
+                } else {
+                    Some(parent.to_string())
+                },
+                text: source.text.clone(),
+                completed: source.completed,
+                mirror,
+                path: tree.ancestors(id).into_iter().map(|a| Crumb { id: a.to_string(), text: plain(tree, a) }).collect(),
+            }
+        };
+        let links = tree.backlinks(src).into_iter().map(|id| view(id, false));
+        let mirrors = tree.mirrors_of(src).into_iter().map(|id| view(id, true));
+        Ok(links.chain(mirrors).collect())
+    }
+
     /// The starred bullets, in the starred list's order.
     pub fn starred(&self) -> Vec<BulletView> {
         let state = self.lock();
@@ -1143,6 +1192,39 @@ mod tests {
             assert_eq!((row.text.as_str(), row.note.as_str()), ("a's text", "b's note"));
             assert!(outline.unsent_ids(10).is_empty());
         }
+    }
+
+    #[test]
+    fn backlinks_list_the_bullets_linking_to_a_page_then_its_mirrors() {
+        let outline = Outline::in_memory();
+        let page = add(&outline, None, 0, "Page");
+        let project = add(&outline, None, 1, "Project");
+        let later = add(&outline, Some(&project), 0, &format!("see [it](flowie:{page}) **now**"));
+        let first = add(&outline, None, 0, &format!("[Page](flowie:{page})"));
+        assert!(outline.backlinks(project.clone()).unwrap().is_empty());
+        let mirror = {
+            let mut state = outline.lock();
+            let (p, src) = (parse(&project).unwrap(), parse(&page).unwrap());
+            state.ws.tree.create_mirror(src, p, 1).unwrap().to_string()
+        };
+        let links = outline.backlinks(page.clone()).unwrap();
+        // In outline order, links before mirrors; the text as stored, to render.
+        assert_eq!(
+            links.iter().map(|b| (b.id.as_str(), b.mirror)).collect::<Vec<_>>(),
+            [(first.as_str(), false), (later.as_str(), false), (mirror.as_str(), true)]
+        );
+        assert_eq!(links[1].text, format!("see [it](flowie:{page}) **now**"));
+        assert_eq!(links[1].path, [Crumb { id: project.clone(), text: "Project".into() }]);
+        assert!(links[0].path.is_empty());
+        // A link opens its own bullet; a mirror, the page it is on.
+        assert_eq!(links[1].target.as_deref(), Some(later.as_str()));
+        assert_eq!(links[2].target.as_deref(), Some(project.as_str()));
+        assert_eq!(links[2].text, "Page");
+        // From the mirror's page, the same list; gone with the link.
+        assert_eq!(outline.backlinks(mirror.clone()).unwrap().len(), 3);
+        outline.delete(first.clone()).unwrap();
+        assert_eq!(outline.backlinks(page.clone()).unwrap().len(), 2);
+        assert!(outline.backlinks("nope".into()).is_err());
     }
 
     #[test]

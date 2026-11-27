@@ -108,6 +108,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     private var metrics = RowMetrics(width: 390, traits: .current)
     /// The row being typed in.
     private var editingID: String?
+    private weak var noteSheet: NoteSheet?
     /// For each row, how many of its guide lines (from the left) belong to the edited row's
     /// ancestors, drawn stronger.
     private var strong: [String: Int] = [:]
@@ -174,6 +175,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         // (The keyboard layout guide sat at the top of the page inside the tab view.)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoved), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoved), name: UIResponder.keyboardWillHideNotification, object: nil)
+        // A capture asked for while the app was away takes the caret once the app is back.
+        NotificationCenter.default.addObserver(self, selector: #selector(takeCapture), name: UIApplication.didBecomeActiveNotification, object: nil)
 
         hint.font = .preferredFont(forTextStyle: .subheadline)
         hint.adjustsFontForContentSizeCategory = true
@@ -185,6 +188,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             self.remeasure()
         }
         page.onChange = { [weak self] change in self?.pageChanged(change) }
+        page.finishEditor = { [weak self] in self?.finishEditor() }
+        page.onCapture = { [weak self] in self?.takeCapture() }
         read()
         applySnapshot(reconfigure: [], animated: false)
     }
@@ -211,6 +216,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             }
         }
         revealIfAsked()
+        takeCapture()
     }
 
     public override func viewDidDisappear(_ animated: Bool) {
@@ -460,6 +466,29 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     // MARK: Note and picture
 
+    /// Put the caret on the row a capture asked for (the quick action, Control Center, the
+    /// Action Button: §5), when this page is on screen and shows it.
+    @objc private func takeCapture() {
+        guard view.window != nil, UIApplication.shared.applicationState != .background,
+              let focus = page.store.takeCapture(on: page) else { return }
+        place(focus)
+    }
+
+    /// End typing (the app is leaving, or a capture moves the caret): text still being
+    /// composed is kept, and so is an open note; the keyboard goes.
+    private func finishEditor() {
+        noteSheet?.saveDraft()
+        guard let editingID else { return }
+        if let editor = cell(for: editingID)?.textView, editor.isFirstResponder, let row = row(of: editor) {
+            editor.unmarkText()
+            page.setText(row, (editor.text ?? "").replacingOccurrences(of: "\n", with: " "))
+            editor.resignFirstResponder()
+        }
+        self.editingID = nil
+        page.editing(nil)
+        refreshGuides()
+    }
+
     /// A bullet's note in a sheet, to read and edit (§2.1); saved as one undo step.
     func presentNote(_ row: RowView) {
         view.endEditing(true)
@@ -470,6 +499,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             let current = page.rows.first { $0.id == row.id } ?? row
             page.setNote(current, note)
         }
+        noteSheet = sheet
         let controller = UINavigationController(rootViewController: sheet)
         if let presentation = controller.sheetPresentationController {
             presentation.detents = [.medium(), .large()]

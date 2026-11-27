@@ -99,6 +99,70 @@
         }
       }
     },
+    "Add ${text} to today’s journal": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add ${text} to today’s journal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把${text}记到今天的日记"
+          }
+        }
+      }
+    },
+    "Add to Today’s Journal": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to Today’s Journal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记到今天的日记"
+          }
+        }
+      }
+    },
+    "Added to today’s journal.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added to today’s journal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已记到今天的日记。"
+          }
+        }
+      }
+    },
+    "Adds text to the end of today’s journal in Flowie, one bullet a line.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adds text to the end of today’s journal in Flowie, one bullet a line."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把文字添加到 Flowie 今天日记的末尾，每行一条。"
+          }
+        }
+      }
+    },
     "Appearance": {
       "localizations": {
         "en": {
@@ -723,6 +787,22 @@
         }
       }
     },
+    "Opens today’s journal in Flowie, ready to type.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens today’s journal in Flowie, ready to type."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Flowie 中打开今天的日记，直接开始输入。"
+          }
+        }
+      }
+    },
     "Outdent": {
       "localizations": {
         "en": {
@@ -995,6 +1075,22 @@
         }
       }
     },
+    "Text": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字"
+          }
+        }
+      }
+    },
     "That bullet was deleted.": {
       "localizations": {
         "en": {
@@ -1023,6 +1119,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "升级前做的副本"
+          }
+        }
+      }
+    },
+    "There’s nothing to add.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There’s nothing to add."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有要添加的内容。"
           }
         }
       }
@@ -1135,6 +1247,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "网站"
+          }
+        }
+      }
+    },
+    "What do you want to add?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What do you want to add?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要记些什么？"
+          }
+        }
+      }
+    },
+    "Write in Today’s Journal": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write in Today’s Journal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写今天的日记"
           }
         }
       }

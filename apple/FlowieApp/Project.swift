@@ -22,10 +22,18 @@ let project = Project(
                 "CFBundleShortVersionString": "$(MARKETING_VERSION)",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "UILaunchScreen": [:],
+                // So the system (Siri, Shortcuts, intent dialogs) knows the app speaks both.
+                "CFBundleLocalizations": ["en", "zh-Hans"],
+                // The home-screen quick action: today's journal, ready to type (CaptureShortcuts.swift).
+                "UIApplicationShortcutItems": [[
+                    "UIApplicationShortcutItemType": "flowie.spokey.cn.capture",
+                    "UIApplicationShortcutItemTitle": "Write in Today’s Journal",
+                    "UIApplicationShortcutItemIconSymbolName": "square.and.pencil",
+                ]],
                 "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": false],
                 "ITSAppUsesNonExemptEncryption": false,
             ]),
-            sources: ["Sources/**"],
+            sources: ["Sources/**", "Shared/**"],
             // The app's own strings, in English and Simplified Chinese.
             resources: ["Resources/**"],
             // The outline lives in the App Group container (wiki: iOS-Cross-Platform §5). The
@@ -34,6 +42,8 @@ let project = Project(
                 "com.apple.security.application-groups": .array([.string("group.flowie.spokey.cn")]),
             ]),
             dependencies: [
+                // Embedded in the app.
+                .target(name: "JournalControl"),
                 .package(product: "FlowieUI"),
                 // flowie-ffi's static library, from scripts/build-ios-ffi.sh.
                 .xcframework(path: "../../build/ios/FlowieFFI.xcframework"),
@@ -41,6 +51,21 @@ let project = Project(
                 .sdk(name: "iconv", type: .library),
                 .sdk(name: "CoreFoundation", type: .framework),
             ]
+        ),
+        // The Control Center control (also offered for the Action Button). It only runs the
+        // shared `WriteInJournal` intent, which the system runs in the app: no outline, no App
+        // Group, no Rust here.
+        .target(
+            name: "JournalControl", destinations: [.iPhone, .iPad], product: .appExtension,
+            bundleId: "flowie.spokey.cn.JournalControl", deploymentTargets: .iOS("26.0"),
+            infoPlist: .extendingDefault(with: [
+                "CFBundleDisplayName": "Flowie",
+                "NSExtension": ["NSExtensionPointIdentifier": "com.apple.widgetkit-extension"],
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+            ]),
+            sources: ["Control/**", "Shared/**"], resources: ["Resources/Localizable.xcstrings"],
+            settings: .settings(base: ["SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) FLOWIE_CONTROL"])
         ),
     ]
 )

@@ -6,7 +6,8 @@ import FlowieUI
 
 @main
 struct FlowieApp: App {
-    @StateObject private var launch = Launch(database: OutlineLocation.database())
+    @UIApplicationDelegateAdaptor(CaptureAppDelegate.self) private var appDelegate
+    @StateObject private var launch = Launch.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -18,9 +19,17 @@ struct FlowieApp: App {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            // iOS may end the app any time once it's in the background: save what is queued.
-            if phase != .active {
-                try? launch.store?.outline.flush()
+            // iOS may end the app any time once it's in the background (§5): typing ends first,
+            // so text still being composed is kept, then everything queued is saved and no
+            // write is left open.
+            guard let store = launch.store, phase != .active else { return }
+            if phase == .background {
+                store.finishEditing()
+            }
+            do {
+                try store.flush()
+            } catch {
+                store.problem = error.localizedDescription
             }
         }
     }
@@ -30,6 +39,8 @@ struct FlowieApp: App {
 /// replaces a database it can't use (`store::open`): the app shows why and stops there.
 @MainActor
 final class Launch: ObservableObject {
+    /// One for the app: its window and the App Intents, which run in the app (§5), share it.
+    static let shared = Launch(database: OutlineLocation.database())
     let database: URL
     let store: OutlineStore?
     let error: Error?
@@ -37,7 +48,13 @@ final class Launch: ObservableObject {
     /// builds leave out (they sync only through iCloud; wiki: iOS-Cross-Platform §5).
     @Published private(set) var testing: Bool
 
-    init(database: URL) {
+    /// The outline, for the App Intents; they fail when it couldn't be opened.
+    func openStore() throws -> OutlineStore {
+        guard let store else { throw CaptureFailure.unavailable }
+        return store
+    }
+
+    private init(database: URL) {
         self.database = database
         do {
             store = try OutlineStore.open(databaseAt: database)

@@ -199,10 +199,9 @@ final class ImageViewer: UIViewController, UIScrollViewDelegate {
 /// A bullet's note in a sheet (§2.1): read it, edit it. What changed is saved when the sheet
 /// closes, as one undo step.
 final class NoteSheet: UIViewController, UIAdaptivePresentationControllerDelegate {
-    private let original: String
+    private var original: String
     private let save: (String) -> Void
     let textView = UITextView()
-    private var saved = false
 
     init(note: String, title: String, save: @escaping (String) -> Void) {
         original = note
@@ -235,7 +234,7 @@ final class NoteSheet: UIViewController, UIAdaptivePresentationControllerDelegat
         textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(textView)
         navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
-            self?.finish()
+            self?.saveDraft()
             self?.dismiss(animated: true)
         })
     }
@@ -248,15 +247,16 @@ final class NoteSheet: UIViewController, UIAdaptivePresentationControllerDelegat
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        finish()
+        saveDraft()
     }
 
-    private func finish() {
-        guard !saved else { return }
-        saved = true
+    func saveDraft() {
+        guard isViewLoaded else { return }
+        textView.unmarkText()
         textView.resignFirstResponder()
         if !textView.text.utf8.elementsEqual(original.utf8) {
-            save(textView.text)
+            original = textView.text
+            save(original)
         }
     }
 }

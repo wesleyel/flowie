@@ -17,6 +17,11 @@ public final class OutlineStore: ObservableObject {
     @Published public private(set) var revision = 0
     /// The pages alive now (weakly held).
     private let pages = NSHashTable<PageModel>.weakObjects()
+    /// The last capture asked for (quick action, Control Center, Action Button): today's
+    /// journal with the caret on a row (wiki: iOS-Cross-Platform §5). The shell shows the day;
+    /// the page showing it puts the caret there once (`takeCapture`).
+    @Published public private(set) var capture: JournalCapture?
+    private var captureTaken = true
 
     public init(outline: Outline) {
         self.outline = outline
@@ -55,6 +60,58 @@ public final class OutlineStore: ObservableObject {
         }
         syncStatus = outline.syncStatus()
         revision += 1
+    }
+
+    // MARK: Capture and leaving
+
+    /// End typing on every page: text still being composed, and an open note, are saved; the
+    /// keyboard goes; and other devices' changes held for the row being typed in are applied.
+    public func finishEditing() {
+        for page in pages.allObjects {
+            page.finishEditor?()
+        }
+        try? outline.setEditing(id: nil)
+    }
+
+    /// Save everything so far (before the app may be ended, and after a write without the UI).
+    public func flush() throws {
+        try outline.flush()
+    }
+
+    /// "Add to Today's Journal" (Shortcuts, Siri): `text` at the end of today's journal, one
+    /// bullet a line, and saved before returning. A row being typed in stays. Pages showing the
+    /// day read it. False when `text` is blank (nothing changed).
+    @discardableResult
+    public func appendToToday(_ text: String) throws -> Bool {
+        let outcome = try outline.journalAppend(date: LaunchMemory.today, text: text)
+        guard outcome.focus != nil else { return false }
+        edited(EditOutcome(changedIds: outcome.changedIds, structureChanged: outcome.structureChanged, focus: nil), from: nil)
+        try outline.flush()
+        return true
+    }
+
+    /// The capture entries: today's journal with the caret on its empty last row, made only
+    /// when there isn't one (so two devices don't each add one, §4.3).
+    public func captureToday() throws {
+        finishEditing()
+        let day = LaunchMemory.today
+        let outcome = try outline.journalCapture(date: day)
+        edited(EditOutcome(changedIds: outcome.changedIds, structureChanged: outcome.structureChanged, focus: nil), from: nil)
+        guard let focus = outcome.focus else { return }
+        captureTaken = false
+        capture = JournalCapture(day: day, row: focus.id, serial: (capture?.serial ?? 0) + 1)
+        for page in pages.allObjects {
+            page.onCapture?()
+        }
+    }
+
+    /// The caret for a capture not yet shown, when `page` shows its row; taking it clears it.
+    func takeCapture(on page: PageModel) -> Focus? {
+        guard !captureTaken, let capture, page.kind == .day(capture.day), page.rows.contains(where: { $0.id == capture.row }) else {
+            return nil
+        }
+        captureTaken = true
+        return Focus(id: capture.row, start: 0, end: 0)
     }
 
     // MARK: Settings and lists
@@ -158,6 +215,14 @@ public enum PageKind: Hashable, Sendable {
     }
 }
 
+/// A capture asked for: the day of the journal and its row to put the caret on. `serial` tells
+/// one capture from the next on the same row.
+public struct JournalCapture: Equatable, Sendable {
+    public let day: String
+    public let row: String
+    public let serial: Int
+}
+
 /// One page of the outline and its rows. An edit says what it changed (`EditOutcome`): typing
 /// reads back only its row, and the page is read again when rows come, go or move. A day of the
 /// journal that doesn't exist yet shows no rows, and is made (as on the desktop, with the same
@@ -180,6 +245,10 @@ public final class PageModel: ObservableObject {
     /// Told right away, before the edit that changed the rows returns, so a page view can move
     /// the caret before the next key arrives (two quick Returns land on the new rows).
     public var onChange: ((PageChange) -> Void)?
+    /// Set by the page view: end typing now (`OutlineStore.finishEditing`).
+    var finishEditor: (() -> Void)?
+    /// Set by the page view: a capture was asked for (`OutlineStore.captureToday`).
+    var onCapture: (() -> Void)?
     /// Whether the page is on screen. Pages off screen don't read changes as they happen: they
     /// read the page again when they come back.
     public var isVisible = true {

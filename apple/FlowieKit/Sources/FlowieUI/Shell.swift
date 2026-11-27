@@ -171,7 +171,9 @@ public struct FlowieShell: View {
             guard !started.value else { return }
             started.value = true
             nav.start(LaunchMemory.start(), store: store)
+            showCapture()
         }
+        .onChange(of: store.capture) { _, _ in showCapture() }
         .onChange(of: scenePhase) { old, phase in
             switch phase {
             case .background:
@@ -185,6 +187,16 @@ public struct FlowieShell: View {
                 break
             }
         }
+    }
+
+    /// A capture was asked for (§5): its day at the top of the Today tab, where the page puts
+    /// the caret on its row.
+    private func showCapture() {
+        guard started.value, let capture = store.capture else { return }
+        settings.value = false
+        nav.day = capture.day
+        nav.today = []
+        nav.tab = .today
     }
 
     private var scheme: ColorScheme? {

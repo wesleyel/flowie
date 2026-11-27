@@ -100,6 +100,7 @@ func run() throws {
     check(store.focus?.id == store.rows.last?.id && store.rows.last?.text == "", "a row added at the end takes the caret")
 
     try checkShell(docs, home: home)
+    try checkCapture(docs)
 
     docs.startSync(server: "http://127.0.0.1:9", token: "t")
     let deadline = Date().addingTimeInterval(10)
@@ -111,6 +112,38 @@ func run() throws {
     docs.stopSync()
     check(docs.syncStatus == .off, "sync stops")
     print("FlowieUI check: ok")
+}
+
+/// Quick capture (step 6): the capture entries put the caret on an empty last row of today's
+/// journal, made once; "Add to Today's Journal" appends text, which pages showing the day read.
+@MainActor
+func checkCapture(_ docs: OutlineStore) throws {
+    let today = LaunchMemory.today
+    let day = docs.page(.day(today))
+    let before = day.rows.map(\.text)
+    try docs.captureToday()
+    guard let capture = docs.capture else { check(false, "a capture is asked for"); return }
+    check(capture.day == today && day.rows.last?.id == capture.row && day.rows.last?.text == "", "capture goes to an empty last row: \(day.rows.map(\.text))")
+    check(day.rows.count == before.count + (before.last == "" ? 0 : 1), "at most one row is made")
+    try docs.captureToday()
+    check(docs.capture?.row == capture.row && docs.capture != capture, "capturing again reuses the row, as a new capture")
+    check(day.rows.count == before.count + (before.last == "" ? 0 : 1), "no second empty row")
+    // Visiting the day neither adds nor focuses anything.
+    let visit = docs.page(.day(today))
+    check(visit.rows == day.rows && visit.focus == nil, "visiting Today changes nothing")
+
+    // Typing in the capture row, then Add to Today's Journal: the row being typed in stays.
+    day.editing(day.rows.last)
+    let typed = day.rows.map(\.text)
+    check(try docs.appendToToday("  from **Siri** 日😀  \n\nsecond line"), "text added")
+    check(Array(day.rows.suffix(3).map(\.text)) == ["", "from **Siri** 日😀", "second line"], "one bullet a line, after the row being typed in: \(day.rows.map(\.text))")
+    check(visit.rows.map(\.text) == day.rows.map(\.text), "other views of the day read it")
+    check(try !docs.appendToToday(" \n "), "blank text adds nothing")
+    docs.finishEditing()
+    day.undo()
+    check(day.rows.map(\.text) == typed, "Add to Today's Journal is one undo step: \(day.rows.map(\.text))")
+    day.redo()
+    try docs.flush()
 }
 
 /// What the shell (step 4) builds on: the journal, folding, stars, search, Move To, Hide

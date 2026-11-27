@@ -20,8 +20,9 @@
 //!
 //! To change the format (from 1.0 on, when `BASELINE` no longer changes):
 //!
-//! 1. Change `SCHEMA` so it creates the new format: a new database never runs
-//!    migrations.
+//! 1. Add `formats/v<N>.sql` for the new format and point `SCHEMA` at it: a
+//!    new database never runs migrations. Never edit an already-released
+//!    `formats/v*.sql` snapshot.
 //! 2. Append one [`Migration`] to `MIGRATIONS` that turns a database of the
 //!    previous format into exactly what the new `SCHEMA` creates (`ALTER
 //!    TABLE`, `CREATE TABLE`/`INDEX`, and filling in data for existing rows).
@@ -31,13 +32,14 @@
 //!    transaction: don't commit, don't set `user_version` or `min_reader`, and
 //!    never edit or reorder earlier entries, which users' databases have
 //!    already been through.
-//! 3. Test it: build a database at the previous format (copy the old `CREATE`
-//!    statements into the test, set `user_version`, add rows), [`open`] it,
-//!    and check that the rows came through and that each table has the same
-//!    columns (`pragma_table_info`) as a database created from `SCHEMA`. The
-//!    framework itself is tested in `store/migrate.rs`.
+//! 3. Test it: `every_format_snapshot_upgrades_to_match_a_fresh_database`
+//!    automatically upgrades every `formats/v*.sql` snapshot and checks its
+//!    layout against a fresh database. Also add a data test for the new step,
+//!    and run `scripts/check-formats.sh`. The framework itself is tested in
+//!    `store/migrate.rs`.
 //! 4. Add a CHANGELOG entry: an upgrade is user-visible, since it leaves a
-//!    backup beside the database and older Flowies can't open the result.
+//!    backup beside the database (and if non-additive, older Flowies can't
+//!    open the result).
 
 mod blobs;
 mod imports;
@@ -63,89 +65,7 @@ pub use migrate::{Migration, OpenError};
 #[cfg(feature = "writer-thread")]
 pub use writer::Writer;
 
-const SCHEMA: &str = "
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-CREATE TABLE IF NOT EXISTS nodes (
-    id        BLOB    PRIMARY KEY,
-    parent    BLOB    NOT NULL,
-    rank      TEXT    NOT NULL,   -- fractional index (crate::rank), BINARY order
-    text      TEXT    NOT NULL DEFAULT '',
-    note      TEXT    NOT NULL DEFAULT '',
-    completed INTEGER NOT NULL DEFAULT 0,
-    collapsed INTEGER NOT NULL DEFAULT 0,
-    created   INTEGER NOT NULL,
-    modified  INTEGER NOT NULL,
-    kind      INTEGER NOT NULL DEFAULT 0,
-    mirror    BLOB    NOT NULL,
-    image     TEXT    NOT NULL DEFAULT '',
-    star      TEXT    NOT NULL DEFAULT '',  -- fractional index in the starred list; '' = not starred
-    deleted_at INTEGER,                     -- moved to the Trash then (ms); NULL = in the outline
-    clocks     BLOB    NOT NULL DEFAULT x'', -- crate::hlc::Clocks; empty = derived from created/modified
-    moved_from BLOB    NOT NULL DEFAULT x'', -- parent before the last move; empty = the parent
-    extra      TEXT    NOT NULL DEFAULT '',  -- fields from a newer Flowie, as JSON; '' = none
-    local_seq  INTEGER NOT NULL DEFAULT 0    -- order of writes here, for other processes to catch up
-) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS nodes_parent ON nodes(parent);
-CREATE INDEX IF NOT EXISTS nodes_local_seq ON nodes(local_seq);
-CREATE TABLE IF NOT EXISTS outbox (     -- records changed here and not sent yet (sync)
-    id         BLOB    PRIMARY KEY,
-    dirty_mask INTEGER NOT NULL         -- which synced fields changed (crate::hlc::Reg bits)
-) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS purged (     -- records removed for good, and when (crate::hlc::Hlc)
-    id BLOB PRIMARY KEY,
-    at BLOB NOT NULL
-) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS sync_state ( -- per sync backend: where pulling left off, and the account
-    remote  TEXT PRIMARY KEY,
-    cursor  BLOB,
-    account TEXT
-);
-CREATE TABLE IF NOT EXISTS bases (      -- the sync backend's version of each record last seen here
-    id     BLOB PRIMARY KEY,
-    etag   TEXT NOT NULL,
-    record TEXT NOT NULL                -- flowie_sync::NodeRecord as JSON
-) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS lost (       -- text another device's edit won over (conflict copies)
-    id    BLOB    NOT NULL,             -- the node
-    field TEXT    NOT NULL,             -- 'text' or 'note'
-    value TEXT    NOT NULL,             -- what lost
-    at    INTEGER NOT NULL              -- when it was noticed (ms)
-);
-CREATE TABLE IF NOT EXISTS blobs (   -- image files in the image folder
-    name    TEXT    PRIMARY KEY,     -- <sha256>.<ext>
-    mime    TEXT    NOT NULL,
-    width   INTEGER NOT NULL,
-    height  INTEGER NOT NULL,
-    size    INTEGER NOT NULL
-) WITHOUT ROWID;
-
-CREATE TABLE IF NOT EXISTS imports (
-    root        BLOB    PRIMARY KEY,
-    package_id  TEXT    NOT NULL,
-    title       TEXT    NOT NULL,
-    author_id   TEXT    NOT NULL,
-    author_name TEXT    NOT NULL,
-    exported_at INTEGER NOT NULL,
-    imported_at INTEGER NOT NULL,
-    seen_at     INTEGER,
-    source_ids  TEXT    NOT NULL DEFAULT '[]'
-) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS import_bases (   -- each imported bullet as the package had it
-    node      BLOB PRIMARY KEY,
-    root      BLOB NOT NULL,                -- the imported root it came with
-    base_hash TEXT NOT NULL                 -- package::content_hash at the last import
-) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS meta (   -- this device only (LOCAL_META)
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    at    BLOB NOT NULL DEFAULT x''   -- when it was last written (crate::hlc::Hlc)
-);
-";
+const SCHEMA: &str = include_str!("formats/v6.sql");
 
 /// Keys of the `meta` table: state of this device only, never synced (window,
 /// scroll, the page shown, view options, device and tutorial ids). A key that
@@ -456,58 +376,7 @@ mod tests {
     use crate::tree::ROOT;
 
     /// Format 5 (1.0) as 1.0 created it. Never edit: users' databases are in this format.
-    const V5_SCHEMA: &str = "
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-CREATE TABLE IF NOT EXISTS nodes (
-    id        BLOB    PRIMARY KEY,
-    parent    BLOB    NOT NULL,
-    rank      TEXT    NOT NULL,   -- fractional index (crate::rank), BINARY order
-    text      TEXT    NOT NULL DEFAULT '',
-    note      TEXT    NOT NULL DEFAULT '',
-    completed INTEGER NOT NULL DEFAULT 0,
-    collapsed INTEGER NOT NULL DEFAULT 0,
-    created   INTEGER NOT NULL,
-    modified  INTEGER NOT NULL,
-    kind      INTEGER NOT NULL DEFAULT 0,
-    mirror    BLOB    NOT NULL,
-    image     TEXT    NOT NULL DEFAULT '',
-    star      TEXT    NOT NULL DEFAULT '',  -- fractional index in the starred list; '' = not starred
-    deleted_at INTEGER                      -- moved to the Trash then (ms); NULL = in the outline
-) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS blobs (   -- image files in the image folder
-    name    TEXT    PRIMARY KEY,     -- <sha256>.<ext>
-    mime    TEXT    NOT NULL,
-    width   INTEGER NOT NULL,
-    height  INTEGER NOT NULL,
-    size    INTEGER NOT NULL
-) WITHOUT ROWID;
-
-CREATE TABLE IF NOT EXISTS imports (
-    root        BLOB    PRIMARY KEY,
-    package_id  TEXT    NOT NULL,
-    title       TEXT    NOT NULL,
-    author_id   TEXT    NOT NULL,
-    author_name TEXT    NOT NULL,
-    exported_at INTEGER NOT NULL,
-    imported_at INTEGER NOT NULL,
-    seen_at     INTEGER,
-    source_ids  TEXT    NOT NULL DEFAULT '[]'
-) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS import_bases (   -- each imported bullet as the package had it
-    node      BLOB PRIMARY KEY,
-    root      BLOB NOT NULL,                -- the imported root it came with
-    base_hash TEXT NOT NULL                 -- package::content_hash at the last import
-) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS meta (   -- this device only (LOCAL_META)
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-";
+    const V5_SCHEMA: &str = include_str!("formats/v5.sql");
 
     /// Each table's columns and each index's columns, to compare a migrated database with a
     /// new one.
@@ -526,6 +395,50 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
             out.push(format!("{kind} {name}: {}", cols.join(", ")));
         }
         out
+    }
+
+    #[test]
+    fn every_format_snapshot_upgrades_to_match_a_fresh_database() {
+        let formats_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/store/formats");
+        let mut snapshots: Vec<(i64, std::path::PathBuf)> = std::fs::read_dir(&formats_dir)
+            .unwrap()
+            .map(|entry| {
+                let path = entry.unwrap().path();
+                let name = path.file_name().unwrap().to_str().unwrap();
+                let version: i64 = name
+                    .strip_prefix('v')
+                    .and_then(|s| s.strip_suffix(".sql"))
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_else(|| panic!("unexpected file in store/formats: {name}"));
+                (version, path)
+            })
+            .collect();
+        snapshots.sort_by_key(|(v, _)| *v);
+        let versions: Vec<i64> = snapshots.iter().map(|(v, _)| *v).collect();
+        let expected: Vec<i64> = (BASELINE..=FORMAT).collect();
+        assert_eq!(versions, expected, "store/formats must hold one snapshot per format from BASELINE to FORMAT");
+
+        let dir = tempfile::tempdir().unwrap();
+        let fresh = open(&dir.path().join("fresh.sqlite")).unwrap();
+        let fresh_layout = layout(&fresh);
+
+        for (version, sql_path) in snapshots {
+            let sql = std::fs::read_to_string(&sql_path).unwrap();
+            let db_path = dir.path().join(format!("from-v{version}.sqlite"));
+            {
+                let conn = Connection::open(&db_path).unwrap();
+                conn.execute_batch(&sql).unwrap();
+                conn.pragma_update(None, "user_version", version).unwrap();
+            }
+            let conn = open(&db_path).unwrap();
+            let actual_version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+            assert_eq!(actual_version, FORMAT, "v{version} did not upgrade to FORMAT");
+            if version < FORMAT {
+                let min_reader: String = conn.query_row("SELECT value FROM meta WHERE key = 'min_reader'", [], |r| r.get(0)).unwrap();
+                assert_eq!(min_reader, MIN_READER.to_string(), "v{version} did not set min_reader");
+            }
+            assert_eq!(layout(&conn), fresh_layout, "database upgraded from v{version} differs from a fresh database");
+        }
     }
 
     #[test]

@@ -21,10 +21,12 @@ env:
 
 jobs:
   lint:
-    name: Formatting, changelogs and wasm
+    name: Formatting, changelogs, formats and wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - run: rustup toolchain install
       - run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
@@ -33,6 +35,8 @@ jobs:
       - run: cargo fmt --all -- --check
       - name: Check bilingual changelogs
         run: bash scripts/release-notes.sh --check
+      - name: Check database formats
+        run: bash scripts/check-formats.sh
       - run: cargo check --locked -p flowie-core -p flowie-sync --no-default-features --target wasm32-unknown-unknown
 
   deny:

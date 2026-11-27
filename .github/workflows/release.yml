@@ -26,6 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 0
           persist-credentials: false
       - id: version
         run: |
@@ -34,6 +35,9 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             version=${GITHUB_REF_NAME#v}
             bash scripts/release-notes.sh "$version" > /dev/null
+            bash scripts/check-formats.sh "$version"
+          else
+            bash scripts/check-formats.sh
           fi
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
             echo "release=true" >> "$GITHUB_OUTPUT"

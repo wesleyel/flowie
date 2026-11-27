@@ -13,7 +13,8 @@ appstore/
     ios/               the iPhone and iPad listing (same App Store record: Universal Purchase)
       metadata/        its own description, keywords, promotional text, release notes and review
                        notes; everything both listings share is a symlink into macos/metadata/
-      screenshots/     iPhone 6.9" and iPad 13" screenshots per locale
+      screenshots/     iPhone 6.9" (portrait) and iPad 13" (landscape) screenshots per locale
+                       (scripts/ios-screenshots.py)
   macos/               sandbox entitlements, privacy manifest, cargo-about notices
                        (+ embedded.provisionprofile, git-ignored)
 ```
@@ -101,6 +102,11 @@ scripts/appstore-screenshots.py
 It needs a Retina display and Screen Recording permission for the terminal, and the
 mouse kept off the Flowie window while it runs. Dates follow today, so the journal and
 calendar show the current month. Then `fastlane mac screenshots` uploads them.
+
+The iPhone and iPad screenshots need no screen recording: `scripts/ios-screenshots.py` takes
+all of them in the iOS Simulator, from a demo outline, into `fastlane/ios/screenshots/<locale>/`
+(see [docs/building.md](../docs/building.md#ios-in-development)). Then `fastlane ios
+screenshots` uploads them.
 
 ## Releasing with fastlane
 

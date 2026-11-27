@@ -102,13 +102,25 @@ public final class OutlineStore: ObservableObject {
     /// The capture entries: today's journal with the caret on its empty last row, made only
     /// when there isn't one (so two devices don't each add one, §4.3).
     public func captureToday() throws {
+        try captureToday(typed: "")
+    }
+
+    /// A capture with `typed` already in its row and the caret after it (debug builds'
+    /// screenshots, `ScreenshotArguments`).
+    func captureToday(typed: String) throws {
         finishEditing()
         let day = LaunchMemory.today
-        let outcome = try outline.journalCapture(date: day)
+        var outcome = try outline.journalCapture(date: day)
+        guard let focus = outcome.focus else {
+            edited(EditOutcome(changedIds: outcome.changedIds, structureChanged: outcome.structureChanged, focus: nil), from: nil)
+            return
+        }
+        if !typed.isEmpty {
+            outcome.changedIds += try outline.setText(id: focus.id, text: typed).changedIds
+        }
         edited(EditOutcome(changedIds: outcome.changedIds, structureChanged: outcome.structureChanged, focus: nil), from: nil)
-        guard let focus = outcome.focus else { return }
         captureTaken = false
-        capture = JournalCapture(day: day, row: focus.id, serial: (capture?.serial ?? 0) + 1)
+        capture = JournalCapture(day: day, row: focus.id, caret: typed.utf16.count, serial: (capture?.serial ?? 0) + 1)
         for page in pages.allObjects {
             page.onCapture?()
         }
@@ -120,7 +132,7 @@ public final class OutlineStore: ObservableObject {
             return nil
         }
         captureTaken = true
-        return Focus(id: capture.row, start: 0, end: 0)
+        return Focus(id: capture.row, start: capture.caret, end: capture.caret)
     }
 
     // MARK: Settings and lists
@@ -232,11 +244,12 @@ public enum PageKind: Hashable, Sendable {
     }
 }
 
-/// A capture asked for: the day of the journal and its row to put the caret on. `serial` tells
-/// one capture from the next on the same row.
+/// A capture asked for: the day of the journal, its row to put the caret on and where in the row
+/// (UTF-16). `serial` tells one capture from the next on the same row.
 public struct JournalCapture: Equatable, Sendable {
     public let day: String
     public let row: String
+    public let caret: Int
     public let serial: Int
 }
 

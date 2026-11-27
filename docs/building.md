@@ -136,6 +136,27 @@ sync settings, add `-configuration Release` to the `xcodebuild` line above; the 
 `Release-iphonesimulator`. The app icon comes from `swift scripts/make-icon.swift --ios
 apple/FlowieApp/Resources/Assets.xcassets/AppIcon.appiconset`.
 
+The App Store screenshots (iPhone 6.9" in portrait and iPad 13" in landscape, English and
+Simplified Chinese) come from one command:
+
+```bash
+scripts/ios-screenshots.py
+```
+
+```bash
+scripts/ios-screenshots.py --device iphone --locale zh-Hans --only 03 search --no-build
+```
+
+It builds the Debug app for the Simulator, writes a demo outline per language
+(`cargo run -p flowie-ffi --example demo_outline`, where the demo text is), and takes each shot
+on a Simulator of its own (`Flowie Screenshots iPhone` / `iPad`, made on first use, set to the
+shot's language) with a fresh copy of it, light appearance and a 9:41 status bar. simctl can't
+turn a Simulator, so the `ScreenshotTests` UI-test target (only that) turns the iPad to
+landscape. Launch arguments open each state: the launch rule's keys for the page, and, in debug
+builds, `-FlowieSearch <query>` and `-FlowieCapture <text>` (`ScreenshotArguments.swift`). The PNGs go to
+`appstore/fastlane/ios/screenshots/<locale>/`; `fastlane ios screenshots` uploads them (see
+`appstore/README.md`).
+
 For the App Store:
 
 ```bash

@@ -105,5 +105,13 @@ let project = Project(
             sources: ["Control/**", "Shared/**"], resources: ["Resources/Localizable.xcstrings"],
             settings: .settings(base: ["SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) FLOWIE_CONTROL"])
         ),
+        // Turns the iPad Simulator to landscape for the App Store screenshots
+        // (scripts/ios-screenshots.py): only XCTest can turn a Simulator. Not part of the app.
+        .target(
+            name: "ScreenshotTests", destinations: [.iPhone, .iPad], product: .uiTests,
+            bundleId: "flowie.spokey.cn.ScreenshotTests", deploymentTargets: .iOS("26.0"),
+            sources: ["ScreenshotTests/**"],
+            dependencies: [.target(name: "Flowie")]
+        ),
     ]
 )

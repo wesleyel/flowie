@@ -29,6 +29,8 @@ serde_json = "1"
 uniffi = "0.29"
 
 [dev-dependencies]
+# The demo outline of the iOS screenshots (examples/demo_outline.rs).
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 rusqlite = { version = "0.43", features = ["bundled"] }
 tempfile = "3"
 

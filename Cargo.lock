@@ -1750,6 +1750,7 @@ dependencies = [
 name = "flowie-ffi"
 version = "1.0.1"
 dependencies = [
+ "chrono",
  "flowie-core",
  "flowie-doc",
  "flowie-sync",

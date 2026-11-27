@@ -171,6 +171,9 @@ public struct FlowieShell: View {
             guard !started.value else { return }
             started.value = true
             nav.start(LaunchMemory.start(), store: store)
+            #if DEBUG
+            ScreenshotArguments.apply(to: nav, store: store)
+            #endif
             showCapture()
         }
         .onChange(of: store.capture) { _, _ in showCapture() }

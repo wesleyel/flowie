@@ -54,6 +54,8 @@ let project = Project(
                     "UIApplicationShortcutItemIconSymbolName": "square.and.pencil",
                 ]],
                 "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": false],
+                // Handoff of the page shown, between iPhone and iPad (FlowieUI's PageActivity).
+                "NSUserActivityTypes": ["flowie.spokey.cn.page"],
                 // CKSyncEngine's silent pushes wake the app to fetch iCloud changes.
                 "UIBackgroundModes": ["remote-notification"],
                 "ITSAppUsesNonExemptEncryption": false,

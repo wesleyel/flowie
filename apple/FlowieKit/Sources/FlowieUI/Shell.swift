@@ -393,6 +393,15 @@ public struct FlowieShell: View {
         }
         .onChange(of: store.capture) { _, _ in showCapture() }
         .onChange(of: store.opening) { _, _ in showOpening() }
+        // Handoff: the page with the focus, to go on with on another iPhone or iPad.
+        .userActivity(PageActivity.type, element: PageActivity.handsOff(handedOff) ? handedOff : nil) { page, activity in
+            PageActivity.fill(activity, page: page, title: nav.title(page))
+        }
+        .onContinueUserActivity(PageActivity.type) { activity in
+            guard let page = PageActivity.page(of: activity) else { return }
+            if case .bullet(let id) = page, store.bullet(id) == nil { return }
+            store.show(page)
+        }
         .onChange(of: scenePhase) { old, phase in
             switch phase {
             case .background:
@@ -416,6 +425,13 @@ public struct FlowieShell: View {
         nav.showDay(capture.day)
     }
 
+    /// The page with the focus, which Handoff offers.
+    private var handedOff: PageRef {
+        let key = nav.key
+        let history = nav.history(key)
+        return history.entries[min(nav.focusedPosition(key), history.entries.count - 1)].page
+    }
+
     /// A page asked for from outside (§5): shown once.
     private func showOpening() {
         guard started.value, let page = store.takeOpening() else { return }
@@ -434,6 +450,52 @@ public struct FlowieShell: View {
 
     private func tab(_ tab: AppTab) -> some View {
         PagesView(store: store, nav: nav, key: .tab(tab), onSettings: tab == .home ? { settings.value = true } : nil)
+    }
+}
+
+/// Handoff of the page shown (wiki: TODO-ios ios:32): an iPhone or iPad signed in to the same
+/// iCloud account opens it. The activity names the page (`PageRef`, as JSON) and, for a bullet's
+/// page, its id as the desktop's links do (`flowie:<id>`), so a Mac app could take it too.
+enum PageActivity {
+    /// Declared in the app's Info.plist (`NSUserActivityTypes`, Project.swift).
+    static let type = "flowie.spokey.cn.page"
+
+    /// Pages worth going on with elsewhere: the outline's, and a search typed.
+    static func handsOff(_ page: PageRef) -> Bool {
+        switch page {
+        case .home, .bullet, .day: return true
+        case .search(let query): return !query.trimmingCharacters(in: .whitespaces).isEmpty
+        case .stars: return false
+        }
+    }
+
+    static func fill(_ activity: NSUserActivity, page: PageRef, title: String) {
+        activity.title = title
+        activity.isEligibleForHandoff = true
+        // Spotlight has the pages already (the app's index), and Siri's suggestions the intents.
+        activity.isEligibleForSearch = false
+        activity.isEligibleForPrediction = false
+        var info: [String: Any] = [:]
+        if let data = try? JSONEncoder().encode(page) {
+            info["page"] = data
+        }
+        if case .bullet(let id) = page {
+            info["id"] = id
+            activity.targetContentIdentifier = "flowie:\(id)"
+        } else {
+            activity.targetContentIdentifier = nil
+        }
+        activity.userInfo = info
+        activity.requiredUserInfoKeys = Set(info.keys)
+        activity.needsSave = true
+    }
+
+    /// The page an activity names: from `page`, or a bare `id` (from another kind of app).
+    static func page(of activity: NSUserActivity) -> PageRef? {
+        if let data = activity.userInfo?["page"] as? Data, let page = try? JSONDecoder().decode(PageRef.self, from: data) {
+            return page
+        }
+        return (activity.userInfo?["id"] as? String).map { .bullet($0) }
     }
 }
 

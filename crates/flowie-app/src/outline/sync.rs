@@ -1,8 +1,10 @@
-//! Sync with a self-hosted server (Settings → Sync, wiki: Per-Node-Sync §6): when
-//! the driver runs, how the outline feeds it, and what the window shows of it.
+//! Sync with a self-hosted server or, on the Mac App Store build, through iCloud (Settings →
+//! Sync, wiki: Per-Node-Sync §5.2, §6): when the driver runs, how the outline feeds it, and
+//! what the window shows of it.
 
 use std::time::Duration;
 
+use flowie_cloudkit::{Access, CloudDriver, CloudPhase};
 use flowie_doc::{SyncDriver, SyncPhase};
 use flowie_sync::http::HttpBackend;
 use flowie_sync::RecordStore;
@@ -27,6 +29,9 @@ const IDLE_PUMP: Duration = Duration::from_secs(2);
 pub struct SyncConfig {
     #[serde(default)]
     pub enabled: bool,
+    /// Through iCloud instead of a server (macOS).
+    #[serde(default)]
+    pub icloud: bool,
     /// The server's address (`https://sync.example.com`).
     #[serde(default)]
     pub server: String,
@@ -37,11 +42,14 @@ pub struct SyncConfig {
 
 impl SyncConfig {
     fn ready(&self) -> bool {
-        self.enabled && !self.server.trim().is_empty() && !self.token.trim().is_empty()
+        self.enabled && (self.icloud || !self.server.trim().is_empty() && !self.token.trim().is_empty())
     }
 
     /// The name sync keeps its place under, so another server starts afresh.
     fn remote(&self) -> String {
+        if self.icloud {
+            return flowie_cloudkit::REMOTE.to_string();
+        }
         format!("{}#{ZONE}", self.server.trim().trim_end_matches('/'))
     }
 }
@@ -57,6 +65,8 @@ pub(crate) struct SyncState {
     tutorial: Option<NodeId>,
     /// Where the writer reports save errors (and recovery), for a workspace opened again.
     save_status: Option<UnboundedSender<Option<String>>>,
+    /// Why iCloud sync, turned on, didn't start (this build isn't signed for iCloud).
+    icloud_unavailable: Option<Access>,
 }
 
 impl SyncState {
@@ -67,6 +77,11 @@ impl SyncState {
     /// The running session, while sync is on.
     pub(crate) fn session(&self) -> Option<&SyncSession> {
         self.session.as_ref()
+    }
+
+    /// Why iCloud sync, turned on in Settings, isn't running.
+    pub(crate) fn icloud_unavailable(&self) -> Option<&Access> {
+        self.icloud_unavailable.as_ref()
     }
 
     /// Where a workspace opened again (by starting over) reports save errors.
@@ -80,11 +95,80 @@ impl SyncState {
     }
 }
 
+/// Why iCloud can't sync, in a sentence for Settings.
+pub(crate) fn access_text(access: &Access) -> String {
+    use crate::app::i18n::t;
+    match access {
+        Access::Available => t!("settings.sync.icloud.status.checking").to_string(),
+        Access::NoAccount => t!("settings.sync.icloud.status.no_account").to_string(),
+        Access::Restricted => t!("settings.sync.icloud.status.restricted").to_string(),
+        Access::TemporarilyUnavailable => t!("settings.sync.icloud.status.temporarily").to_string(),
+        Access::NotEntitled => t!("settings.sync.icloud.status.not_entitled").to_string(),
+        Access::Unsupported => t!("settings.sync.icloud.status.unsupported").to_string(),
+        Access::Failed(error) => t!("settings.sync.icloud.status.failed", error = error),
+    }
+}
+
+/// What moves the records: threads talking to a server, or CKSyncEngine.
+enum Driver {
+    Server(SyncDriver),
+    Cloud(CloudDriver),
+}
+
+impl Driver {
+    fn pump(&mut self, ws: &mut flowie_doc::Workspace) -> bool {
+        match self {
+            Driver::Server(d) => d.pump(ws),
+            Driver::Cloud(d) => d.pump(ws),
+        }
+    }
+
+    fn caught_up(&self) -> bool {
+        match self {
+            Driver::Server(d) => d.caught_up(),
+            Driver::Cloud(d) => d.caught_up(),
+        }
+    }
+
+    fn received(&self) -> usize {
+        match self {
+            Driver::Server(d) => d.received(),
+            Driver::Cloud(d) => d.received(),
+        }
+    }
+
+    fn release_saves(&mut self) {
+        match self {
+            Driver::Server(d) => d.release_saves(),
+            Driver::Cloud(d) => d.release_saves(),
+        }
+    }
+
+    /// Where sync stands, and for iCloud its own account of it.
+    fn phase(&self, ws: &flowie_doc::Workspace) -> (SyncPhase, Option<CloudPhase>) {
+        match self {
+            Driver::Server(d) => (d.phase(ws), None),
+            Driver::Cloud(d) => {
+                let cloud = d.phase(ws);
+                let phase = match &cloud {
+                    CloudPhase::Checking | CloudPhase::Syncing => SyncPhase::Syncing,
+                    CloudPhase::Synced => SyncPhase::Synced,
+                    CloudPhase::Offline(error) => SyncPhase::Offline(error.clone()),
+                    CloudPhase::Unavailable(access) => SyncPhase::Offline(access_text(access)),
+                };
+                (phase, Some(cloud))
+            }
+        }
+    }
+}
+
 /// Sync running for this outline (it outlives a window closed to the tray).
 pub struct SyncSession {
     config: SyncConfig,
-    driver: SyncDriver,
+    driver: Driver,
     phase: SyncPhase,
+    /// iCloud's own account of where it stands (none for a server).
+    cloud: Option<CloudPhase>,
     /// Never synced with this server before: saves wait for the first fetch (`pump_sync`).
     first: bool,
     /// The untouched tutorial this device had before the first fetch.
@@ -97,6 +181,11 @@ pub struct SyncSession {
 impl SyncSession {
     pub fn phase(&self) -> &SyncPhase {
         &self.phase
+    }
+
+    /// Where iCloud sync stands, when this is iCloud sync.
+    pub fn cloud(&self) -> Option<&CloudPhase> {
+        self.cloud.as_ref()
     }
 }
 
@@ -112,12 +201,18 @@ impl Outline {
             return;
         }
         self.sync.session = None;
+        self.sync.icloud_unavailable = None;
         cx.notify();
         if !config.ready() || self.ws.writer.is_none() {
             return;
         }
-        // Another server than last time gets the whole outline (`use_remote`).
-        self.ws.use_remote(&config.remote());
+        if config.icloud && !flowie_cloudkit::entitled() {
+            // Built from source, or not signed for iCloud: CloudKit must not be touched.
+            self.sync.icloud_unavailable = Some(Access::NotEntitled);
+            return;
+        }
+        // Another backend than last time gets the whole outline (`use_remote`).
+        let fresh = self.ws.use_remote(&config.remote());
         let first = self.ws.cursor().is_none();
         if first {
             // Never synced with this server: keep the outline as it was before merging.
@@ -129,16 +224,28 @@ impl Outline {
         let (wake, mut woken) = futures::channel::mpsc::unbounded::<()>();
         let (server, token) = (config.server.trim().to_string(), config.token.trim().to_string());
         let tutorial = if first { self.untouched_tutorial() } else { None };
-        let mut driver = SyncDriver::start(
-            &self.ws,
-            move || Box::new(HttpBackend::new(&server, ZONE, &token)),
-            move || {
-                let _ = wake.unbounded_send(());
-            },
-        );
-        if first {
-            driver.hold_saves();
-        }
+        let wake = move || {
+            let _ = wake.unbounded_send(());
+        };
+        let driver = if config.icloud {
+            // CKSyncEngine's own state, beside the database.
+            let Some(db) = self.db_path.clone() else { return };
+            let name = db.file_name().and_then(|n| n.to_str()).unwrap_or("flowie.sqlite");
+            let state = db.with_file_name(format!("{name}.icloud-state.json"));
+            match CloudDriver::start(&state, fresh, first, wake) {
+                Ok(driver) => Driver::Cloud(driver),
+                Err(access) => {
+                    self.sync.icloud_unavailable = Some(access);
+                    return;
+                }
+            }
+        } else {
+            let mut driver = SyncDriver::start(&self.ws, move || Box::new(HttpBackend::new(&server, ZONE, &token)), wake);
+            if first {
+                driver.hold_saves();
+            }
+            Driver::Server(driver)
+        };
         let pump = cx.spawn(async move |this, cx| {
             use futures::StreamExt;
             loop {
@@ -154,7 +261,7 @@ impl Outline {
             }
         });
         self.sync.session =
-            Some(SyncSession { config, driver, phase: SyncPhase::Syncing, first, tutorial, last_synced: None, _pump: pump });
+            Some(SyncSession { config, driver, phase: SyncPhase::Syncing, cloud: None, first, tutorial, last_synced: None, _pump: pump });
         self.pump_sync(cx);
     }
 
@@ -192,11 +299,13 @@ impl Outline {
             changed = true;
         }
         let Some(session) = self.sync.session.as_mut() else { return };
-        let phase = session.driver.phase(&self.ws);
+        let (phase, cloud) = session.driver.phase(&self.ws);
         if phase == SyncPhase::Synced {
             session.last_synced = Some(chrono::Local::now());
         }
-        let shown = std::mem::replace(&mut session.phase, phase) != session.phase;
+        let shown = session.phase != phase || session.cloud != cloud;
+        session.phase = phase;
+        session.cloud = cloud;
         if changed {
             self.refresh(false);
         }
@@ -357,12 +466,17 @@ mod tests {
 
     #[test]
     fn sync_starts_only_with_an_address_and_a_token() {
-        let mut config = SyncConfig { enabled: true, server: " https://sync.example.com/ ".into(), token: "t".into() };
+        let mut config =
+            SyncConfig { enabled: true, server: " https://sync.example.com/ ".into(), token: "t".into(), ..Default::default() };
         assert!(config.ready());
         assert_eq!(config.remote(), "https://sync.example.com#outline");
         config.token = "  ".into();
         assert!(!config.ready());
-        config = SyncConfig { enabled: false, ..SyncConfig { enabled: true, server: "s".into(), token: "t".into() } };
+        config = SyncConfig { enabled: false, ..SyncConfig { enabled: true, server: "s".into(), token: "t".into(), ..Default::default() } };
         assert!(!config.ready());
+        // iCloud needs neither, and keeps its place under its own name.
+        config = SyncConfig { enabled: true, icloud: true, ..Default::default() };
+        assert!(config.ready());
+        assert_eq!(config.remote(), "icloud");
     }
 }

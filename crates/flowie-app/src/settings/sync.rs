@@ -1,5 +1,7 @@
-//! Settings → Sync: a self-hosted server's address, this device's token, and how sync is doing.
+//! Settings → Sync: off, iCloud (macOS) or a self-hosted server (its address and this
+//! device's token), and how sync is doing.
 
+use flowie_cloudkit::CloudPhase;
 use flowie_doc::SyncPhase;
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, Window};
 
@@ -58,33 +60,50 @@ impl Outline {
         let scroll = self.settings.as_ref().map(|s| s.scroll.clone()).unwrap_or_default();
         let theme = self.theme;
         let on = self.config.sync.enabled;
-        let toggle = div()
-            .id("sync-enabled")
-            .flex()
-            .items_center()
-            .gap_2()
-            .cursor_pointer()
-            .child(crate::ui::controls::checkbox(theme, on))
-            .child(t!("settings.sync.enabled"))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.end_field_edit();
-                this.config.sync.enabled = !on;
-                this.save_config();
-                this.apply_sync_config(cx);
-                cx.notify();
-            }));
+        let icloud = on && self.config.sync.icloud;
+        // Off, iCloud (only the Mac has it) or a server of one's own.
+        let mut modes = vec![(false, false, "sync-off", t!("settings.sync.mode.off"))];
+        if cfg!(target_os = "macos") {
+            modes.push((true, true, "sync-icloud", t!("settings.sync.mode.icloud")));
+        }
+        modes.push((true, false, "sync-server", t!("settings.sync.mode.server")));
+        let current = (on, icloud);
+        let toggle = crate::ui::segmented::track(theme).children(modes.into_iter().map(|(enabled, cloud, id, label)| {
+            crate::ui::segmented::segment(theme, id, (enabled, cloud) == current).child(label).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.end_field_edit();
+                    this.config.sync.enabled = enabled;
+                    if enabled {
+                        this.config.sync.icloud = cloud;
+                    }
+                    this.save_config();
+                    this.apply_sync_config(cx);
+                    cx.notify();
+                },
+            ))
+        }));
         let server = self.sync_field(Field::SyncServer, "sync-server", "https://sync.example.com".into(), false, window, cx);
         let token = self.sync_field(Field::SyncToken, "sync-token", t!("settings.sync.token.placeholder").into(), true, window, cx);
-        let (icon, color, status) = match self.sync.session().map(|s| (s.phase().clone(), s.last_synced)) {
+        let session = self.sync.session().map(|s| (s.phase().clone(), s.cloud().cloned(), s.last_synced));
+        let unavailable = self.sync.icloud_unavailable().cloned();
+        let synced = |at: Option<chrono::DateTime<chrono::Local>>| at.map(|at| at.format("%H:%M").to_string()).unwrap_or_default();
+        let (icon, color, status) = match session {
+            None if icloud => match unavailable {
+                Some(access) => ("cloud-off", theme.muted, crate::outline::sync::access_text(&access)),
+                None => ("cloud-off", theme.muted, t!("settings.sync.status.off").to_string()),
+            },
             None if on => ("cloud-off", theme.muted, t!("settings.sync.status.incomplete").to_string()),
             None => ("cloud-off", theme.muted, t!("settings.sync.status.off").to_string()),
-            Some((SyncPhase::Syncing, _)) => ("refresh-cw", theme.accent, t!("settings.sync.status.syncing").to_string()),
-            Some((SyncPhase::Synced, at)) => (
-                "cloud",
-                theme.accent,
-                t!("settings.sync.status.synced", time = at.map(|at| at.format("%H:%M").to_string()).unwrap_or_default()),
-            ),
-            Some((SyncPhase::Offline(error), _)) => ("cloud-off", theme.danger, t!("settings.sync.status.offline", error = error)),
+            Some((_, Some(CloudPhase::Unavailable(access)), _)) => ("cloud-off", theme.muted, crate::outline::sync::access_text(&access)),
+            Some((_, Some(CloudPhase::Checking), _)) => {
+                ("refresh-cw", theme.accent, t!("settings.sync.icloud.status.checking").to_string())
+            }
+            Some((_, Some(CloudPhase::Offline(error)), _)) => {
+                ("cloud-off", theme.danger, t!("settings.sync.icloud.status.offline", error = error))
+            }
+            Some((SyncPhase::Syncing, _, _)) => ("refresh-cw", theme.accent, t!("settings.sync.status.syncing").to_string()),
+            Some((SyncPhase::Synced, _, at)) => ("cloud", theme.accent, t!("settings.sync.status.synced", time = synced(at))),
+            Some((SyncPhase::Offline(error), _, _)) => ("cloud-off", theme.danger, t!("settings.sync.status.offline", error = error)),
         };
         let status = div()
             .flex()
@@ -147,12 +166,32 @@ impl Outline {
                             .child(t!("settings.sync.beta")),
                     ),
             )
-            .child(div().text_size(px(12.)).text_color(theme.muted).pb_3().child(t!("settings.sync.intro")))
+            .child(div().text_size(px(12.)).text_color(theme.muted).pb_3().child(if cfg!(target_os = "macos") {
+                t!("settings.sync.intro_icloud")
+            } else {
+                t!("settings.sync.intro")
+            }))
             .child(div().flex().flex_col().gap_2().pb_3().border_b_1().border_color(theme.divider).child(toggle).child(status))
-            .child(field(t!("settings.sync.server.label").into(), t!("settings.sync.server.hint").into(), server))
-            .child(field(t!("settings.sync.token.label").into(), t!("settings.sync.token.hint").into(), token))
+            .when(icloud, |d| {
+                d.child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme.muted)
+                        .py_3()
+                        .border_b_1()
+                        .border_color(theme.divider)
+                        .child(t!("settings.sync.icloud.hint")),
+                )
+            })
+            .when(!icloud, |d| {
+                d.child(field(t!("settings.sync.server.label").into(), t!("settings.sync.server.hint").into(), server)).child(field(
+                    t!("settings.sync.token.label").into(),
+                    t!("settings.sync.token.hint").into(),
+                    token,
+                ))
+            })
             .children(lost)
-            .when(self.sync.session().is_some(), |d| {
+            .when(self.sync.session().is_some() && !icloud, |d| {
                 d.child(
                     div()
                         .flex()

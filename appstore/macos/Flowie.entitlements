@@ -4,7 +4,8 @@
      picks in Open / Save panels (import, export), and outgoing connections
      for sync with a server the user sets up (Settings → Sync). The data
      lives in the sandbox container. scripts/package-appstore.sh adds the
-     application and team identifiers for the signed build. -->
+     application and team identifiers, and iCloud (the container, CloudKit
+     and push) for sync through iCloud, to the signed build only. -->
 <plist version="1.0">
 <dict>
 	<key>com.apple.security.app-sandbox</key>

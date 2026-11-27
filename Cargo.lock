@@ -1684,6 +1684,7 @@ version = "1.0.1"
 dependencies = [
  "chrono",
  "dirs",
+ "flowie-cloudkit",
  "flowie-core",
  "flowie-doc",
  "flowie-math",
@@ -1705,6 +1706,15 @@ dependencies = [
  "windows-version",
  "winresource",
  "zbus 5.19.0",
+]
+
+[[package]]
+name = "flowie-cloudkit"
+version = "1.0.1"
+dependencies = [
+ "flowie-doc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

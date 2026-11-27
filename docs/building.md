@@ -13,7 +13,9 @@ Flowie is written in Rust on [GPUI](https://gpui.rs), Zed's GPU UI framework, ta
 - Rust via [rustup](https://rustup.rs); `rust-toolchain.toml` picks the version (1.98.1)
 
 GPUI compiles its Metal shaders when the app starts, so no Metal compiler is needed at
-build time. `third_party/gpui-pre-macos` is GPUI's macOS backend with its private AppKit
+build time. iCloud sync (`crates/flowie-cloudkit`) is Swift, compiled with the Command Line
+Tools' `swiftc`; `FLOWIE_CLOUDKIT=0` builds without it. Only the Mac App Store package, signed
+with the iCloud entitlements, can use it (see [sync.md](sync.md#icloud)). `third_party/gpui-pre-macos` is GPUI's macOS backend with its private AppKit
 calls removed, for the App Store; see `FLOWIE-PATCH.md` there.
 
 ### Windows

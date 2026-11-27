@@ -11,6 +11,11 @@ fn main() {
             println!("cargo:rustc-env=FLOWIE_COMMIT={hash}");
         }
     }
+    // flowie-cloudkit's Swift code needs the Swift runtime, which macOS keeps in /usr/lib/swift.
+    // A dependency's link arguments don't reach this binary, so the search path is set here.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+    }
     println!("cargo:rerun-if-changed=../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../.git/refs/heads");
 

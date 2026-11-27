@@ -125,5 +125,5 @@
         For Claude Code, run this in a terminal:
         - {{mcp-command}} {{code}}
       - On Windows and Linux, closing the window can keep Flowie running in the system tray, where AI assistants still reach it and the icon brings the window back: Settings → General
-      - Keep this outline the same on your computers: run a Flowie server and turn it on in Settings → Sync
+      - Keep this outline the same on your devices in Settings → Sync: through iCloud (the App Store version) or through a Flowie server you run yourself
       - Help → What's New lists what changed in each version; ideas or problems? Help → Send Feedback…

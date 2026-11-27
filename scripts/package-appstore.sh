@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the Mac App Store package: universal binary (arm64 + x86_64), App
-# Sandbox, privacy manifest, third-party notices, signed app and signed .pkg
+# Sandbox, iCloud (CloudKit) for sync, privacy manifest, third-party notices, signed app and signed .pkg
 # ready for Transporter.
 #
 # usage:
@@ -9,6 +9,7 @@
 #
 # environment (signed build):
 #   FLOWIE_BUNDLE_ID   default flowie.spokey.cn (must match the App ID in App Store Connect)
+#   FLOWIE_ICLOUD_CONTAINER default iCloud.flowie.spokey.cn (the profile must carry it)
 #   FLOWIE_PROFILE     Mac App Store provisioning profile (.provisionprofile); default appstore/macos/embedded.provisionprofile
 #   FLOWIE_BUILD       build number (CFBundleVersion); default: git commit count
 #   APP_IDENTITY       default: the first "Apple Distribution" / "3rd Party Mac Developer Application" identity
@@ -21,6 +22,7 @@ LOCAL=0
 
 NAME=Flowie
 BID="${FLOWIE_BUNDLE_ID:-flowie.spokey.cn}"
+CONTAINER="${FLOWIE_ICLOUD_CONTAINER:-iCloud.flowie.spokey.cn}"
 VERSION=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="flowie-app"))')
 BUILD="${FLOWIE_BUILD:-$(git rev-list --count HEAD)}"
 OUT=build/appstore
@@ -45,6 +47,9 @@ if [ $LOCAL = 0 ]; then
     PROFILE_PLIST=$(mktemp)
     security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
     PROFILE_APPID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$PROFILE_PLIST")
+    # It must carry Flowie's iCloud container, for iCloud sync.
+    /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-container-identifiers' "$PROFILE_PLIST" | grep -q "$CONTAINER" ||
+        { echo "profile has no iCloud container $CONTAINER (enable iCloud/CloudKit on the App ID and make the profile again)" >&2; exit 1; }
     rm -f "$PROFILE_PLIST"
     [ "$PROFILE_APPID" = "$TEAM.$BID" ] || { echo "profile is for $PROFILE_APPID, expected $TEAM.$BID" >&2; exit 1; }
     echo "   app: $APP_IDENTITY"
@@ -108,6 +113,15 @@ if [ $LOCAL = 1 ]; then
 fi
 /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string $TEAM.$BID" "$ENT"
 /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $TEAM" "$ENT"
+# iCloud sync (Settings → Sync → iCloud): the container, CloudKit, and pushes for changes. Only
+# the signed build gets them: an ad-hoc signed app with them wouldn't launch.
+for cmd in "Add :com.apple.developer.icloud-container-identifiers array" \
+           "Add :com.apple.developer.icloud-container-identifiers:0 string $CONTAINER" \
+           "Add :com.apple.developer.icloud-services array" \
+           "Add :com.apple.developer.icloud-services:0 string CloudKit" \
+           "Add :com.apple.developer.aps-environment string production"; do
+    /usr/libexec/PlistBuddy -c "$cmd" "$ENT"
+done
 cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
 codesign --force --timestamp --options runtime --entitlements "$ENT" --sign "$APP_IDENTITY" "$APP"
 rm -f "$ENT"

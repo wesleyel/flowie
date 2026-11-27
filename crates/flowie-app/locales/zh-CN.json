@@ -240,13 +240,31 @@
       "title": "同步",
       "beta": "测试版",
       "intro": "通过你自己运行的 Flowie 服务器，让这份大纲在你的几台电脑上保持一致。每个条目单独同步，不同设备同时做的修改（包括离线时）都会保留下来。",
-      "enabled": "与服务器同步",
+      "intro_icloud": "让这份大纲在你的设备上保持一致：通过 iCloud 与你的 iPhone 和其他 Mac 同步，或者通过你自己运行的 Flowie 服务器同步。每个条目单独同步，不同设备同时做的修改（包括离线时）都会保留下来。",
+      "mode": {
+        "off": "关闭",
+        "icloud": "iCloud",
+        "server": "自己的服务器"
+      },
       "status": {
         "off": "同步已关闭。",
         "incomplete": "请填写服务器地址和本设备的令牌。",
         "syncing": "正在同步…",
         "synced": "已是最新（上次同步于 {time}）。",
         "offline": "无法同步：{error}。修改会先保存在本机，连上服务器后再发送。"
+      },
+      "icloud": {
+        "hint": "通过这台 Mac 登录的 Apple 账户（系统设置 → Apple 账户）的 iCloud 私有数据库同步。使用同一账户的 iPhone 和其他 Mac 上的 Flowie 会与它同步。",
+        "status": {
+          "checking": "正在检查你的 iCloud 账户…",
+          "no_account": "未登录 iCloud。在「系统设置 → Apple 账户」里登录后，同步会自动开始。",
+          "restricted": "这台 Mac 上的 iCloud 受到限制（屏幕使用时间或描述文件）。",
+          "temporarily": "iCloud 暂时不可用，Flowie 会自动重试。",
+          "not_entitled": "此版本无法使用 iCloud。只有 Mac App Store 版的 Flowie 能通过 iCloud 同步；这个版本可以与你自己的服务器同步。",
+          "unsupported": "iCloud 同步需要 macOS 14 或更高版本。",
+          "failed": "无法检查你的 iCloud 账户：{error}",
+          "offline": "连不上 iCloud：{error}。修改会先保存在本机，连上后再发送。"
+        }
       },
       "server": {
         "label": "服务器",
@@ -276,7 +294,7 @@
         "cancel": "取消",
         "failed": "无法重新开始：{error}"
       },
-      "backup": "第一次与某台服务器同步之前，Flowie 会在数据库旁边保留一份副本（flowie.sqlite.before-sync-<时间>）。"
+      "backup": "第一次与 iCloud 或某台服务器同步之前，Flowie 会在数据库旁边保留一份这份大纲的数据库副本（flowie.sqlite.before-sync-<时间>）。"
     },
     "about": {
       "tagline": "用列表思考的快速大纲工具。",

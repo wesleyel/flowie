@@ -1,11 +1,22 @@
-# Sync with your own server
+# Sync
+
+Flowie syncs an outline between your devices in one of two ways, chosen in **Settings → Sync**:
+
+- **iCloud**: the Mac App Store version and the iPhone app sync through your iCloud account,
+  with nothing to set up (see [iCloud](#icloud) below).
+- **Your own server**: every desktop version (and the browser version) syncs through
+  `flowie-server`, a small server you run yourself: one binary over a SQLite file.
+
+Either way an outline syncs with one of them at a time.
+
+## Sync with your own server
 
 Flowie syncs an outline between your computers through `flowie-server`, a small server you run
 yourself: one binary over a SQLite file. It stores what devices send without reading it, and
 every device merges the same way, field by field, so edits made on different devices at the
 same time — or offline — all come through.
 
-## Run the server
+### Run the server
 
 Build it from this repository (see [building.md](building.md) for the toolchain):
 
@@ -36,7 +47,7 @@ out. The server speaks plain HTTP: put it behind a reverse proxy that terminates
 nginx), and give devices the `https://` address. Every token can read and write the whole
 outline, so issue them only to your own devices.
 
-## In a browser (preview)
+### In a browser (preview)
 
 The server can also serve Flowie's browser version, which syncs with it like any device:
 
@@ -51,14 +62,16 @@ it opens without the server, can be installed as an app, and sends what changed 
 once it can reach the server. A browser
 without OPFS (an old one, some private windows) keeps it in memory and fetches it again.
 
-## Turn it on in Flowie
+### Turn it on in Flowie
 
-In **Settings → Sync**, turn on **Sync with a server**, enter the server's address and the
+In **Settings → Sync**, choose **My own server**, enter the server's address and the
 device's token. The icon in the top bar shows whether sync is up to date, syncing or offline
 (click it for details). Edits made while the server can't be reached are kept and sent later.
 
-- Before the first sync with a server, Flowie copies the database beside itself as
+- Before the first sync with a server (or iCloud), Flowie copies the database beside itself as
   `flowie.sqlite.before-sync-<time>`.
+- A server (or iCloud) this outline didn't sync with last gets all of it, bullets written before
+  sync was turned on included.
 - A new device joining an outline that is already on the server leaves out its own tutorial if
   you haven't touched it.
 - The bullet you are typing in takes what changed on other devices when you leave it.
@@ -68,3 +81,38 @@ device's token. The icon in the top bar shows whether sync is up to date, syncin
   merging them; the old one is kept beside the database as `flowie.sqlite.replaced-<time>`
   (with its images), which Flowie can open.
 - Collapsed bullets, the page you are on and scroll positions stay per device.
+
+## iCloud
+
+On the Mac, choose **iCloud** in Settings → Sync; the iPhone app syncs through iCloud by itself.
+Both need the device to be signed in to iCloud (System Settings → Apple Account on the Mac, the
+Settings app on the iPhone), and sync the outline through that account's private iCloud
+database, so only you can read it; its contents are stored in CloudKit's encrypted fields. Only
+builds signed for Flowie's iCloud container can use it: the Mac App Store version (and
+TestFlight) on the Mac, where it needs macOS 14 or later. A build from source, Homebrew or a
+GitHub release says *iCloud is unavailable in this build* and can sync with your own server.
+
+Everything in the list above holds for iCloud too (the snapshot before the first sync, the
+tutorial, the bullet you are typing in, conflict copies), except Start over, which is only for a
+server. Signing out of iCloud stops sync and keeps the outline on the device; signing in to
+another account sends the whole outline to that account.
+
+### CloudKit schema
+
+What Flowie keeps in CloudKit, in the container `iCloud.flowie.spokey.cn` (deployed to
+Production once from the CloudKit Dashboard; after that, record types and fields can only be
+added):
+
+| | |
+|---|---|
+| Database | the user's private database |
+| Zone | `Outline` (a custom zone; CKSyncEngine creates it, and makes it again if the user deletes Flowie's iCloud data) |
+| Record type | `Record`, one per Flowie record: a bullet (record name: its id, 32 hex digits), its tombstone once deleted for good, and the synced preferences (record name `prefs`) |
+| Field | `envelope`: String, encrypted (`encryptedValues`). The record as JSON (the envelope in `flowie-sync::wire`: version, kind, id, payload); each record's kind is inside it, so new kinds need no schema change |
+| Indexes | none needed: CKSyncEngine fetches by zone changes, not by query. (`recordName` queryable only helps browsing records in the Dashboard; encrypted fields can't be indexed) |
+| Subscriptions | CKSyncEngine's own database subscription (silent pushes) |
+
+Records are saved with their last-seen system fields, so a save over a newer version fails with
+`serverRecordChanged` and the two versions merge field by field before the next save. Image
+files don't sync through iCloud yet (bullets with images show a placeholder on the other device);
+they would come as a second record type (`Blob`, with a `CKAsset`), added to the schema then.

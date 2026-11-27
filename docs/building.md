@@ -123,7 +123,9 @@ Run `scripts/build-ios-ffi.sh` again after changing Rust code. The app needs iOS
 outline is kept in the App Group container (`group.flowie.spokey.cn`), in
 `Library/Application Support/Flowie/flowie.sqlite` (`xcrun simctl get_app_container booted
 flowie.spokey.cn groups` shows where); one left in the app's own Application Support by an
-earlier build moves there on launch.
+earlier build moves there on launch. To check the launch rule (back to the last page within the
+hour, otherwise today's journal), a debug build takes another time: `xcrun simctl launch booted
+flowie.spokey.cn -FlowieNow 2026-11-28T09:00:00+08:00`.
 
 ### One instance per outline
 

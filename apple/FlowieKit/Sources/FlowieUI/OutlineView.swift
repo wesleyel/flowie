@@ -12,68 +12,43 @@ final class Local<Value>: ObservableObject {
     }
 }
 
-/// A page of the outline. On iOS, the UIKit page (`OutlinePage`, wiki: iOS-Cross-Platform §4.1);
-/// on the Mac preview, a simple list of the same rows: each to tick off, edit, open as a page or
+#if !canImport(UIKit)
+/// A page of the outline in the Mac preview: a simple list of the rows the iOS page shows
+/// (`OutlinePage`, wiki: iOS-Cross-Platform §4.1), each to tick off, edit, open as a page or
 /// delete, and a field to add one at the end.
 public struct OutlineView: View {
-    @ObservedObject var store: OutlineStore
+    @StateObject private var page: PageModel
+    @ObservedObject private var store: OutlineStore
     @StateObject private var newText = Local("")
 
-    public init(store: OutlineStore) {
+    public init(store: OutlineStore, kind: PageKind) {
         self.store = store
+        _page = StateObject(wrappedValue: store.page(kind))
     }
 
     private var title: String {
-        store.pages.last.map { $0.text.isEmpty ? NSLocalizedString("Untitled", comment: "Title of a page whose bullet has no text") : $0.text }
-            ?? NSLocalizedString("Home", comment: "Title of the outline's top page")
+        page.info?.title ?? NSLocalizedString("Home", comment: "Title of the outline's top page")
     }
 
     public var body: some View {
-        #if canImport(UIKit)
-        OutlinePage(store: store)
-            // The page keeps its rows above the keyboard itself (keyboardLayoutGuide), and
-            // its list scrolls under the home indicator.
-            .ignoresSafeArea(.keyboard)
-            .ignoresSafeArea(.container, edges: .bottom)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if !store.pages.isEmpty {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("Back", systemImage: "chevron.left") { store.back() }
-                    }
-                }
-                ToolbarItem {
-                    SyncBadge(status: store.syncStatus)
-                }
-            }
-            .safeAreaInset(edge: .top) {
-                if let problem = store.problem {
-                    Text(problem).font(.footnote).foregroundStyle(.red).padding(8)
-                }
-            }
-        #else
         List {
-            ForEach(store.rows, id: \.id) { row in
-                RowLine(store: store, row: row)
+            ForEach(page.rows, id: \.id) { row in
+                RowLine(page: page, row: row)
             }
             TextField("New bullet", text: $newText.value)
                 .onSubmit {
                     let text = newText.value.trimmingCharacters(in: .whitespaces)
                     guard !text.isEmpty else { return }
-                    store.add(text)
+                    page.add(text)
                     newText.value = ""
                 }
         }
         .navigationTitle(title)
         .toolbar {
             ToolbarItemGroup {
-                if !store.pages.isEmpty {
-                    Button("Back", systemImage: "chevron.left") { store.back() }
-                }
-                Button("Undo", systemImage: "arrow.uturn.backward") { store.undo() }
+                Button("Undo", systemImage: "arrow.uturn.backward") { page.undo() }
                     .keyboardShortcut("z", modifiers: .command)
-                Button("Redo", systemImage: "arrow.uturn.forward") { store.redo() }
+                Button("Redo", systemImage: "arrow.uturn.forward") { page.redo() }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                 SyncBadge(status: store.syncStatus)
             }
@@ -83,14 +58,14 @@ public struct OutlineView: View {
                 Text(problem).font(.footnote).foregroundStyle(.red).padding(8)
             }
         }
-        #endif
     }
 }
+#endif
 
 #if !canImport(UIKit)
 /// One bullet in the Mac preview's list.
 struct RowLine: View {
-    @ObservedObject var store: OutlineStore
+    @ObservedObject var page: PageModel
     let row: RowView
     @StateObject private var text = Local("")
     @FocusState private var focused: Bool
@@ -98,7 +73,7 @@ struct RowLine: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Button {
-                store.toggle(row)
+                page.toggle(row)
             } label: {
                 Image(systemName: row.completed ? "checkmark.circle.fill" : "circle")
             }
@@ -111,7 +86,7 @@ struct RowLine: View {
                 .onSubmit { focused = false }
             if row.hasChildren {
                 Button {
-                    store.open(row)
+                    PreviewNavigation.open(row.id)
                 } label: {
                     Image(systemName: "chevron.right")
                 }
@@ -131,31 +106,31 @@ struct RowLine: View {
                 text.value = new.replacingOccurrences(of: "\n", with: "")
                 focused = false
             } else if focused {
-                store.setText(row, new)
+                page.setText(row, new)
             }
         }
         .onChange(of: focused) { _, now in
             if now {
-                store.editing(row)
+                page.editing(row)
             } else {
-                store.setText(row, text.value)
-                store.editing(nil)
+                page.setText(row, text.value)
+                page.editing(nil)
             }
         }
         .swipeActions(edge: .leading) {
-            Button("Indent", systemImage: "increase.indent") { store.indent(row) }
-            Button("Outdent", systemImage: "decrease.indent") { store.outdent(row) }
+            Button("Indent", systemImage: "increase.indent") { page.indent(row) }
+            Button("Outdent", systemImage: "decrease.indent") { page.outdent(row) }
         }
         .swipeActions {
-            Button("Delete", systemImage: "trash", role: .destructive) { store.delete(row) }
+            Button("Delete", systemImage: "trash", role: .destructive) { page.delete(row) }
         }
         .contextMenu {
-            Button("Open as a Page", systemImage: "arrow.right.circle") { store.open(row) }
-            Button("Move Up", systemImage: "arrow.up") { store.moveUp(row) }
-            Button("Move Down", systemImage: "arrow.down") { store.moveDown(row) }
-            Button("Indent", systemImage: "increase.indent") { store.indent(row) }
-            Button("Outdent", systemImage: "decrease.indent") { store.outdent(row) }
-            Button("Delete", systemImage: "trash", role: .destructive) { store.delete(row) }
+            Button("Open as a Page", systemImage: "arrow.right.circle") { PreviewNavigation.open(row.id) }
+            Button("Move Up", systemImage: "arrow.up") { page.moveUp(row) }
+            Button("Move Down", systemImage: "arrow.down") { page.moveDown(row) }
+            Button("Indent", systemImage: "increase.indent") { page.indent(row) }
+            Button("Outdent", systemImage: "decrease.indent") { page.outdent(row) }
+            Button("Delete", systemImage: "trash", role: .destructive) { page.delete(row) }
         }
     }
 }

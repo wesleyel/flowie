@@ -45,9 +45,23 @@ public struct SyncSettingsView: View {
     }
 }
 
-/// The app's root: the outline, with sync settings in a sheet.
+#if !canImport(UIKit)
+/// Where the Mac preview's navigation stack is: bullets opened as pages.
+@MainActor
+final class PreviewNavigation: ObservableObject {
+    static let shared = PreviewNavigation()
+    @Published var path: [String] = []
+
+    static func open(_ id: String) {
+        shared.path.append(id)
+    }
+}
+
+/// The Mac preview's root: the outline, a bullet's page pushed when opened, with sync settings
+/// in a sheet. (The iOS app's shell is `FlowieShell`.)
 public struct FlowieRootView: View {
     @ObservedObject var store: OutlineStore
+    @ObservedObject private var nav = PreviewNavigation.shared
     @StateObject private var settings = Local(false)
 
     public init(store: OutlineStore) {
@@ -55,8 +69,11 @@ public struct FlowieRootView: View {
     }
 
     public var body: some View {
-        NavigationStack {
-            OutlineView(store: store)
+        NavigationStack(path: $nav.path) {
+            OutlineView(store: store, kind: .home)
+                .navigationDestination(for: String.self) { id in
+                    OutlineView(store: store, kind: .bullet(id))
+                }
                 .toolbar {
                     ToolbarItem {
                         Button("Sync Settings", systemImage: "gearshape") { settings.value = true }
@@ -74,3 +91,4 @@ public struct FlowieRootView: View {
         }
     }
 }
+#endif

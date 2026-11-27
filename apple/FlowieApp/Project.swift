@@ -19,6 +19,8 @@ let project = Project(
             deploymentTargets: .iOS("26.0"),
             infoPlist: .extendingDefault(with: [
                 "CFBundleDisplayName": "Flowie",
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "UILaunchScreen": [:],
                 "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": false],
                 "ITSAppUsesNonExemptEncryption": false,

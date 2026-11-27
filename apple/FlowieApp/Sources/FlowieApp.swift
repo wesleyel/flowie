@@ -1,5 +1,6 @@
 // Flowie for iOS: FlowieUI's views over the outline kept in the App Group container.
 import SwiftUI
+import StoreKit
 import FlowieFFI
 import FlowieUI
 
@@ -11,7 +12,7 @@ struct FlowieApp: App {
     var body: some Scene {
         WindowGroup {
             if let store = launch.store {
-                FlowieRootView(store: store)
+                FlowieShell(store: store, showsSelfHosted: launch.testing)
             } else if let error = launch.error {
                 OpenFailureView(error: error, database: launch.database)
             }
@@ -32,6 +33,9 @@ final class Launch: ObservableObject {
     let database: URL
     let store: OutlineStore?
     let error: Error?
+    /// A debug or TestFlight build: these keep the self-hosted sync settings, which App Store
+    /// builds leave out (they sync only through iCloud; wiki: iOS-Cross-Platform §5).
+    @Published private(set) var testing: Bool
 
     init(database: URL) {
         self.database = database
@@ -42,6 +46,17 @@ final class Launch: ObservableObject {
             store = nil
             self.error = error
         }
+        #if DEBUG
+        testing = true
+        #else
+        testing = false
+        Task { @MainActor [weak self] in
+            // TestFlight installs are signed for the sandbox environment.
+            if case .verified(let transaction) = try? await AppTransaction.shared {
+                self?.testing = transaction.environment == .sandbox
+            }
+        }
+        #endif
     }
 }
 

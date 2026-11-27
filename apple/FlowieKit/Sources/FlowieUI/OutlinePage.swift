@@ -7,19 +7,25 @@ import FlowieFFI
 /// list with a diffable data source, one UITextView per row. Dense: no cards or separators,
 /// 28pt a line at the default text size. Typing reconfigures only its row; rows coming, going
 /// or moving apply a new snapshot of ids; the row being edited is never reloaded, and the caret
-/// moves before the edit returns, so the next key lands where the edit put it.
+/// moves before the edit returns, so the next key lands where the edit put it. Tapping a bullet
+/// pushes its page (`open`).
 public struct OutlinePage: UIViewControllerRepresentable {
-    let store: OutlineStore
+    let page: PageModel
+    /// Open a bullet as a page (push it).
+    let open: (String) -> Void
 
-    public init(store: OutlineStore) {
-        self.store = store
+    public init(page: PageModel, open: @escaping (String) -> Void) {
+        self.page = page
+        self.open = open
     }
 
     public func makeUIViewController(context: Context) -> OutlinePageController {
-        OutlinePageController(store: store)
+        OutlinePageController(page: page, open: open)
     }
 
-    public func updateUIViewController(_ controller: OutlinePageController, context: Context) {}
+    public func updateUIViewController(_ controller: OutlinePageController, context: Context) {
+        controller.open = open
+    }
 }
 
 /// Sizes of a row at the current text size and width (§4.1). At the default (Large) size:
@@ -85,8 +91,9 @@ struct RowMetrics: Equatable {
     }
 }
 
-public final class OutlinePageController: UIViewController, UICollectionViewDelegate, UITextViewDelegate, UIGestureRecognizerDelegate {
-    let store: OutlineStore
+public final class OutlinePageController: UIViewController, UICollectionViewDelegate, UITextViewDelegate, UIGestureRecognizerDelegate, UIContextMenuInteractionDelegate {
+    let page: PageModel
+    var open: (String) -> Void
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var rowsByID: [String: RowView] = [:]
@@ -101,9 +108,15 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     /// While a snapshot is applied or the caret placed, rows leaving the screen keep the caret.
     private var placing = false
     private lazy var bar = KeyboardBar(controller: self)
+    /// A grey line below the rows: how to open a bullet (new users, on Home), or how to start a
+    /// day of the journal.
+    private let hint = UILabel()
+    /// Whether the rows have been shown once (the remembered scroll position applies then).
+    private var shownOnce = false
 
-    init(store: OutlineStore) {
-        self.store = store
+    init(page: PageModel, open: @escaping (String) -> Void) {
+        self.page = page
+        self.open = open
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -127,15 +140,14 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         collectionView.delegate = self
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         // Room below the last row to tap for a new one.
-        collectionView.contentInset.bottom = 120
+        collectionView.contentInset.bottom = Self.roomBelow
         view.backgroundColor = .systemBackground
         view.addSubview(collectionView)
-        view.keyboardLayoutGuide.usesBottomSafeArea = false
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            collectionView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
         let registration = UICollectionView.CellRegistration<RowCell, String> { [unowned self] cell, _, id in
@@ -151,12 +163,74 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         tap.cancelsTouchesInView = false
         collectionView.addGestureRecognizer(tap)
 
+        // The rows stay above the keyboard by an inset as tall as the part of the page it covers.
+        // (The keyboard layout guide sat at the top of the page inside the tab view.)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoved), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoved), name: UIResponder.keyboardWillHideNotification, object: nil)
+
+        hint.font = .preferredFont(forTextStyle: .subheadline)
+        hint.adjustsFontForContentSizeCategory = true
+        hint.textColor = .tertiaryLabel
+        hint.numberOfLines = 0
+        collectionView.addSubview(hint)
+
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
             self.remeasure()
         }
-        store.onChange = { [weak self] change in self?.storeChanged(change) }
+        page.onChange = { [weak self] change in self?.pageChanged(change) }
         read()
         applySnapshot(reconfigure: [], animated: false)
+    }
+
+    public override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        page.isVisible = true
+    }
+
+    public override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // The list is what the navigation bar's large title and the tab bar follow.
+        var ancestor = parent
+        while let vc = ancestor, !(vc is UINavigationController), !(vc is UITabBarController) {
+            vc.setContentScrollView(collectionView, for: .top)
+            vc.setContentScrollView(collectionView, for: .bottom)
+            ancestor = vc.parent
+        }
+        if !shownOnce {
+            shownOnce = true
+            if let row = LaunchMemory.takeScroll(for: page.kind.key), let index = indexByID[row] {
+                collectionView.layoutIfNeeded()
+                collectionView.scrollToItem(at: IndexPath(item: index, section: 0), at: .top, animated: false)
+            }
+        }
+        revealIfAsked()
+    }
+
+    public override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        page.isVisible = false
+    }
+
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        layoutHint()
+    }
+
+    /// Room below the last row: to tap for a new one, and for the keyboard over the page.
+    private static let roomBelow: CGFloat = 120
+
+    @objc private func keyboardMoved(_ note: Notification) {
+        guard let window = view.window else { return }
+        var covered: CGFloat = 0
+        if note.name != UIResponder.keyboardWillHideNotification,
+           let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
+            let keyboard = view.convert(window.convert(end, from: nil), from: window)
+            covered = max(0, view.bounds.maxY - keyboard.minY)
+            // The safe area at the bottom (tab bar, home indicator) is under the keyboard too.
+            covered = max(0, covered - view.safeAreaInsets.bottom)
+        }
+        collectionView.contentInset.bottom = Self.roomBelow + covered
+        collectionView.verticalScrollIndicatorInsets.bottom = covered
     }
 
     public override func viewWillLayoutSubviews() {
@@ -184,13 +258,14 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         rowsByID = [:]
         order = []
         indexByID = [:]
-        order.reserveCapacity(store.rows.count)
-        for row in store.rows where rowsByID[row.id] == nil {
+        order.reserveCapacity(page.rows.count)
+        for row in page.rows where rowsByID[row.id] == nil {
             indexByID[row.id] = order.count
             order.append(row.id)
             rowsByID[row.id] = row
         }
         computeStrongGuides()
+        updateHint()
     }
 
     private func applySnapshot(reconfigure: [String], animated: Bool) {
@@ -205,10 +280,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         placing = false
     }
 
-    /// The store changed its rows, inside the edit that changed them.
-    private func storeChanged(_ change: PageChange) {
-        let focus = store.focus
-        store.focus = nil
+    /// The page changed its rows, inside the edit that changed them.
+    private func pageChanged(_ change: PageChange) {
+        let focus = page.focus
+        page.focus = nil
         // The row taking the caret takes it first, while the one losing it is still there:
         // the keyboard stays up when the edited row goes (Backspace joining rows).
         if let focus, let cell = cell(for: focus.id), !cell.textView.isFirstResponder {
@@ -217,18 +292,6 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             placing = false
         }
         switch change {
-        case .page:
-            view.endEditing(true)
-            read()
-            // Rows shown on both pages sit at other depths: every row is set up afresh.
-            var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
-            snapshot.appendSections([0])
-            snapshot.appendItems(order)
-            placing = true
-            dataSource.applySnapshotUsingReloadData(snapshot)
-            placing = false
-            collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: false)
-            UIView.transition(with: collectionView, duration: 0.2, options: .transitionCrossDissolve, animations: nil)
         case .rows:
             let before = rowsByID
             read()
@@ -238,7 +301,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         case .content(let ids):
             var shown: [String] = []
             for id in ids {
-                if let row = store.rows.first(where: { $0.id == id }), rowsByID[id] != nil {
+                if let row = page.rows.first(where: { $0.id == id }), rowsByID[id] != nil {
                     rowsByID[id] = row
                     shown.append(id)
                 }
@@ -254,6 +317,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         if let focus {
             place(focus)
         }
+        revealIfAsked()
+        layoutHint()
     }
 
     private func cell(for id: String) -> RowCell? {
@@ -293,12 +358,17 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             textView.inputAccessoryView = bar
             textView.onBackspaceAtStart = { [weak self, weak textView] in
                 guard let self, let id = textView?.rowID, let row = rowsByID[id] else { return }
-                store.backspaceAtStart(row)
+                page.backspaceAtStart(row)
             }
+            cell.slot.addInteraction(UIContextMenuInteraction(delegate: self))
         }
         cell.slot.onTap = { [weak self, weak cell] in
             guard let self, let id = cell?.textView.rowID, let row = rowsByID[id] else { return }
             zoom(into: row)
+        }
+        cell.slot.onDoubleTap = { [weak self, weak cell] in
+            guard let self, let id = cell?.textView.rowID, let row = rowsByID[id] else { return }
+            page.toggleFold(row)
         }
         cell.configure(row: row, metrics: metrics, strong: strong[row.id] ?? 0)
     }
@@ -340,9 +410,13 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     // MARK: Actions
 
-    /// Open a bullet as the page (tapping its bullet or depth number).
+    /// Open a bullet as a page (tapping its bullet or depth number): pushed on the navigation
+    /// stack.
     func zoom(into row: RowView) {
-        store.open(row)
+        view.endEditing(true)
+        LaunchMemory.zoomedOnce = true
+        updateHint()
+        open(row.id)
     }
 
     @objc private func tappedBelowRows() {
@@ -350,8 +424,130 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         if let last = order.last, let row = rowsByID[last], row.depth == 0, row.text.isEmpty {
             place(Focus(id: last, start: 0, end: 0))
         } else {
-            store.add("", focus: true)
+            page.add("", focus: true)
         }
+    }
+
+    // MARK: Hint and reveal
+
+    private func updateHint() {
+        let text: String?
+        if case .home = page.kind, !LaunchMemory.zoomedOnce {
+            text = NSLocalizedString("Tap a bullet to open it", comment: "Hint under the rows of Home for new users")
+        } else if case .day = page.kind, order.isEmpty {
+            text = NSLocalizedString("Tap here to write in this day", comment: "Hint on a day of the journal with nothing in it")
+        } else {
+            text = nil
+        }
+        hint.text = text
+        hint.isHidden = text == nil
+        layoutHint()
+    }
+
+    /// The hint sits just below the last row.
+    private func layoutHint() {
+        guard !hint.isHidden, collectionView != nil else { return }
+        let x = metrics.textX(0)
+        let width = collectionView.bounds.width - x - metrics.trailing
+        let size = hint.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        let y = order.isEmpty ? metrics.pad + 4 : collectionView.collectionViewLayout.collectionViewContentSize.height + 8
+        hint.frame = CGRect(x: x, y: y, width: width, height: size.height)
+    }
+
+    /// Scroll to the row the page was opened for (a search result) and point it out.
+    private func revealIfAsked() {
+        guard view.window != nil, let id = page.reveal, let index = indexByID[id] else { return }
+        page.reveal = nil
+        let path = IndexPath(item: index, section: 0)
+        collectionView.layoutIfNeeded()
+        collectionView.scrollToItem(at: path, at: .centeredVertically, animated: false)
+        collectionView.layoutIfNeeded()
+        guard let cell = collectionView.cellForItem(at: path) else { return }
+        cell.contentView.backgroundColor = UIColor.tintColor.withAlphaComponent(0.18)
+        UIView.animate(withDuration: 1.2, delay: 0.6, options: [.allowUserInteraction]) {
+            cell.contentView.backgroundColor = .clear
+        }
+    }
+
+    // MARK: Long-press menu (§4.4)
+
+    public func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+        guard let slot = interaction.view as? SlotView,
+              let cell = sequence(first: slot as UIView, next: { $0.superview }).first(where: { $0 is RowCell }) as? RowCell,
+              let id = cell.textView.rowID, let row = rowsByID[id]
+        else { return nil }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            self?.menu(for: row)
+        }
+    }
+
+    /// The whole row lifts with the menu, not just its bullet.
+    public func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configuration: UIContextMenuConfiguration, highlightPreviewForItemWithIdentifier identifier: any NSCopying) -> UITargetedPreview? {
+        guard let cell = interaction.view.flatMap({ view in sequence(first: view, next: { $0.superview }).first { $0 is RowCell } }) as? RowCell else { return nil }
+        let parameters = UIPreviewParameters()
+        parameters.backgroundColor = .systemBackground
+        return UITargetedPreview(view: cell.contentView, parameters: parameters)
+    }
+
+    private func menu(for row: RowView) -> UIMenu {
+        let store = page.store
+        let starred = store.bullet(row.id)?.starred ?? false
+        var items: [UIMenuElement] = [
+            UIAction(
+                title: starred ? NSLocalizedString("Unstar", comment: "Menu item") : NSLocalizedString("Star", comment: "Menu item"),
+                image: UIImage(systemName: starred ? "star.slash" : "star")
+            ) { _ in store.setStarred(row.id, !starred) },
+            UIAction(title: NSLocalizedString("Move To…", comment: "Menu item"), image: UIImage(systemName: "arrow.turn.down.right")) { [weak self] _ in
+                self?.presentMoveTo(row)
+            },
+            UIAction(title: NSLocalizedString("Copy Link", comment: "Menu item"), image: UIImage(systemName: "link")) { _ in
+                if let link = store.link(row.id) { UIPasteboard.general.string = link }
+            },
+            UIAction(title: NSLocalizedString("Zoom In", comment: "Opens a bullet as the page, for VoiceOver"), image: UIImage(systemName: "arrow.up.left.and.arrow.down.right")) { [weak self] _ in
+                self?.zoom(into: row)
+            },
+        ]
+        items.append(UIMenu(options: .displayInline, children: [
+            UIAction(title: NSLocalizedString("Delete", comment: "Menu item: move a bullet to Recently Deleted"), image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+                self?.page.delete(row)
+            },
+        ]))
+        if row.hasChildren {
+            items.insert(
+                UIAction(
+                    title: row.collapsed ? NSLocalizedString("Expand", comment: "Menu item: show a bullet's children") : NSLocalizedString("Collapse", comment: "Menu item: hide a bullet's children"),
+                    image: UIImage(systemName: row.collapsed ? "chevron.down" : "chevron.right")
+                ) { [weak self] _ in self?.page.toggleFold(row) },
+                at: 0
+            )
+        }
+        return UIMenu(children: items)
+    }
+
+    // MARK: Move To (§2.1)
+
+    /// Pick where a bullet goes (built on search), then move it there as the last child.
+    func presentMoveTo(_ row: RowView) {
+        view.endEditing(true)
+        let page = self.page
+        var host: UIViewController?
+        let picker = MoveToPicker(store: page.store, moving: row) { target in
+            if let target {
+                page.move(row.id, to: target.id)
+            }
+            host?.dismiss(animated: true)
+        }
+        let controller = UIHostingController(rootView: picker)
+        host = controller
+        if let sheet = controller.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(controller, animated: true)
+    }
+
+    func moveTo() {
+        if let row = editingRow { presentMoveTo(row) }
     }
 
     public func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -363,13 +559,13 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         editingID.flatMap { rowsByID[$0] }
     }
 
-    func outdent() { if let row = editingRow { store.outdent(row) } }
-    func indent() { if let row = editingRow { store.indent(row) } }
-    func moveUp() { if let row = editingRow { store.moveUp(row) } }
-    func moveDown() { if let row = editingRow { store.moveDown(row) } }
-    func complete() { if let row = editingRow { store.toggle(row) } }
-    func undo() { store.undo() }
-    func redo() { store.redo() }
+    func outdent() { if let row = editingRow { page.outdent(row) } }
+    func indent() { if let row = editingRow { page.indent(row) } }
+    func moveUp() { if let row = editingRow { page.moveUp(row) } }
+    func moveDown() { if let row = editingRow { page.moveDown(row) } }
+    func complete() { if let row = editingRow { page.toggle(row) } }
+    func undo() { page.undo() }
+    func redo() { page.redo() }
     func dismissKeyboard() { view.endEditing(true) }
 
     // MARK: Scrolling
@@ -388,6 +584,24 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         }
     }
 
+    public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { rememberScroll() }
+    }
+
+    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        rememberScroll()
+    }
+
+    /// Remember the top row on screen, to come back to it at launch (§4.3).
+    private func rememberScroll() {
+        let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        let first = collectionView.indexPathsForVisibleItems
+            .compactMap { path in collectionView.layoutAttributesForItem(at: path).map { (path, $0.frame) } }
+            .filter { $0.1.maxY > top + 1 }
+            .min { $0.0.item < $1.0.item }
+        LaunchMemory.rememberScroll(page.kind.key, row: first.flatMap { order.indices.contains($0.0.item) ? order[$0.0.item] : nil })
+    }
+
     // MARK: Typing
 
     private func row(of textView: UITextView) -> RowView? {
@@ -398,7 +612,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         // While composing, the keyboard owns Return (it confirms the composition).
         guard text.contains("\n"), textView.markedTextRange == nil, let row = row(of: textView) else { return true }
         if text == "\n" {
-            store.enter(row, from: range.location, to: range.location + range.length)
+            page.enter(row, from: range.location, to: range.location + range.length)
         } else {
             // A bullet's text is one line: pasted newlines become spaces, as on the desktop.
             textView.textStorage.replaceCharacters(in: range, with: text.replacingOccurrences(of: "\n", with: " "))
@@ -410,7 +624,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     public func textViewDidChange(_ textView: UITextView) {
         // Typing is saved as it goes (one undo step per bullet), once a composition ends.
         guard textView.markedTextRange == nil, let row = row(of: textView) else { return }
-        store.setText(row, (textView.text ?? "").replacingOccurrences(of: "\n", with: " "))
+        page.setText(row, (textView.text ?? "").replacingOccurrences(of: "\n", with: " "))
         // A line more or less: the row grows or shrinks.
         if let cell = cell(for: row.id), cell.needsResize() {
             cell.invalidateIntrinsicContentSize()
@@ -420,7 +634,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     public func textViewDidBeginEditing(_ textView: UITextView) {
         guard let row = row(of: textView) else { return }
         editingID = row.id
-        store.editing(row)
+        page.editing(row)
         refreshGuides()
     }
 
@@ -430,7 +644,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         DispatchQueue.main.async { [weak self] in
             guard let self, editingID == id else { return }
             editingID = nil
-            store.editing(nil)
+            page.editing(nil)
             refreshGuides()
         }
     }
@@ -518,7 +732,8 @@ final class RowCell: UICollectionViewCell {
             metrics: metrics,
             ring: row.collapsed && row.hasChildren,
             number: deep ? String(depth + 1) : nil,
-            completed: row.completed
+            completed: row.completed,
+            foldable: row.hasChildren
         )
         setNeedsLayout()
     }
@@ -560,9 +775,13 @@ final class RowCell: UICollectionViewCell {
 
 /// A row's left part: the guide lines of its ancestors, and its bullet (a ring around it when
 /// it is collapsed with children), or its depth number when the row is deeper than rows move
-/// right. Tapping the bullet slot opens the row as a page.
+/// right. Tapping the bullet slot opens the row as a page; double-tapping it folds or unfolds a
+/// row with children; holding it opens the row's menu.
 final class SlotView: UIView {
     var onTap: (() -> Void)?
+    /// Double-tapping the bullet of a row with children folds or unfolds it.
+    var onDoubleTap: (() -> Void)?
+    private let doubleTap = UITapGestureRecognizer()
     private var guides: [CGFloat] = []
     private var strong = 0
     private var bulletX: CGFloat = 0
@@ -576,7 +795,14 @@ final class SlotView: UIView {
         super.init(frame: frame)
         isOpaque = false
         contentMode = .redraw
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.addTarget(self, action: #selector(doubleTapped))
+        // Rows without children have nothing to fold: their single tap doesn't wait.
+        doubleTap.isEnabled = false
+        tap.require(toFail: doubleTap)
+        addGestureRecognizer(doubleTap)
+        addGestureRecognizer(tap)
         isAccessibilityElement = true
         accessibilityTraits = .button
         accessibilityLabel = NSLocalizedString("Zoom In", comment: "Opens a bullet as the page, for VoiceOver")
@@ -590,7 +816,8 @@ final class SlotView: UIView {
         fatalError("not from a storyboard")
     }
 
-    func update(guides: [CGFloat], strong: Int, bulletX: CGFloat, bulletY: CGFloat, metrics: RowMetrics, ring: Bool, number: String?, completed: Bool) {
+    func update(guides: [CGFloat], strong: Int, bulletX: CGFloat, bulletY: CGFloat, metrics: RowMetrics, ring: Bool, number: String?, completed: Bool, foldable: Bool) {
+        doubleTap.isEnabled = foldable
         self.guides = guides
         self.strong = strong
         self.bulletX = bulletX
@@ -621,6 +848,10 @@ final class SlotView: UIView {
 
     @objc private func tapped() {
         onTap?()
+    }
+
+    @objc private func doubleTapped() {
+        onDoubleTap?()
     }
 
     override func draw(_ rect: CGRect) {
@@ -695,10 +926,6 @@ final class KeyboardBar: UIInputView {
             button.frame = CGRect(x: x, y: 0, width: 44, height: 44)
             addSubview(button)
             x += 44
-            if action == #selector(moveTo) {
-                // The destination picker comes with the app's shell (Release-Plan, M3 step 4).
-                button.isEnabled = false
-            }
             if action == #selector(undo) {
                 button.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(heldUndo)))
                 button.accessibilityHint = NSLocalizedString("Hold to redo", comment: "VoiceOver hint of the Undo button")
@@ -733,7 +960,7 @@ final class KeyboardBar: UIInputView {
     @objc private func moveUp() { controller?.moveUp() }
     @objc private func moveDown() { controller?.moveDown() }
     @objc private func complete() { controller?.complete() }
-    @objc private func moveTo() {}
+    @objc private func moveTo() { controller?.moveTo() }
     @objc private func undo() { controller?.undo() }
     @objc private func dismissKeyboard() { controller?.dismissKeyboard() }
 

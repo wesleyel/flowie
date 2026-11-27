@@ -1,30 +1,26 @@
 import Foundation
 import FlowieFFI
 
-/// The outline as the views see it: the page shown and its rows. An edit says what it changed
-/// (`EditOutcome`): typing reads back only its row, and the page is read again when rows come,
-/// go or move, and each time sync brings changes. Every read and write goes through flowie-ffi;
+/// The open outline, as the app's pages and lists share it: sync, stars, search, Recently
+/// Deleted and the Hide Completed setting. Each page shown has its own `PageModel`; an edit on
+/// one page reaches the others through here. Every read and write goes through flowie-ffi;
 /// nothing is kept or merged here (ios-cross-platform.md §1, §4.2).
 @MainActor
 public final class OutlineStore: ObservableObject {
     public let outline: Outline
-    /// The rows of the page shown.
-    @Published public private(set) var rows: [RowView] = []
-    /// The pages opened, Home first (empty: Home).
-    @Published public private(set) var pages: [RowView] = []
     @Published public private(set) var syncStatus: SyncStatus = .off
     /// The last edit that failed, to show.
     @Published public var problem: String?
-    /// Where the caret goes next, after a key moved it to another row: that row's editor takes
-    /// it and clears it. Not published: the key's edit already updates the rows.
-    public var focus: Focus?
-    /// Told right away, before the edit that changed the rows returns, so a page view can move
-    /// the caret before the next key arrives (two quick Returns land on the new rows).
-    public var onChange: ((PageChange) -> Void)?
+    /// Whether pages leave out completed rows (this device's setting, as on the desktop).
+    @Published public private(set) var hideCompleted: Bool
+    /// Goes up with every change, so lists (stars, search results, Recently Deleted) read again.
+    @Published public private(set) var revision = 0
+    /// The pages alive now (weakly held).
+    private let pages = NSHashTable<PageModel>.weakObjects()
 
     public init(outline: Outline) {
         self.outline = outline
-        reload()
+        hideCompleted = outline.hideCompleted()
     }
 
     /// The outline in the database at `url` (made if it isn't there).
@@ -33,153 +29,97 @@ public final class OutlineStore: ObservableObject {
         return OutlineStore(outline: try Outline.open(db: url.path))
     }
 
-    /// The bullet whose page is shown; nil for Home.
-    public var root: String? { pages.last?.id }
-
-    /// Read the page again.
-    public func reload() {
-        readPage()
-        onChange?(.rows)
+    /// A page to show.
+    public func page(_ kind: PageKind) -> PageModel {
+        let page = PageModel(store: self, kind: kind)
+        pages.add(page)
+        return page
     }
 
-    private func readPage() {
-        do {
-            rows = try outline.page(root: root)
-        } catch {
-            // The page's bullet is gone (deleted on another device): back to Home.
-            pages = []
-            rows = (try? outline.page(root: nil)) ?? []
+    /// An edit on `source` changed the outline: the other pages take what it changed (pages not
+    /// on screen read it when they come back), and lists read again.
+    func edited(_ outcome: EditOutcome, from source: PageModel?) {
+        for page in pages.allObjects where page !== source {
+            page.take(outcome)
+        }
+        revision += 1
+        if outline.pumpSync() {
+            reloadAll()
+        }
+    }
+
+    /// Every page reads its rows again (sync brought changes, or a setting changed).
+    public func reloadAll() {
+        for page in pages.allObjects {
+            page.take(EditOutcome(changedIds: [], structureChanged: true, focus: nil))
         }
         syncStatus = outline.syncStatus()
+        revision += 1
     }
 
-    /// Open a bullet as a page.
-    public func open(_ row: RowView) {
-        pages.append(row)
-        readPage()
-        onChange?(.page)
+    // MARK: Settings and lists
+
+    public func setHideCompleted(_ hide: Bool) {
+        outline.setHideCompleted(hide: hide)
+        hideCompleted = hide
+        reloadAll()
     }
 
-    /// Back to the page above (Home when there is none).
-    public func back() {
-        _ = pages.popLast()
-        readPage()
-        onChange?(.page)
+    /// A bullet with the path to it; nil when it is gone.
+    public func bullet(_ id: String) -> BulletView? {
+        try? outline.bullet(id: id)
     }
 
-    /// Run an edit, then show what it changed (or why it failed).
-    private func edit(_ change: () throws -> EditOutcome) {
+    public func starred() -> [BulletView] {
+        outline.starred()
+    }
+
+    /// Star a bullet or unstar it (not an undo step, as on the desktop).
+    public func setStarred(_ id: String, _ starred: Bool) {
+        try? outline.setStarred(id: id, starred: starred)
+        for page in pages.allObjects where page.root == id {
+            page.readInfo()
+        }
+        revision += 1
+        _ = outline.pumpSync()
+    }
+
+    /// Bullets matching `query`, with the desktop's filter syntax; the most recently changed
+    /// first.
+    public func search(_ query: String, limit: Int = 200) -> [BulletView] {
+        outline.search(query: query, limit: UInt32(limit))
+    }
+
+    /// Bullets to pick by name (Move To), leaving out `exclude` and what is under them.
+    public func quickFind(_ query: String, excluding exclude: [String], limit: Int = 40) -> [BulletView] {
+        outline.quickFind(query: query, exclude: exclude, limit: UInt32(limit))
+    }
+
+    /// A Markdown link to a bullet, as the desktop's Copy Link makes it.
+    public func link(_ id: String) -> String? {
+        try? outline.link(id: id, untitled: NSLocalizedString("Untitled", comment: "Title of a page whose bullet has no text"))
+    }
+
+    /// What Recently Deleted lists, newest first.
+    public func trashed() -> [TrashView] {
+        outline.trashed()
+    }
+
+    /// Bring back a deleted bullet where it was (an undo step). Returns it, with the path to
+    /// it, to go to.
+    @discardableResult
+    public func restore(_ id: String) -> BulletView? {
         do {
-            apply(try change())
-            problem = nil
+            let outcome = try outline.restore(id: id)
+            edited(EditOutcome(changedIds: outcome.changedIds, structureChanged: outcome.structureChanged, focus: nil), from: nil)
+            return bullet(id)
         } catch {
             problem = String(describing: error)
-            reload()
-        }
-        if outline.pumpSync() {
-            reload()
+            return nil
         }
     }
 
-    /// Show what an edit changed: the page read again when rows came, went or moved, otherwise
-    /// just the rows that changed. The caret moves when the edit says where.
-    private func apply(_ outcome: EditOutcome) {
-        if let focus = outcome.focus {
-            self.focus = Focus(focus)
-        }
-        if outcome.structureChanged {
-            readPage()
-            onChange?(.rows)
-        } else {
-            let shown = outcome.changedIds.filter { id in rows.contains { $0.id == id } }
-            if !shown.isEmpty, let fresh = try? outline.rows(ids: shown, root: root) {
-                for row in fresh {
-                    if let index = rows.firstIndex(where: { $0.id == row.id }) {
-                        rows[index] = row
-                    }
-                }
-                onChange?(.content(fresh.map(\.id)))
-            } else if outcome.focus != nil {
-                onChange?(.content([]))
-            }
-        }
-    }
-
-    /// Add a bullet at the end of the page shown. With `focus`, the caret goes to it;
-    /// otherwise it stays where it is.
-    public func add(_ text: String, focus: Bool = false) {
-        let index = UInt32(rows.filter { $0.depth == 0 }.count)
-        edit {
-            var outcome = try outline.create(parent: root, index: index, text: text)
-            if !focus { outcome.focus = nil }
-            return outcome
-        }
-    }
-
-    public func setText(_ row: RowView, _ text: String) {
-        guard text != row.text else { return }
-        edit { try outline.setText(id: row.id, text: text) }
-    }
-
-    public func toggle(_ row: RowView) {
-        edit { try outline.setCompleted(id: row.id, completed: !row.completed) }
-    }
-
-    /// Return in a bullet's text with `start..<end` selected (UTF-16 offsets, as UIKit counts;
-    /// equal for a caret), as on the desktop: the text after the caret moves to a new bullet
-    /// below, and the caret goes there (`focus`). One undo step.
-    public func enter(_ row: RowView, from start: Int, to end: Int) {
-        edit { try outline.enter(id: row.id, start: UInt32(max(0, start)), end: UInt32(max(start, end)), root: root) }
-    }
-
-    /// Backspace with the caret at the start of a bullet's text, as on the desktop: it joins the
-    /// bullet above, or goes if it is empty, and the caret goes where they meet (`focus`). One
-    /// undo step; nothing happens on the first bullet.
-    public func backspaceAtStart(_ row: RowView) {
-        edit { try outline.backspaceAtStart(id: row.id, root: root) }
-    }
-
-    /// Make a bullet the last child of the one above it.
-    public func indent(_ row: RowView) {
-        edit { try outline.indent(id: row.id) }
-    }
-
-    /// Move a bullet out to follow its parent, staying on the page shown.
-    public func outdent(_ row: RowView) {
-        edit { try outline.outdent(id: row.id, root: root) }
-    }
-
-    /// Move a bullet above the one before it, as the desktop's Move Up, staying on the page
-    /// shown.
-    public func moveUp(_ row: RowView) {
-        edit { try outline.moveUp(id: row.id, root: root) }
-    }
-
-    /// Move a bullet below the one after it, as the desktop's Move Down.
-    public func moveDown(_ row: RowView) {
-        edit { try outline.moveDown(id: row.id, root: root) }
-    }
-
-    /// Move a bullet and what is under it to the Trash.
-    public func delete(_ row: RowView) {
-        edit { try outline.delete(id: row.id) }
-    }
-
-    /// Undo the last step; the caret goes back where it was, when that is known.
-    public func undo() {
-        edit { outline.undo() }
-    }
-
-    public func redo() {
-        edit { outline.redo() }
-    }
-
-    /// The bullet being typed in (nil: none): what another device changes in it waits until
-    /// editing ends, so the text under the caret never changes.
-    public func editing(_ row: RowView?) {
-        try? outline.setEditing(id: row?.id)
-        if row == nil { reload() }
-    }
+    // MARK: Sync
 
     /// Sync with a self-hosted server (`flowie-server`) from now on.
     public func startSync(server: String, token: String) {
@@ -195,17 +135,270 @@ public final class OutlineStore: ObservableObject {
     /// Take what sync finished; the outline changed if it brought records.
     func pump() {
         if outline.pumpSync() {
-            reload()
+            reloadAll()
         } else {
             syncStatus = outline.syncStatus()
         }
     }
 }
 
-/// How the rows of the page shown changed.
+/// Which page: Home, a bullet's, or a day of the journal (YYYY-MM-DD), which may not exist yet.
+public enum PageKind: Hashable, Sendable {
+    case home
+    case bullet(String)
+    case day(String)
+
+    /// A short key for remembering the page (launch rule).
+    public var key: String {
+        switch self {
+        case .home: return "home"
+        case .bullet(let id): return "b:\(id)"
+        case .day(let date): return "d:\(date)"
+        }
+    }
+}
+
+/// One page of the outline and its rows. An edit says what it changed (`EditOutcome`): typing
+/// reads back only its row, and the page is read again when rows come, go or move. A day of the
+/// journal that doesn't exist yet shows no rows, and is made (as on the desktop, with the same
+/// ids on every device) only when something is written in it.
+@MainActor
+public final class PageModel: ObservableObject {
+    public unowned let store: OutlineStore
+    public let kind: PageKind
+    /// The rows of the page.
+    @Published public private(set) var rows: [RowView] = []
+    /// The page's own bullet (none: Home, or a day not made yet): its title and the path to it.
+    @Published public private(set) var info: BulletView?
+    /// Where the caret goes next, after a key moved it to another row: the page view takes it
+    /// and clears it. Not published: the key's edit already updates the rows.
+    public var focus: Focus?
+    /// Whether a row of the page is being typed in.
+    @Published public private(set) var isEditing = false
+    /// A row to scroll to and point out once shown (a search result); the page view clears it.
+    public var reveal: String?
+    /// Told right away, before the edit that changed the rows returns, so a page view can move
+    /// the caret before the next key arrives (two quick Returns land on the new rows).
+    public var onChange: ((PageChange) -> Void)?
+    /// Whether the page is on screen. Pages off screen don't read changes as they happen: they
+    /// read the page again when they come back.
+    public var isVisible = true {
+        didSet {
+            if isVisible && stale {
+                reload()
+            }
+        }
+    }
+    private var stale = false
+    /// The journal page shown, once it exists.
+    private var dayID: String?
+
+    init(store: OutlineStore, kind: PageKind) {
+        self.store = store
+        self.kind = kind
+        readPage()
+    }
+
+    /// The bullet whose page is shown; nil for Home (and a day not made yet).
+    public var root: String? {
+        switch kind {
+        case .home: return nil
+        case .bullet(let id): return id
+        case .day: return dayID
+        }
+    }
+
+    /// Whether this is a day of the journal that hasn't been written in yet.
+    public var isUnmadeDay: Bool {
+        if case .day = kind { return dayID == nil }
+        return false
+    }
+
+    /// Read the page again.
+    public func reload() {
+        readPage()
+        onChange?(.rows)
+    }
+
+    private func readPage() {
+        stale = false
+        if case .day(let date) = kind {
+            dayID = (try? store.outline.journalDay(date: date)) ?? nil
+            if dayID == nil {
+                rows = []
+                info = nil
+                return
+            }
+        }
+        do {
+            rows = try store.outline.page(root: root)
+        } catch {
+            // The page's bullet is gone (deleted, maybe on another device).
+            rows = []
+        }
+        readInfo()
+    }
+
+    func readInfo() {
+        info = root.flatMap { store.bullet($0) }
+    }
+
+    /// Another page's edit, or sync, changed the outline.
+    func take(_ outcome: EditOutcome) {
+        guard isVisible else {
+            stale = true
+            return
+        }
+        apply(EditOutcome(changedIds: outcome.changedIds, structureChanged: outcome.structureChanged, focus: nil))
+    }
+
+    /// Run an edit, then show what it changed (or why it failed).
+    private func edit(_ change: () throws -> EditOutcome) {
+        do {
+            let outcome = try change()
+            store.problem = nil
+            apply(outcome)
+            store.edited(outcome, from: self)
+        } catch {
+            store.problem = String(describing: error)
+            reload()
+        }
+    }
+
+    /// Show what an edit changed: the page read again when rows came, went or moved, otherwise
+    /// just the rows that changed. The caret moves when the edit says where.
+    private func apply(_ outcome: EditOutcome) {
+        if let focus = outcome.focus {
+            self.focus = Focus(focus)
+        }
+        if outcome.structureChanged {
+            readPage()
+            onChange?(.rows)
+        } else {
+            let shown = outcome.changedIds.filter { id in rows.contains { $0.id == id } }
+            if !shown.isEmpty, let fresh = try? store.outline.rows(ids: shown, root: root) {
+                for row in fresh {
+                    if let index = rows.firstIndex(where: { $0.id == row.id }) {
+                        rows[index] = row
+                    }
+                }
+                onChange?(.content(fresh.map(\.id)))
+            } else if outcome.focus != nil {
+                onChange?(.content([]))
+            }
+            if let root, outcome.changedIds.contains(root) {
+                readInfo()
+            }
+        }
+    }
+
+    /// Add a bullet at the end of the page. With `focus`, the caret goes to it; otherwise it
+    /// stays where it is. On a day not made yet, the day is made first, as on the desktop: with
+    /// a blank first line, which is the bullet added.
+    public func add(_ text: String, focus: Bool = false) {
+        if case .day(let date) = kind, dayID == nil {
+            edit {
+                var outcome = try store.outline.openDay(date: date)
+                if let first = outcome.focus?.id, !text.isEmpty {
+                    let typed = try store.outline.setText(id: first, text: text)
+                    outcome.changedIds += typed.changedIds
+                    outcome.focus = FocusView(id: first, start: UInt32(text.utf16.count), end: UInt32(text.utf16.count))
+                }
+                if !focus { outcome.focus = nil }
+                return outcome
+            }
+            return
+        }
+        let index = UInt32(rows.filter { $0.depth == 0 }.count)
+        edit {
+            var outcome = try store.outline.create(parent: root, index: index, text: text)
+            if !focus { outcome.focus = nil }
+            return outcome
+        }
+    }
+
+    public func setText(_ row: RowView, _ text: String) {
+        guard text != row.text else { return }
+        edit { try store.outline.setText(id: row.id, text: text) }
+    }
+
+    public func toggle(_ row: RowView) {
+        edit { try store.outline.setCompleted(id: row.id, completed: !row.completed) }
+    }
+
+    /// Fold a bullet with children, or unfold it (one undo step).
+    public func toggleFold(_ row: RowView) {
+        guard row.hasChildren else { return }
+        edit { try store.outline.setCollapsed(id: row.id, collapsed: !row.collapsed) }
+    }
+
+    /// Return in a bullet's text with `start..<end` selected (UTF-16 offsets, as UIKit counts;
+    /// equal for a caret), as on the desktop: the text after the caret moves to a new bullet
+    /// below, and the caret goes there (`focus`). One undo step.
+    public func enter(_ row: RowView, from start: Int, to end: Int) {
+        edit { try store.outline.enter(id: row.id, start: UInt32(max(0, start)), end: UInt32(max(start, end)), root: root) }
+    }
+
+    /// Backspace with the caret at the start of a bullet's text, as on the desktop: it joins the
+    /// bullet above, or goes if it is empty, and the caret goes where they meet (`focus`). One
+    /// undo step; nothing happens on the first bullet.
+    public func backspaceAtStart(_ row: RowView) {
+        edit { try store.outline.backspaceAtStart(id: row.id, root: root) }
+    }
+
+    /// Make a bullet the last child of the one above it.
+    public func indent(_ row: RowView) {
+        edit { try store.outline.indent(id: row.id) }
+    }
+
+    /// Move a bullet out to follow its parent, staying on the page.
+    public func outdent(_ row: RowView) {
+        edit { try store.outline.outdent(id: row.id, root: root) }
+    }
+
+    /// Move a bullet above the one before it, as the desktop's Move Up, staying on the page.
+    public func moveUp(_ row: RowView) {
+        edit { try store.outline.moveUp(id: row.id, root: root) }
+    }
+
+    /// Move a bullet below the one after it, as the desktop's Move Down.
+    public func moveDown(_ row: RowView) {
+        edit { try store.outline.moveDown(id: row.id, root: root) }
+    }
+
+    /// Move a bullet, with what is under it, to the end of `parent` (nil: Home), as the
+    /// desktop's Move To. One undo step.
+    public func move(_ id: String, to parent: String?) {
+        edit { try store.outline.moveTo(id: id, parent: parent) }
+    }
+
+    /// Move a bullet and what is under it to the Trash.
+    public func delete(_ row: RowView) {
+        edit { try store.outline.delete(id: row.id) }
+    }
+
+    /// Undo the last step; the caret goes back where it was, when that is known.
+    public func undo() {
+        edit { store.outline.undo() }
+    }
+
+    public func redo() {
+        edit { store.outline.redo() }
+    }
+
+    /// The bullet being typed in (nil: none): what another device changes in it waits until
+    /// editing ends, so the text under the caret never changes.
+    public func editing(_ row: RowView?) {
+        try? store.outline.setEditing(id: row?.id)
+        if isEditing != (row != nil) {
+            isEditing = row != nil
+        }
+        if row == nil { reload() }
+    }
+}
+
+/// How the rows of a page changed.
 public enum PageChange: Equatable {
-    /// Another page is shown.
-    case page
     /// Rows came, went or moved (or anything may have changed): the rows were read again.
     case rows
     /// Only these rows' content changed (none: only the caret moves).
@@ -240,5 +433,37 @@ final class Pump: SyncObserver, @unchecked Sendable {
 
     func wake() {
         Task { @MainActor [weak store] in store?.pump() }
+    }
+}
+
+extension BulletView {
+    /// The text to show for it: "Untitled" when it has none.
+    public var title: String {
+        text.trimmingCharacters(in: .whitespaces).isEmpty ? NSLocalizedString("Untitled", comment: "Title of a page whose bullet has no text") : text
+    }
+
+    /// The path to it as one line ("Home" when it is at the top), cut in the middle to about
+    /// `limit` characters: the first and the last bullets on the path stay.
+    public func pathLine(limit: Int = 48) -> String {
+        Self.line(path.map { $0.text.isEmpty ? NSLocalizedString("Untitled", comment: "Title of a page whose bullet has no text") : $0.text }, limit: limit)
+    }
+
+    /// `parts` joined with " › ", cut in the middle (with "…") to about `limit` characters.
+    public static func line(_ parts: [String], limit: Int) -> String {
+        guard !parts.isEmpty else { return NSLocalizedString("Home", comment: "Title of the outline's top page") }
+        let sep = " › "
+        let whole = parts.joined(separator: sep)
+        guard whole.count > limit, parts.count > 1 else { return whole }
+        // Keep the first and as many of the last as fit.
+        let first = parts[0]
+        var tail: [String] = []
+        for part in parts.dropFirst().reversed() {
+            let candidate = ([first, "…"] + [part] + tail).joined(separator: sep)
+            if candidate.count > limit && !tail.isEmpty { break }
+            tail.insert(part, at: 0)
+            if candidate.count > limit { break }
+        }
+        if tail.count == parts.count - 1 { return whole }
+        return ([first, "…"] + tail).joined(separator: sep)
     }
 }

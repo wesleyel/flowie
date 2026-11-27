@@ -216,7 +216,7 @@ impl Outline {
                         cx.notify();
                     }))
             }));
-            let tray_available = self.tray_available();
+            let tray_available = self.window_state.tray_available();
             let quit_shortcut = keymap::keys_for("quit", &self.config.keys)
                 .into_iter()
                 .next()

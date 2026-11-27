@@ -366,7 +366,7 @@ impl Render for Outline {
                         .on_click(cx.listener(|this, _, window, cx| this.save_search(&SaveSearch, window, cx))),
                 )
             })
-            .when_some(self.sync.as_ref().map(|s| s.phase().clone()), |d, phase| {
+            .when_some(self.sync.session().map(|s| s.phase().clone()), |d, phase| {
                 let (icon, color) = match phase {
                     flowie_doc::SyncPhase::Syncing => ("refresh-cw", theme.muted),
                     flowie_doc::SyncPhase::Synced => ("cloud", theme.muted),
@@ -388,7 +388,7 @@ impl Render for Outline {
             const TOOL: f32 = 28.;
             const GAP: f32 = 4.;
             let mut widths = vec![TOOL]; // calendar
-            if self.sync.is_some() {
+            if self.sync.session().is_some() {
                 widths.push(TOOL);
             }
             if self.zoom != ROOT {
@@ -655,7 +655,7 @@ impl Render for Outline {
             .on_action(cx.listener(Self::open_privacy_policy))
             .on_action(cx.listener(Self::open_terms))
             .on_key_down(cx.listener(move |this, ev: &gpui::KeyDownEvent, window, cx| {
-                if this.close_dialog.is_some() {
+                if this.window_state.close_dialog_open() {
                     this.close_dialog_key(ev, window, cx);
                 } else if this.image_preview.is_some() {
                     this.image_preview_key(ev, cx);

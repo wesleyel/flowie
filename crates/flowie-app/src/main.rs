@@ -83,7 +83,7 @@ impl WindowHost {
         let saved = if cfg!(feature = "screenshots") {
             None
         } else {
-            self.outline.read(cx).window_place().and_then(|place| place.open_at(self.min_size, cx))
+            self.outline.read(cx).window_state.place().and_then(|place| place.open_at(self.min_size, cx))
         };
         let (display_id, window_bounds) =
             saved.map_or_else(|| (None, WindowBounds::Windowed(Bounds::centered(None, self.default_size, cx))), |(d, b)| (Some(d), b));
@@ -306,8 +306,8 @@ fn main() {
         let outline = cx.new(|cx| Outline::new(ws, db_path, meta, config, cx));
         outline.update(cx, |o, cx| {
             o.load_error = load_error;
-            o.tray = tray_handle;
-            o.save_status = Some(save_err_tx);
+            o.window_state.set_tray(tray_handle);
+            o.sync.set_save_status(save_err_tx);
             o.whats_new_on_launch(background, cx);
         });
 
@@ -385,7 +385,7 @@ fn main() {
         cx.on_app_quit(move |cx| {
             outline.update(cx, |outline, _| {
                 // Drop the tray handle immediately so the icon disappears on shutdown.
-                outline.tray = None;
+                outline.window_state.remove_tray();
                 if let Err(error) = outline.flush() {
                     eprintln!("flowie: could not save before application shutdown: {error}");
                 }

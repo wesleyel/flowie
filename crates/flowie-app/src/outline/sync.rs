@@ -6,6 +6,7 @@ use std::time::Duration;
 use flowie_doc::{SyncDriver, SyncPhase};
 use flowie_sync::http::HttpBackend;
 use flowie_sync::RecordStore;
+use futures::channel::mpsc::UnboundedSender;
 use gpui::{Context, Task};
 use serde::{Deserialize, Serialize};
 
@@ -45,7 +46,41 @@ impl SyncConfig {
     }
 }
 
-/// Sync running for this window.
+/// Sync as the outline holds it: the session while sync runs, and what starting and starting
+/// over need from the rest of the app.
+#[derive(Default)]
+pub(crate) struct SyncState {
+    /// Sync with a server, while it is on (Settings → Sync).
+    session: Option<SyncSession>,
+    /// The tutorial this device added last (meta `tutorial`), which a first sync leaves out
+    /// while it is untouched.
+    tutorial: Option<NodeId>,
+    /// Where the writer reports save errors (and recovery), for a workspace opened again.
+    save_status: Option<UnboundedSender<Option<String>>>,
+}
+
+impl SyncState {
+    pub(crate) fn new(tutorial: Option<NodeId>) -> Self {
+        SyncState { tutorial, ..Default::default() }
+    }
+
+    /// The running session, while sync is on.
+    pub(crate) fn session(&self) -> Option<&SyncSession> {
+        self.session.as_ref()
+    }
+
+    /// Where a workspace opened again (by starting over) reports save errors.
+    pub(crate) fn set_save_status(&mut self, tx: UnboundedSender<Option<String>>) {
+        self.save_status = Some(tx);
+    }
+
+    /// This device just added the tutorial at `root`.
+    pub(crate) fn tutorial_added(&mut self, root: NodeId) {
+        self.tutorial = Some(root);
+    }
+}
+
+/// Sync running for this outline (it outlives a window closed to the tray).
 pub struct SyncSession {
     config: SyncConfig,
     driver: SyncDriver,
@@ -73,10 +108,10 @@ impl Outline {
             return;
         }
         let config = self.config.sync.clone();
-        if self.sync.as_ref().is_some_and(|s| s.config == config) || (self.sync.is_none() && !config.ready()) {
+        if self.sync.session.as_ref().is_some_and(|s| s.config == config) || (self.sync.session.is_none() && !config.ready()) {
             return;
         }
-        self.sync = None;
+        self.sync.session = None;
         cx.notify();
         if !config.ready() || self.ws.writer.is_none() {
             return;
@@ -117,14 +152,15 @@ impl Outline {
                 }
             }
         });
-        self.sync = Some(SyncSession { config, driver, phase: SyncPhase::Syncing, first, tutorial, last_synced: None, _pump: pump });
+        self.sync.session =
+            Some(SyncSession { config, driver, phase: SyncPhase::Syncing, first, tutorial, last_synced: None, _pump: pump });
         self.pump_sync(cx);
     }
 
     /// Hand sync what changed here and take what came in. Called when sync wakes, every
     /// `IDLE_PUMP`, and after each save so edits go out at once.
     pub(crate) fn pump_sync(&mut self, cx: &mut Context<Self>) {
-        if self.sync.is_none() {
+        if self.sync.session.is_none() {
             return;
         }
         // What comes in for the row being edited waits until editing ends.
@@ -134,7 +170,7 @@ impl Outline {
             None => !self.ws.end_edit().is_empty(),
         };
         let prefs = self.ws.sync.prefs_revision();
-        let Some(session) = self.sync.as_mut() else { return };
+        let Some(session) = self.sync.session.as_mut() else { return };
         changed |= session.driver.pump(&mut self.ws);
         if session.first && session.driver.caught_up() {
             // The first fetch is in: a fresh device joining an outline doesn't add its own
@@ -146,7 +182,7 @@ impl Outline {
                 self.ws.discard_unsent(tutorial);
                 changed = true;
             }
-            let Some(session) = self.sync.as_mut() else { return };
+            let Some(session) = self.sync.session.as_mut() else { return };
             session.driver.release_saves();
             session.driver.pump(&mut self.ws);
         }
@@ -154,7 +190,7 @@ impl Outline {
             self.saved_searches = Self::saved_searches_in(&self.ws);
             changed = true;
         }
-        let Some(session) = self.sync.as_mut() else { return };
+        let Some(session) = self.sync.session.as_mut() else { return };
         let phase = session.driver.phase(&self.ws);
         if phase == SyncPhase::Synced {
             session.last_synced = Some(chrono::Local::now());
@@ -171,7 +207,7 @@ impl Outline {
     /// The tutorial this device added, if it is all the outline holds and nobody has touched
     /// it: no write to it later than `SEEDING` after it was added, and nothing in the Trash.
     fn untouched_tutorial(&self) -> Option<NodeId> {
-        let root = self.tutorial?;
+        let root = self.sync.tutorial?;
         (self.ws.tree.children(ROOT) == [root] && self.ws.tree.trashed().is_empty() && self.untouched(root)).then_some(root)
     }
 
@@ -240,7 +276,7 @@ impl Outline {
         if !self.config.sync.ready() {
             return Err("sync isn't set up".into());
         }
-        self.sync = None;
+        self.sync.session = None;
         self.ws.flush()?;
         // Dropping the workspace saves what is left and closes the database.
         drop(std::mem::replace(&mut self.ws, flowie_doc::Workspace::new(flowie_core::Tree::new())));
@@ -259,7 +295,7 @@ impl Outline {
             }
             Ok(())
         });
-        let status = self.save_status.clone();
+        let status = self.sync.save_status.clone();
         let (ws, meta) = flowie_doc::Workspace::open(&db, images, move |s| {
             if let Some(tx) = &status {
                 let _ = tx.unbounded_send(s);
@@ -270,7 +306,7 @@ impl Outline {
         moved.map_err(|e| e.to_string())?;
         let _ = meta;
         self.set_meta("device", &self.device_id.clone());
-        self.tutorial = None;
+        self.sync.tutorial = None;
         self.reset_view();
         self.apply_sync_config(cx);
         cx.notify();

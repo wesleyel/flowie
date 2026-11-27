@@ -144,7 +144,7 @@ impl Outline {
         // platform's shortcuts); this device remembers its latest copy by id, so a
         // first sync can tell an untouched tutorial from the user's own outline.
         self.set_meta(TUTORIAL_META, &root.to_string());
-        self.tutorial = Some(root);
+        self.sync.tutorial_added(root);
         root
     }
 

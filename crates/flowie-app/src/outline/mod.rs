@@ -14,6 +14,7 @@ mod rows;
 mod selection;
 mod structure;
 pub(crate) mod sync;
+mod window;
 
 use std::ops::Range;
 
@@ -193,13 +194,6 @@ impl Edit {
     }
 }
 
-/// Modal asking whether closing the window hides to the system tray or quits
-/// (Windows and Linux, when `config.close_action` is `Ask`).
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct CloseDialog {
-    pub remember: bool,
-}
-
 /// Block selection of whole rows (Esc from the editor, Shift-↑/↓).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockSel {
@@ -216,16 +210,9 @@ pub struct Outline {
     forward_pages: Vec<PageLocation>,
     /// Scroll position of each page opened this session, so reopening a node returns to it.
     page_scrolls: std::collections::HashMap<NodeId, PageScroll>,
-    /// The window's size and place, saved on quit (see `window_place`).
-    window_place: Option<crate::app::window_place::Place>,
-    /// Initial window place loaded from `meta`, used until a window has reported bounds.
-    saved_window_place: Option<crate::app::window_place::Place>,
-    /// Subscriptions tied to the currently open window (replaced when reopened from tray).
-    window_subs: Vec<gpui::Subscription>,
-    /// System tray handle on Windows and Linux (`None` on macOS or if tray setup failed).
-    pub(crate) tray: Option<std::rc::Rc<crate::app::tray::Tray>>,
-    /// Close-window confirmation modal (Ask mode on Windows and Linux).
-    pub(crate) close_dialog: Option<CloseDialog>,
+    /// The window's place, its subscriptions, the tray icon and the close dialog: what
+    /// outlives a window closed to the tray.
+    pub(crate) window_state: window::WindowState,
     pub hide_completed: bool,
     pub query: String,
     pub rows: Vec<Row>,
@@ -307,16 +294,11 @@ pub struct Outline {
     pub whats_new_pending: Option<Option<String>>,
     /// Set when the background database writer failed and is retrying.
     pub save_error: Option<String>,
-    /// Where the writer reports that (and recovery), for a workspace opened again.
-    pub save_status: Option<futures::channel::mpsc::UnboundedSender<Option<String>>>,
     /// Set when the database couldn't be opened and the window shows an empty
     /// outline that isn't saved: the message to show.
     pub load_error: Option<String>,
-    /// Sync with a server, while it is on (Settings → Sync).
-    pub sync: Option<sync::SyncSession>,
-    /// The tutorial this device added last (meta `tutorial`), which a first sync leaves out
-    /// while it is untouched.
-    pub tutorial: Option<NodeId>,
+    /// Sync with a server (Settings → Sync) and what it needs from the rest of the app.
+    pub(crate) sync: sync::SyncState,
     close_prompt_open: bool,
 }
 
@@ -351,6 +333,7 @@ impl Outline {
             zoom = ROOT;
         }
         let saved_window_place = meta.iter().find(|(k, _)| k == "window").and_then(|(_, v)| crate::app::window_place::Place::parse(v));
+        let tutorial = meta.iter().find(|(k, _)| k == crate::app::tutorial::TUTORIAL_META).and_then(|(_, v)| v.parse().ok());
         let mut this = Outline {
             focus: cx.focus_handle(),
             ws,
@@ -358,11 +341,7 @@ impl Outline {
             back_pages: Vec::new(),
             forward_pages: Vec::new(),
             page_scrolls,
-            window_place: None,
-            saved_window_place,
-            window_subs: Vec::new(),
-            tray: None,
-            close_dialog: None,
+            window_state: window::WindowState::new(saved_window_place),
             hide_completed,
             query: String::new(),
             rows: Vec::new(),
@@ -405,10 +384,8 @@ impl Outline {
             heights: Default::default(),
             whats_new_pending: None,
             save_error: None,
-            save_status: None,
             load_error: None,
-            sync: None,
-            tutorial: meta.iter().find(|(k, _)| k == crate::app::tutorial::TUTORIAL_META).and_then(|(_, v)| v.parse().ok()),
+            sync: sync::SyncState::new(tutorial),
             close_prompt_open: false,
             kill_buffer: String::new(),
             mouse_block: false,
@@ -445,19 +422,13 @@ impl Outline {
     /// Bind (or rebind, after hiding to the tray) this outline to `window`.
     pub fn attach_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.apply_theme(window);
-        self.close_dialog = None;
         self.menu = None;
         self.app_menu = None;
         self.refresh_reset();
         self.restore_scroll();
         window.focus(&self.focus, cx);
-        let baseline = self.window_place.as_ref().or(self.saved_window_place.as_ref());
-        self.window_place = crate::app::window_place::Place::observe(baseline, window, cx).or(self.window_place.take());
-        self.window_subs = vec![
-            cx.observe_window_bounds(window, |this, window, cx| {
-                this.window_place =
-                    crate::app::window_place::Place::observe(this.window_place.as_ref(), window, cx).or(this.window_place.take());
-            }),
+        let subs = vec![
+            cx.observe_window_bounds(window, |this, window, cx| this.window_state.bounds_changed(window, cx)),
             cx.observe_window_activation(window, |this, window, cx| {
                 if window.is_window_active() {
                     this.whats_new_window_shown(cx);
@@ -468,23 +439,7 @@ impl Outline {
                 cx.notify();
             }),
         ];
-    }
-
-    /// Last known window placement, for reopening a window from the tray.
-    pub fn window_place(&self) -> Option<&crate::app::window_place::Place> {
-        self.window_place.as_ref().or(self.saved_window_place.as_ref())
-    }
-
-    /// Whether a system tray host is currently available to show the icon.
-    pub fn tray_available(&self) -> bool {
-        self.tray.as_ref().is_some_and(|t| t.is_available())
-    }
-
-    /// Update the system tray tooltip and context menu after a language change.
-    pub fn refresh_tray_labels(&self) {
-        if let Some(tray) = &self.tray {
-            tray.set_labels(crate::app::tray::TrayLabels::current());
-        }
+        self.window_state.attach(window, cx, subs);
     }
 
     fn seed_welcome(&mut self) {
@@ -515,7 +470,7 @@ impl Outline {
     /// Settings or a dialog is open: the outline's own shortcuts are off
     /// (except under a palette opened from the dialog, which needs them).
     pub fn modal_open(&self) -> bool {
-        self.close_dialog.is_some()
+        self.window_state.close_dialog_open()
             || self.settings.is_some()
             || self.image_preview.is_some()
             || ((self.package_export.is_some() || self.package_import.is_some()) && self.palette.is_none())

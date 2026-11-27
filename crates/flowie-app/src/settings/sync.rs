@@ -70,7 +70,7 @@ impl Outline {
             }));
         let server = self.sync_field(Field::SyncServer, "sync-server", "https://sync.example.com".into(), false, window, cx);
         let token = self.sync_field(Field::SyncToken, "sync-token", t!("settings.sync.token.placeholder").into(), true, window, cx);
-        let (icon, color, status) = match self.sync.as_ref().map(|s| (s.phase().clone(), s.last_synced)) {
+        let (icon, color, status) = match self.sync.session().map(|s| (s.phase().clone(), s.last_synced)) {
             None if on => ("cloud-off", theme.muted, t!("settings.sync.status.incomplete").to_string()),
             None => ("cloud-off", theme.muted, t!("settings.sync.status.off").to_string()),
             Some((SyncPhase::Syncing, _)) => ("refresh-cw", theme.accent, t!("settings.sync.status.syncing").to_string()),
@@ -147,7 +147,7 @@ impl Outline {
             .child(field(t!("settings.sync.server.label").into(), t!("settings.sync.server.hint").into(), server))
             .child(field(t!("settings.sync.token.label").into(), t!("settings.sync.token.hint").into(), token))
             .children(lost)
-            .when(self.sync.is_some(), |d| {
+            .when(self.sync.session().is_some(), |d| {
                 d.child(
                     div()
                         .flex()

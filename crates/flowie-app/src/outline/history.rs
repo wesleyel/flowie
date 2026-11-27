@@ -3,7 +3,7 @@
 use flowie_core::{Caret, NodeId, ROOT};
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, KeyDownEvent, MouseButton, PromptButton, PromptLevel, Window};
 
-use super::{CloseDialog, Edit, Outline, Redo, Target, Undo};
+use super::{Edit, Outline, Redo, Target, Undo};
 use crate::app::i18n::t;
 use crate::app::platform::{Os, OS};
 use crate::settings::{decide_close, CloseAction, CloseDecision};
@@ -74,38 +74,38 @@ impl Outline {
     pub fn flush(&mut self) -> Result<(), String> {
         self.ws.persist();
         self.remember_scroll();
-        if let Some(s) = self.page_scrolls.get(&self.zoom) {
-            self.set_meta("scroll", &s.encode(self.zoom));
-        }
-        if let Some(place) = &self.window_place {
-            self.set_meta("window", &place.encode());
-        }
+        self.save_places();
         self.ws.flush()
     }
 
     /// Save transient UI positions and persist pending edits before hiding the window to the tray.
     pub fn prepare_hide_to_tray(&mut self) {
-        self.close_dialog = None;
+        self.window_state.take_close_dialog();
         self.menu = None;
         self.app_menu = None;
         self.popover.close();
         self.remember_scroll();
+        self.save_places();
+        self.ws.persist();
+    }
+
+    /// Note this page's scroll position and the window's place in meta.
+    fn save_places(&self) {
         if let Some(s) = self.page_scrolls.get(&self.zoom) {
             self.set_meta("scroll", &s.encode(self.zoom));
         }
-        if let Some(place) = &self.window_place {
+        if let Some(place) = self.window_state.observed_place() {
             self.set_meta("window", &place.encode());
         }
-        self.ws.persist();
     }
 
     /// Handle a window close button (× / Alt+F4). Returns `true` when the window
     /// should close right now (either hiding to tray or quitting).
     pub fn handle_window_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self.close_prompt_open || self.close_dialog.is_some() {
+        if self.close_prompt_open || self.window_state.close_dialog_open() {
             return false;
         }
-        match decide_close(OS, self.config.close_action, self.tray_available()) {
+        match decide_close(OS, self.config.close_action, self.window_state.tray_available()) {
             CloseDecision::HideToTray => {
                 self.prepare_hide_to_tray();
                 true
@@ -113,7 +113,7 @@ impl Outline {
             CloseDecision::Ask => {
                 self.menu = None;
                 self.app_menu = None;
-                self.close_dialog = Some(CloseDialog { remember: false });
+                self.window_state.ask_how_to_close();
                 cx.notify();
                 false
             }
@@ -163,7 +163,7 @@ impl Outline {
     }
 
     pub fn dismiss_close_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_dialog.take().is_some() {
+        if self.window_state.take_close_dialog().is_some() {
             window.focus(&self.focus, cx);
             cx.notify();
         }
@@ -177,7 +177,7 @@ impl Outline {
     }
 
     fn finish_close_dialog(&mut self, action: CloseAction, window: &mut Window, cx: &mut Context<Self>) {
-        let remember = self.close_dialog.take().is_some_and(|d| d.remember);
+        let remember = self.window_state.take_close_dialog().is_some_and(|d| d.remember);
         if remember {
             self.config.close_action = action;
             self.config.save(&self.config_path);
@@ -199,7 +199,7 @@ impl Outline {
     }
 
     pub(crate) fn render_close_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let dialog = self.close_dialog?;
+        let dialog = self.window_state.close_dialog()?;
         let theme = self.theme;
         let remember = dialog.remember;
         let check = div()
@@ -213,10 +213,8 @@ impl Outline {
             .child(crate::ui::controls::checkbox(theme, remember))
             .child(t!("close_dialog.remember"))
             .on_click(cx.listener(|this, _, _, cx| {
-                if let Some(d) = this.close_dialog.as_mut() {
-                    d.remember = !d.remember;
-                    cx.notify();
-                }
+                this.window_state.toggle_remember();
+                cx.notify();
             }));
         let sheet = crate::ui::surface::sheet(theme, "close-dialog")
             .w(px(400.))

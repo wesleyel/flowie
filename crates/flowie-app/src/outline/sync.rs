@@ -1,4 +1,4 @@
-//! Sync with a self-hosted server (Settings → Sync, docs/roadmap/per-node-sync.md §6): when
+//! Sync with a self-hosted server (Settings → Sync, wiki: Per-Node-Sync §6): when
 //! the driver runs, how the outline feeds it, and what the window shows of it.
 
 use std::time::Duration;

@@ -1,4 +1,4 @@
-//! The self-hosted sync backend (docs/roadmap/per-node-sync.md §5.1): it stores records and
+//! The self-hosted sync backend (wiki: Per-Node-Sync §5.1): it stores records and
 //! never reads them, like CloudKit does, so every client merges the same way and the records
 //! can be encrypted end to end later without changing it.
 //!

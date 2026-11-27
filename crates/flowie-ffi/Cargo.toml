@@ -7,7 +7,7 @@ edition.workspace = true
 publish.workspace = true
 
 # Flowie's outline and sync for native apps (iOS, the CloudKit bridge) through UniFFI
-# (docs/roadmap/ios-cross-platform.md §3.3). Swift only projects: every read and write goes
+# (wiki: iOS-Cross-Platform §3.3). Swift only projects: every read and write goes
 # through flowie-doc.
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]

@@ -1,4 +1,4 @@
-//! Flowie for native apps, through UniFFI (docs/roadmap/ios-cross-platform.md §3.3).
+//! Flowie for native apps, through UniFFI (wiki: iOS-Cross-Platform §3.3).
 //!
 //! The iOS app (M3) and the CloudKit bridge (P4) call this: an open outline, the rows of a
 //! page, the basic edits, and sync with a self-hosted server. Swift keeps no data of its own

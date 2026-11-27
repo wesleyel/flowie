@@ -1,4 +1,4 @@
-//! Merging two versions of a record (docs/roadmap/per-node-sync.md §3.3).
+//! Merging two versions of a record (wiki: Per-Node-Sync §3.3).
 //!
 //! Each field keeps the write with the later clock. The merge is commutative, associative and
 //! idempotent, so however records arrive (in any order, more than once) every device ends

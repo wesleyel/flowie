@@ -1,4 +1,4 @@
-//! What travels between devices (docs/roadmap/per-node-sync.md §4.1).
+//! What travels between devices (wiki: Per-Node-Sync §4.1).
 //!
 //! Every backend moves [`Envelope`]s and never looks inside: the payload is JSON so that a
 //! device on an older version keeps fields it doesn't know and writes them back unchanged.

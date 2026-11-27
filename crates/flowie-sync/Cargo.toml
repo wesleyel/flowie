@@ -7,7 +7,7 @@ edition.workspace = true
 publish.workspace = true
 
 # Per-node sync: the wire format, the merge, and the engine that drives it. No IO and no
-# threads, so it builds for wasm too (docs/roadmap/per-node-sync.md §4).
+# threads, so it builds for wasm too (wiki: Per-Node-Sync §4).
 [dependencies]
 flowie-core = { path = "../flowie-core", default-features = false }
 serde = { version = "1", features = ["derive"] }

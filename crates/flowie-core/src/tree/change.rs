@@ -4,7 +4,7 @@
 //! one value to another. Undo applies a field patch only while the field still holds the value
 //! the patch set, so undoing never overwrites what something else changed since (another
 //! device, through sync), and it leaves the other fields of the node alone. The same patches
-//! tell what changed for saving and for refreshing the view (docs/roadmap/per-node-sync.md
+//! tell what changed for saving and for refreshing the view (wiki: Per-Node-Sync
 //! §1 #6, P0.6).
 
 use super::{BlockKind, Node, NodeId};

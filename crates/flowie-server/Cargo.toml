@@ -6,7 +6,7 @@ repository.workspace = true
 edition.workspace = true
 publish.workspace = true
 
-# The self-hosted sync backend: one binary over SQLite (docs/roadmap/per-node-sync.md §5.1).
+# The self-hosted sync backend: one binary over SQLite (wiki: Per-Node-Sync §5.1).
 [dependencies]
 flowie-sync = { path = "../flowie-sync" }
 axum = "0.8"

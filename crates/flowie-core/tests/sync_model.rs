@@ -1,5 +1,5 @@
 //! A model of per-node state sync, to check the merge and view rules before they go into
-//! `Tree` and `flowie-sync` (docs/roadmap/per-node-sync.md §3.3–3.4, release-plan.md §4).
+//! `Tree` and `flowie-sync` (wiki: Per-Node-Sync §3.3–3.4, Release-Plan §4).
 //!
 //! It is separate from `Tree` on purpose: ids and ranks are integers, and a record has only the
 //! fields the rules care about. Each replica holds records whose fields are last-writer-wins

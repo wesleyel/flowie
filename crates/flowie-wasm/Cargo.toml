@@ -6,7 +6,7 @@ repository.workspace = true
 edition.workspace = true
 publish.workspace = true
 
-# Flowie in the browser (M4, docs/roadmap/ios-cross-platform.md): the document layer and the
+# Flowie in the browser (M4, wiki: iOS-Cross-Platform): the document layer and the
 # sync engine compiled to wasm, with SQLite inside. JavaScript does the network calls (fetch)
 # and draws the page; every read and write goes through flowie-doc.
 [lib]

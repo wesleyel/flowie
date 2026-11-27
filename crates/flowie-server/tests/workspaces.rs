@@ -1,5 +1,5 @@
 //! Two Flowie outlines, each in its own database, syncing through one server: what the app
-//! will do (P2 in docs/roadmap/per-node-sync.md), short of its sync thread.
+//! will do (P2 in wiki: Per-Node-Sync), short of its sync thread.
 
 use std::path::Path;
 

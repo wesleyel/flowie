@@ -1,4 +1,4 @@
-//! Driving sync from a desktop app (docs/roadmap/per-node-sync.md §6): network calls run on
+//! Driving sync from a desktop app (wiki: Per-Node-Sync §6): network calls run on
 //! two threads of their own, one pushing and one pulling, so a pull waiting on the backend
 //! (long polling) never holds up an edit going out. The engine and the workspace stay on the
 //! thread that owns them: [`SyncDriver::pump`] takes what the threads finished and hands them

@@ -1,5 +1,5 @@
 //! Hybrid logical clocks, and the clock each synced field of a node carries
-//! (docs/roadmap/per-node-sync.md §3.1–3.2, §4.1).
+//! (wiki: Per-Node-Sync §3.1–3.2, §4.1).
 //!
 //! A clock is (wall milliseconds, counter, actor), compared in that order, so any two writes
 //! are ordered the same way on every device. A writer's clock never goes backwards: it

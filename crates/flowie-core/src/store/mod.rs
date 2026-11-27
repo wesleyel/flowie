@@ -161,7 +161,7 @@ const BASELINE: i64 = 5;
 /// `BASELINE + i + 1`. Only ever appended to; see the module docs.
 const MIGRATIONS: &[Migration] = &[sync_columns];
 
-/// 5 → 6: what per-node sync keeps (docs/roadmap/per-node-sync.md §3.2). Existing nodes get
+/// 5 → 6: what per-node sync keeps (wiki: Per-Node-Sync §3.2). Existing nodes get
 /// empty clocks and `moved_from`, which load as clocks derived from `created`/`modified` and
 /// as the parent.
 fn sync_columns(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<()> {

@@ -1,4 +1,4 @@
-//! The sync engine: a state machine with no IO (docs/roadmap/per-node-sync.md §4).
+//! The sync engine: a state machine with no IO (wiki: Per-Node-Sync §4).
 //!
 //! Each platform drives it from its own transport: a desktop thread over HTTP, CloudKit's
 //! sync engine callbacks on Apple platforms, `fetch` in the browser, or [`MemoryServer`] in

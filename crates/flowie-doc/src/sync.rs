@@ -1,4 +1,4 @@
-//! The workspace as a sync store (docs/roadmap/per-node-sync.md §6): what the engine needs to
+//! The workspace as a sync store (wiki: Per-Node-Sync §6): what the engine needs to
 //! send and merge, kept in memory and saved by the writer in order with the records, so a
 //! restart picks up where sync left off.
 

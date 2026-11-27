@@ -22,7 +22,7 @@ ignore = true
 [bans]
 multiple-versions = "allow"
 wildcards = "allow"
-# Crate boundaries (docs/roadmap/ios-cross-platform.md §3.4): only the listed crates may depend
+# Crate boundaries (wiki: iOS-Cross-Platform §3.4): only the listed crates may depend
 # on these *directly*. A crate that reaches one through another workspace crate isn't caught here.
 deny = [
     { crate = "gpui-kit", wrappers = ["flowie-app", "flowie-math"], reason = "the UI stays out of the model crates" },

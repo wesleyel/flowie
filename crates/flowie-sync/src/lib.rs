@@ -1,4 +1,4 @@
-//! Per-node sync (docs/roadmap/per-node-sync.md): the records devices exchange, how two
+//! Per-node sync (wiki: Per-Node-Sync): the records devices exchange, how two
 //! versions of a record merge, and the engine that moves them. No IO and no threads: each
 //! platform drives the engine from its own transport.
 

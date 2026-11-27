@@ -15,7 +15,7 @@
 //!
 //! Records from several devices can disagree in ways one device never produces, and the
 //! derived layer settles them the same way everywhere, without writing anything back
-//! (docs/roadmap/per-node-sync.md §3.4, checked by `tests/sync_model.rs`):
+//! (wiki: Per-Node-Sync §3.4, checked by `tests/sync_model.rs`):
 //! - **Cycles**: concurrent moves can put A under B and B under A. The view undoes the latest
 //!   move in the cycle and shows that node at the top level (`Tree::parent` says where a node
 //!   shows; its record keeps the parent it was given).

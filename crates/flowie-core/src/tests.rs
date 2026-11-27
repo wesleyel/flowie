@@ -419,7 +419,8 @@ fn store_roundtrip() {
     let t2 = Tree::from_nodes(nodes);
     assert_eq!(outline(&t2, ROOT), "a\nc");
     assert_eq!(t2.node(a).note, "note");
-    assert_eq!(meta, vec![("zoom".to_string(), "0".to_string())]);
+    assert!(meta.contains(&("zoom".to_string(), "0".to_string())));
+    assert!(meta.contains(&("min_reader".to_string(), store::MIN_READER.to_string())));
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -1023,7 +1024,8 @@ fn stars_and_prefs_survive_save_and_reload() {
     assert_eq!(t2.node(b).star, t.node(b).star);
     let at = crate::hlc::Hlc { wall: 7, counter: 0, actor: 1 };
     assert_eq!(store::load_prefs(&conn).unwrap(), vec![("saved_searches".to_string(), "is:todo\n#work".to_string(), at)]);
-    assert_eq!(meta, vec![("zoom".to_string(), "0".to_string())]);
+    assert!(meta.contains(&("zoom".to_string(), "0".to_string())));
+    assert!(meta.contains(&("min_reader".to_string(), store::MIN_READER.to_string())));
     let _ = std::fs::remove_dir_all(dir);
 }
 

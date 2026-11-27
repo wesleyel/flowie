@@ -4,17 +4,19 @@
 //!
 //! # Formats and migrations
 //!
-//! The database's format is its `PRAGMA user_version`. `BASELINE` is the 1.0
-//! format, and each entry of `MIGRATIONS` upgrades by one, so this build
-//! writes `FORMAT = BASELINE + MIGRATIONS.len()`. [`open`] creates a new
+//! The database's format is its `PRAGMA user_version`, and `meta['min_reader']`
+//! records the oldest format whose build can still read and write it. `BASELINE`
+//! is the 1.0 format, and each entry of `MIGRATIONS` upgrades by one, so this
+//! build writes `FORMAT = BASELINE + MIGRATIONS.len()`. [`open`] creates a new
 //! database straight at `FORMAT` from `SCHEMA`, opens one at `FORMAT` as it
 //! is, and upgrades one between `BASELINE` and `FORMAT`: it saves a copy as
 //! `<db>.backup-v<format>-<millis>` (keeping the newest three), then runs the
-//! missing migrations and sets `user_version` in one transaction. If the
-//! backup or any step fails, nothing is changed and [`open`] returns the
-//! error. A database older than `BASELINE` (a 1.0 release candidate's) is
-//! renamed to `<db>.old-<millis>` and a new one created; one newer than
-//! `FORMAT` is refused with [`OpenError::TooNew`] and left alone.
+//! missing migrations and sets `meta['min_reader']` and `user_version` in one
+//! transaction. If the backup or any step fails, nothing is changed and [`open`]
+//! returns the error. A database older than `BASELINE` (a 1.0 release
+//! candidate's) is renamed to `<db>.old-<millis>` and a new one created; one
+//! newer than `FORMAT` opens as it is when `meta['min_reader'] <= FORMAT`, and
+//! is otherwise refused with [`OpenError::TooNew`] and left alone.
 //!
 //! To change the format (from 1.0 on, when `BASELINE` no longer changes):
 //!
@@ -23,9 +25,12 @@
 //! 2. Append one [`Migration`] to `MIGRATIONS` that turns a database of the
 //!    previous format into exactly what the new `SCHEMA` creates (`ALTER
 //!    TABLE`, `CREATE TABLE`/`INDEX`, and filling in data for existing rows).
-//!    It runs inside the upgrade's transaction: don't commit, don't set
-//!    `user_version`, and never edit or reorder earlier entries, which users'
-//!    databases have already been through.
+//!    Mark `additive: true` only if older builds can keep reading and writing
+//!    safely (new tables, indexes, or columns with defaults); otherwise
+//!    `additive: false` advances `MIN_READER`. It runs inside the upgrade's
+//!    transaction: don't commit, don't set `user_version` or `min_reader`, and
+//!    never edit or reorder earlier entries, which users' databases have
+//!    already been through.
 //! 3. Test it: build a database at the previous format (copy the old `CREATE`
 //!    statements into the test, set `user_version`, add rows), [`open`] it,
 //!    and check that the rows came through and that each table has the same
@@ -146,8 +151,19 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
 /// scroll, the page shown, view options, device and tutorial ids). A key that
 /// should follow the user to other devices goes in `PREFS` instead; user
 /// content (like stars) goes on the nodes.
-pub const LOCAL_META: &[&str] =
-    &["actor.app", "device", "hide_completed", "scroll", "sync.held", "sync.prefs", "sync.prefs_base", "tutorial", "window", "zoom"];
+pub const LOCAL_META: &[&str] = &[
+    "actor.app",
+    "device",
+    "hide_completed",
+    "min_reader",
+    "scroll",
+    "sync.held",
+    "sync.prefs",
+    "sync.prefs_base",
+    "tutorial",
+    "window",
+    "zoom",
+];
 
 /// Keys of the `prefs` table: preferences that sync. Sync sends the whole table
 /// as one `Prefs` record, last writer wins.
@@ -159,7 +175,7 @@ const BASELINE: i64 = 5;
 
 /// Upgrade steps: entry `i` takes a database from format `BASELINE + i` to
 /// `BASELINE + i + 1`. Only ever appended to; see the module docs.
-const MIGRATIONS: &[Migration] = &[sync_columns];
+const MIGRATIONS: &[Migration] = &[Migration { additive: false, run: sync_columns }];
 
 /// 5 → 6: what per-node sync keeps (wiki: Per-Node-Sync §3.2). Existing nodes get
 /// empty clocks and `moved_from`, which load as clocks derived from `created`/`modified` and
@@ -183,6 +199,10 @@ fn sync_columns(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<()> {
 
 /// The format this build writes, kept in `PRAGMA user_version`.
 pub const FORMAT: i64 = BASELINE + MIGRATIONS.len() as i64;
+
+/// The oldest format whose build can still read and write a database created by
+/// this build, kept in `meta['min_reader']`.
+pub const MIN_READER: i64 = migrate::min_reader(BASELINE, MIGRATIONS);
 
 impl rusqlite::ToSql for NodeId {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
@@ -556,6 +576,8 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
         let conn = open(&path).unwrap();
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, FORMAT);
+        let min_reader: String = conn.query_row("SELECT value FROM meta WHERE key = 'min_reader'", [], |r| r.get(0)).unwrap();
+        assert_eq!(min_reader, MIN_READER.to_string());
         let fresh = open(&dir.path().join("fresh.sqlite")).unwrap();
         assert_eq!(layout(&conn), layout(&fresh), "the upgrade builds what a new database has");
 
@@ -670,7 +692,8 @@ CREATE TABLE IF NOT EXISTS prefs (  -- synced preferences (PREFS)
         )
         .unwrap();
         for table in ["nodes", "outbox", "purged", "meta"] {
-            assert_eq!(futures(&conn, table), ["keep"], "{table} lost extra column");
+            let values = futures(&conn, table);
+            assert!(!values.is_empty() && values.iter().all(|v| v == "keep"), "{table} lost extra column: {values:?}");
             tested.push(table.to_string());
         }
         assert_eq!(load(&conn).unwrap().0[0].text, "v2");

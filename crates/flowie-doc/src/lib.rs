@@ -331,9 +331,10 @@ mod tests {
         let (mut ws, meta) = Workspace::open(&db, ImageDir::beside(&db), |_| {}).unwrap();
         assert_eq!(ws.tree.starred().collect::<Vec<_>>(), vec![b, a]);
         assert_eq!(ws.pref("saved_searches"), Some("is:todo"));
-        // Stars and prefs aren't kept in meta: only this process's actor id, and that the
-        // preference waits to be sent (like the outbox, whether or not sync is set up).
-        assert!(meta.iter().all(|(key, _)| key == "actor.app" || key == "sync.prefs"), "{meta:?}");
+        // Stars and prefs aren't kept in meta: only the database's min_reader, this process's
+        // actor id, and that the preference waits to be sent (like the outbox, whether or not
+        // sync is set up).
+        assert!(meta.iter().all(|(key, _)| matches!(key.as_str(), "actor.app" | "min_reader" | "sync.prefs")), "{meta:?}");
         ws.set_starred(b, false);
         ws.flush().unwrap();
         drop(ws);

@@ -9,14 +9,41 @@ use std::time::Duration;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// One upgrade step. `MIGRATIONS[i]` takes a database from format
-/// `BASELINE + i` to `BASELINE + i + 1`. It runs inside the upgrade's
-/// transaction, which also sets `user_version`, so it must not commit and
-/// must not touch `user_version` itself.
-pub type Migration = fn(&Transaction<'_>) -> rusqlite::Result<()>;
+/// `BASELINE + i` to `BASELINE + i + 1`.
+#[derive(Clone, Copy)]
+pub struct Migration {
+    /// Whether older builds can still read and write the database after this
+    /// step (for example, only adding tables, indexes, or columns with
+    /// defaults). When `false`, `min_reader` advances to the new format so
+    /// older builds refuse to open it.
+    pub additive: bool,
+    /// Runs inside the upgrade's transaction, which also sets `user_version`
+    /// and `meta['min_reader']`, so it must not commit and must not touch
+    /// either itself.
+    pub run: fn(&Transaction<'_>) -> rusqlite::Result<()>,
+}
+
+/// Key in `meta` holding the oldest format whose build can still read and
+/// write this database.
+pub(super) const MIN_READER_KEY: &str = "min_reader";
 
 /// Upgrade backups kept beside the database; older ones are deleted after an
 /// upgrade succeeds.
 const BACKUPS_KEPT: usize = 3;
+
+/// The oldest format whose build can still read and write a database at
+/// `baseline + migrations.len()`.
+pub(super) const fn min_reader(baseline: i64, migrations: &[Migration]) -> i64 {
+    let mut min = baseline;
+    let mut i = 0;
+    while i < migrations.len() {
+        if !migrations[i].additive {
+            min = baseline + i as i64 + 1;
+        }
+        i += 1;
+    }
+    min
+}
 
 /// The formats a build knows: `schema` creates a database at `current()`,
 /// and `migrations` lead there from `baseline`.
@@ -29,6 +56,10 @@ pub(super) struct Format<'a> {
 impl Format<'_> {
     pub fn current(&self) -> i64 {
         self.baseline + self.migrations.len() as i64
+    }
+
+    pub fn min_reader(&self) -> i64 {
+        min_reader(self.baseline, self.migrations)
     }
 }
 
@@ -123,7 +154,12 @@ pub(super) fn open(path: &Path, format: &Format<'_>) -> Result<Connection, OpenE
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let has_nodes: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'nodes'", [], |r| r.get(0))?;
     if version > current {
-        return Err(OpenError::TooNew { found: version, current });
+        let required = read_min_reader(&conn)?.unwrap_or(version);
+        if required > current {
+            return Err(OpenError::TooNew { found: version, current });
+        }
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        return Ok(conn);
     }
     if has_nodes > 0 && version >= format.baseline {
         if version < current {
@@ -142,8 +178,29 @@ pub(super) fn open(path: &Path, format: &Format<'_>) -> Result<Connection, OpenE
         conn = connect(path)?;
     }
     conn.execute_batch(format.schema)?;
+    write_min_reader(&conn, format.min_reader())?;
     conn.pragma_update(None, "user_version", current)?;
     Ok(conn)
+}
+
+fn read_min_reader(conn: &Connection) -> rusqlite::Result<Option<i64>> {
+    let has_meta: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'", [], |r| r.get(0))?;
+    if has_meta == 0 {
+        return Ok(None);
+    }
+    match conn.query_row("SELECT value FROM meta WHERE key = ?1", [MIN_READER_KEY], |r| r.get::<_, String>(0)) {
+        Ok(value) => Ok(value.parse::<i64>().ok()),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn write_min_reader(conn: &Connection, min: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (MIN_READER_KEY, min.to_string()),
+    )?;
+    Ok(())
 }
 
 fn connect(path: &Path) -> rusqlite::Result<Connection> {
@@ -153,16 +210,18 @@ fn connect(path: &Path) -> rusqlite::Result<Connection> {
 }
 
 /// Back the database up, then run the migrations from `from` in one
-/// transaction that ends by setting `user_version`.
+/// transaction that ends by setting `meta['min_reader']` and `user_version`.
 fn upgrade(conn: &mut Connection, path: &Path, format: &Format<'_>, from: i64) -> Result<(), OpenError> {
     let current = format.current();
     let backup = backup(conn, path, from)?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     for (step, migration) in (from..).zip(&format.migrations[(from - format.baseline) as usize..]) {
         // On error the transaction is dropped, which rolls it back.
-        migration(&tx).map_err(|error| OpenError::Migration { from: step, to: step + 1, backup: backup.clone(), error })?;
+        (migration.run)(&tx).map_err(|error| OpenError::Migration { from: step, to: step + 1, backup: backup.clone(), error })?;
     }
-    let finish = tx.pragma_update(None, "user_version", current).and_then(|()| tx.commit());
+    let finish = write_min_reader(&tx, format.min_reader())
+        .and_then(|()| tx.pragma_update(None, "user_version", current))
+        .and_then(|()| tx.commit());
     finish.map_err(|error| OpenError::Migration { from, to: current, backup: backup.clone(), error })?;
     eprintln!("flowie: upgraded {} from format {from} to {current}; the old one is in {}", path.display(), backup.display());
     prune_backups(path);
@@ -252,6 +311,7 @@ mod tests {
     const SCHEMA: &str = "
         PRAGMA journal_mode = WAL;
         CREATE TABLE IF NOT EXISTS nodes (id INTEGER PRIMARY KEY, text TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     ";
 
     fn add_note(tx: &Transaction<'_>) -> rusqlite::Result<()> {
@@ -266,6 +326,10 @@ mod tests {
     fn fail(tx: &Transaction<'_>) -> rusqlite::Result<()> {
         tx.execute_batch("SELECT * FROM no_such_table")
     }
+
+    const ADD_NOTE: Migration = Migration { additive: true, run: add_note };
+    const FILL_NOTE: Migration = Migration { additive: false, run: fill_note };
+    const FAIL: Migration = Migration { additive: false, run: fail };
 
     const BASELINE: i64 = 10;
 
@@ -287,6 +351,10 @@ mod tests {
         conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap()
     }
 
+    fn stored_min_reader(conn: &Connection) -> Option<i64> {
+        read_min_reader(conn).unwrap()
+    }
+
     fn texts(conn: &Connection) -> Vec<String> {
         let mut stmt = conn.prepare("SELECT text FROM nodes ORDER BY id").unwrap();
         stmt.query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap()
@@ -306,12 +374,14 @@ mod tests {
     fn new_database_starts_at_the_current_format() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("flowie.sqlite");
-        let conn = open(&path, &format(&[add_note, fill_note])).unwrap();
+        let conn = open(&path, &format(&[ADD_NOTE, FILL_NOTE])).unwrap();
         assert_eq!(version(&conn), BASELINE + 2);
+        assert_eq!(stored_min_reader(&conn), Some(BASELINE + 2));
         // The real schema and format, too.
         drop(conn);
         let real = super::super::open(&dir.path().join("real.sqlite")).unwrap();
         assert_eq!(version(&real), super::super::FORMAT);
+        assert_eq!(stored_min_reader(&real), Some(super::super::MIN_READER));
     }
 
     #[test]
@@ -319,7 +389,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("flowie.sqlite");
         drop(database_at(&path, BASELINE + 1));
-        let conn = open(&path, &format(&[add_note])).unwrap();
+        let conn = open(&path, &format(&[ADD_NOTE])).unwrap();
         assert_eq!(texts(&conn), ["a", "b"]);
         assert!(files_with(dir.path(), ".backup-").is_empty());
     }
@@ -329,8 +399,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("flowie.sqlite");
         let before = database_at(&path, BASELINE);
-        let conn = open(&path, &format(&[add_note, fill_note])).unwrap();
+        let conn = open(&path, &format(&[ADD_NOTE, FILL_NOTE])).unwrap();
         assert_eq!(version(&conn), BASELINE + 2);
+        assert_eq!(stored_min_reader(&conn), Some(BASELINE + 2));
         let notes: Vec<String> =
             conn.prepare("SELECT note FROM nodes ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
         assert_eq!(notes, ["from a", "from b"]);
@@ -345,6 +416,7 @@ mod tests {
         let backup = Connection::open(&backups[0]).unwrap();
         assert_eq!(texts(&backup), ["a", "b"]);
         assert_eq!(version(&backup), BASELINE);
+        assert_eq!(stored_min_reader(&backup), None);
         assert!(backup.prepare("SELECT note FROM nodes").is_err());
     }
 
@@ -354,8 +426,9 @@ mod tests {
         let path = dir.path().join("flowie.sqlite");
         // Already past `fail`: only `add_note` and `fill_note` run.
         drop(database_at(&path, BASELINE + 1));
-        let conn = open(&path, &format(&[fail, add_note, fill_note])).unwrap();
+        let conn = open(&path, &format(&[FAIL, ADD_NOTE, FILL_NOTE])).unwrap();
         assert_eq!(version(&conn), BASELINE + 3);
+        assert_eq!(stored_min_reader(&conn), Some(BASELINE + 3));
         assert_eq!(files_with(dir.path(), ".backup-v11-").len(), 1);
     }
 
@@ -364,7 +437,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("flowie.sqlite");
         drop(database_at(&path, BASELINE));
-        let error = open(&path, &format(&[add_note, fail])).unwrap_err();
+        let error = open(&path, &format(&[ADD_NOTE, FAIL])).unwrap_err();
         match &error {
             OpenError::Migration { from, to, backup, .. } => {
                 assert_eq!((*from, *to), (BASELINE + 1, BASELINE + 2));
@@ -404,7 +477,7 @@ mod tests {
         let before = database_at(&path, BASELINE);
         std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
         let writable = std::fs::write(folder.join("probe"), b"").is_ok(); // as root
-        let result = open(&path, &format(&[add_note]));
+        let result = open(&path, &format(&[ADD_NOTE]));
         std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
         if writable {
             return;
@@ -424,8 +497,9 @@ mod tests {
         let images = crate::images::ImageDir::beside(&path);
         let original = b"GIF89a\x05\x00\x07\x00";
         let image = images.put(original).unwrap();
-        let conn = open(&path, &format(&[add_note])).unwrap();
+        let conn = open(&path, &format(&[ADD_NOTE])).unwrap();
         assert_eq!(version(&conn), BASELINE + 1);
+        assert_eq!(stored_min_reader(&conn), Some(BASELINE));
         assert!(texts(&conn).is_empty());
         let aside = files_with(dir.path(), ".old-").into_iter().filter(|path| path.is_file()).collect::<Vec<_>>();
         let [moved] = aside.as_slice() else { panic!("expected one database set aside, found {aside:?}") };
@@ -441,7 +515,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("flowie.sqlite");
         drop(database_at(&path, BASELINE + 5));
-        let error = open(&path, &format(&[add_note])).unwrap_err();
+        let error = open(&path, &format(&[ADD_NOTE])).unwrap_err();
         assert!(error.is_too_new());
         assert!(matches!(error, OpenError::TooNew { found: 15, current: 11 }), "{error:?}");
         let conn = Connection::open(&path).unwrap();
@@ -449,6 +523,35 @@ mod tests {
         assert_eq!(texts(&conn), ["a", "b"]);
         assert!(files_with(dir.path(), ".old-").is_empty());
         assert!(files_with(dir.path(), ".backup-").is_empty());
+    }
+
+    #[test]
+    fn additive_migration_keeps_min_reader_and_older_builds_open_it() {
+        fn add_tag(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+            tx.execute_batch("ALTER TABLE nodes ADD COLUMN tag TEXT NOT NULL DEFAULT ''")
+        }
+        const ADD_TAG: Migration = Migration { additive: true, run: add_tag };
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("flowie.sqlite");
+        drop(database_at(&path, BASELINE));
+        // v10 -> v11 (additive) -> v12 (breaking: min_reader = 12) -> v13 (additive: min_reader stays 12)
+        let conn = open(&path, &format(&[ADD_NOTE, FILL_NOTE, ADD_TAG])).unwrap();
+        assert_eq!(version(&conn), BASELINE + 3);
+        assert_eq!(stored_min_reader(&conn), Some(BASELINE + 2));
+        drop(conn);
+
+        // A build that only knows up to v12 (== min_reader) can still open it as is.
+        let older = open(&path, &format(&[ADD_NOTE, FILL_NOTE])).unwrap();
+        assert_eq!(version(&older), BASELINE + 3);
+        assert_eq!(stored_min_reader(&older), Some(BASELINE + 2));
+        assert_eq!(texts(&older), ["a", "b"]);
+        assert_eq!(files_with(dir.path(), ".backup-").len(), 1, "opening a readable newer format takes no backup");
+        drop(older);
+
+        // A build that only knows up to v11 (< min_reader) refuses it and leaves it alone.
+        let error = open(&path, &format(&[ADD_NOTE])).unwrap_err();
+        assert!(matches!(error, OpenError::TooNew { found: 13, current: 11 }), "{error:?}");
     }
 
     #[test]

@@ -48,11 +48,29 @@ check(try outline.page(root: nil).map(\.text) == ["From", "A child, 中文 ✓ S
 check(outline.undo().structureChanged && outline.undo().structureChanged, "two undo steps")
 check(try outline.page(root: nil)[0].text == "From Swift", "undone")
 check(outline.syncStatus() == .off, "sync is off")
+
+// The app's shell: the journal, folding, stars, search, Move To, Recently Deleted.
+check(try outline.journalDay(date: "2026-11-27") == nil, "no day until written in")
+let day = try outline.openDay(date: "2026-11-27")
+check(try outline.journalDay(date: "2026-11-27") != nil && day.focus != nil, "the day is made, the caret on it")
+_ = try outline.setCollapsed(id: first, collapsed: true)
+check(try outline.page(root: nil).first?.collapsed == true, "folded")
+try outline.setStarred(id: first, starred: true)
+check(outline.starred().map(\.id) == [first], "starred")
+check(outline.search(query: "中文 is:open", limit: 10).isEmpty && outline.search(query: "中文", limit: 10).count == 1, "search with filters")
+_ = try outline.moveTo(id: child, parent: nil)
+check(try outline.page(root: nil).last?.id == child, "moved to the end of Home")
+_ = try outline.delete(id: child)
+check(outline.trashed().map(\.id) == [child], "in Recently Deleted")
+_ = try outline.restore(id: child)
+check(outline.trashed().isEmpty, "restored")
+check(try outline.link(id: first, untitled: "Untitled").hasSuffix("(flowie:\(first))"), "copy link")
+let saved = try outline.page(root: nil).map(\.text)
 try outline.flush()
 
 // Reopened, it has what was saved.
 let again = try Outline.open(db: db)
-check(try again.page(root: nil).count == 2, "reopened")
+check(try again.page(root: nil).map(\.text) == saved, "reopened")
 
 // Sync against a server that isn't there: offline, the edits kept.
 outline.startSync(server: "http://127.0.0.1:9", token: "t", observer: Waker())

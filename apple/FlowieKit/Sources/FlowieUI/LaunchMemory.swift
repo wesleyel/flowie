@@ -1,17 +1,18 @@
 import Foundation
 
 /// What the app remembers between launches, and the launch rule (wiki: iOS-Cross-Platform §4.3):
-/// come back to the last page and scroll position, unless the date changed or the app was away
-/// for over an hour; then open today's journal. A new user starts on Home.
+/// each window comes back to its history of pages, scrolled as they were (wiki: Sliding-Panes
+/// §1), unless the date changed or it was away for over an hour; then it opens today's journal.
+/// A new user starts on Home.
 public enum LaunchMemory {
     /// Where it is kept (tests use their own).
     public static var defaults: UserDefaults = .standard
 
+    /// The screenshots' launch arguments (`start`).
     private static let tabKey = "launch.tab"
     private static let pathKey = "launch.path"
     private static let activeKey = "launch.active"
     private static let dayKey = "launch.day"
-    private static let scrollKey = "launch.scroll"
     private static let zoomedKey = "hint.zoomed"
     /// How long the app can be away and still come back where it was.
     public static let away: TimeInterval = 3600
@@ -58,14 +59,18 @@ public enum LaunchMemory {
         formatter().date(from: day)
     }
 
-    /// Where the app was: its tab and the pages pushed on it (bullet ids; "" for Home).
-    public struct Place: Equatable {
+    /// Where a window was: its tab (iPhone and narrow windows), its history of pages (wiki:
+    /// Sliding-Panes §1, each page with how it was scrolled and where the caret was), and whether
+    /// it was turned to one pane in landscape.
+    public struct Place: Codable, Equatable {
         public var tab: String
-        public var path: [String]
+        public var history: PageHistory
+        public var singlePane: Bool
 
-        public init(tab: String, path: [String]) {
+        public init(tab: String, history: PageHistory, singlePane: Bool = false) {
             self.tab = tab
-            self.path = path
+            self.history = history
+            self.singlePane = singlePane
         }
     }
 
@@ -75,55 +80,81 @@ public enum LaunchMemory {
         case new
         /// Today's journal.
         case today
-        /// Back where the app was.
+        /// Back where the window was.
         case place(Place)
     }
 
-    /// The launch rule.
-    public static func start(at now: Date = now) -> Start {
-        guard let tab = defaults.string(forKey: tabKey) else { return .new }
-        let active = defaults.double(forKey: activeKey)
-        let day = defaults.string(forKey: dayKey)
+    /// What is kept for each window (by its scene's id): where it was, and when it was left.
+    private struct Saved: Codable {
+        var place: Place
+        var active: Double
+        var day: String
+    }
+
+    private static let windowsKey = "launch.windows"
+    private static let lastWindowKey = "launch.window"
+
+    private static var saved: [String: Saved] {
+        guard let data = defaults.data(forKey: windowsKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: Saved].self, from: data)) ?? [:]
+    }
+
+    /// The launch rule, for a window: its own place, or for a window not seen before (or whose
+    /// id the system forgot) the last one left. The App Store screenshots give a tab and the
+    /// pages opened on it as launch arguments (`-launch.tab home -launch.path '(id1,id2)'`, ""
+    /// for Home), which win.
+    public static func start(window: String = "", at now: Date = now) -> Start {
+        let windows = saved
+        let record = windows[window] ?? defaults.string(forKey: lastWindowKey).flatMap { windows[$0] }
+        let arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        let active: Double
+        let day: String?
+        let place: Place
+        if let tab = arguments[tabKey] as? String {
+            var history = PageHistory((AppTabRoot(rawValue: tab) ?? .home).page)
+            for id in arguments[pathKey] as? [String] ?? [] {
+                history.push(PageEntry(id.isEmpty ? .home : .bullet(id)))
+            }
+            place = Place(tab: tab, history: history)
+            active = defaults.double(forKey: activeKey)
+            day = defaults.string(forKey: dayKey)
+        } else if let record {
+            place = record.place
+            active = record.active
+            day = record.day
+        } else {
+            return .new
+        }
         if day != self.day(of: now) || now.timeIntervalSince1970 - active > away {
             return .today
         }
-        return .place(Place(tab: tab, path: defaults.stringArray(forKey: pathKey) ?? []))
+        return .place(place)
     }
 
-    /// Remember where the app is, leaving it now.
-    public static func leave(_ place: Place, at now: Date = now) {
-        defaults.set(place.tab, forKey: tabKey)
-        defaults.set(place.path, forKey: pathKey)
-        defaults.set(now.timeIntervalSince1970, forKey: activeKey)
-        defaults.set(day(of: now), forKey: dayKey)
-    }
-
-    // MARK: Scroll position
-
-    /// The scroll position to come back to, once, at launch.
-    private static var pendingScroll: (page: String, row: String)?
-
-    /// The top row on screen of a page (by `PageKind.key`), remembered as it is scrolled.
-    public static func rememberScroll(_ page: String, row: String?) {
-        if let row {
-            defaults.set([page, row], forKey: scrollKey)
-        } else {
-            defaults.removeObject(forKey: scrollKey)
+    /// Remember where a window is, leaving it now.
+    public static func leave(_ place: Place, window: String = "", at now: Date = now) {
+        var windows = saved
+        windows[window] = Saved(place: place, active: now.timeIntervalSince1970, day: day(of: now))
+        // Windows not left for a week are forgotten.
+        windows = windows.filter { now.timeIntervalSince1970 - $0.value.active < 7 * 24 * 3600 }
+        if let data = try? JSONEncoder().encode(windows) {
+            defaults.set(data, forKey: windowsKey)
         }
+        defaults.set(window, forKey: lastWindowKey)
     }
 
-    /// Come back to the remembered scroll position when its page next shows (at launch).
-    public static func armScroll() {
-        if let saved = defaults.stringArray(forKey: scrollKey), saved.count == 2 {
-            pendingScroll = (saved[0], saved[1])
+    /// The first page of a tab, by the tab's name, for the screenshots' launch arguments.
+    private enum AppTabRoot: String {
+        case today, home, stars, search
+
+        var page: PageRef {
+            switch self {
+            case .today: return .day(LaunchMemory.today)
+            case .home: return .home
+            case .stars: return .stars
+            case .search: return .search("")
+            }
         }
-    }
-
-    /// The row to scroll to on this page, if it is the one remembered at launch (once).
-    public static func takeScroll(for page: String) -> String? {
-        guard let pending = pendingScroll, pending.page == page else { return nil }
-        pendingScroll = nil
-        return pending.row
     }
 
     /// Whether a bullet has been opened as a page once: Home's hint for new users goes then.

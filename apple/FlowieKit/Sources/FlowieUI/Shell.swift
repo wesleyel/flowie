@@ -134,6 +134,10 @@ final class Navigation: ObservableObject {
 
     /// Show another page in an entry without a new one (the journal's days, a search typed).
     func replace(at position: Int, with page: PageRef, in key: HistoryKey) {
+        let history = history(key)
+        if history.entries.indices.contains(position), history.entries[position].page != page {
+            memories[history.entries[position].id] = nil
+        }
         change(key) { $0.replace(at: position, with: page) }
     }
 
@@ -181,12 +185,13 @@ final class Navigation: ObservableObject {
         }
     }
 
-    /// The page above the focused one (⌘[, the desktop's Zoom Out), its row pointed out.
+    /// The page above the focused one (⌘[, the desktop's Zoom Out), opened from it, the row
+    /// of the page left pointed out.
     func zoomOut() {
         let key = key
         let position = focusedPosition(key)
         guard case .bullet(let id) = history(key).entries[position].page, let bullet = store?.bullet(id) else { return }
-        open(PageEntry(bullet.path.last.map { .bullet($0.id) } ?? .home, opener: id), from: position, in: key)
+        open(PageEntry(bullet.path.last.map { .bullet($0.id) } ?? .home, reveal: id), from: position, in: key)
     }
 
     /// Give the focus to the left or the right pane (⌃⌘← ⌃⌘→).
@@ -248,17 +253,33 @@ final class Navigation: ObservableObject {
         showDay(LaunchMemory.today)
     }
 
-    /// Where the app is, to remember: the tab and the pages after its first ("" for Home).
-    var place: LaunchMemory.Place {
-        let history = history(key)
-        let path = history.entries[...history.index].dropFirst().compactMap { entry -> String? in
-            switch entry.page {
-            case .home: return ""
-            case .bullet(let id): return id
-            default: return nil
+    /// How each page was left (scrolled, the caret), by entry: kept aside so scrolling doesn't
+    /// redraw the shell, and put into the history when it is saved or a page comes back.
+    private var memories: [UUID: PageMemory] = [:]
+
+    func remember(_ id: UUID, _ memory: PageMemory) {
+        memories[id] = memory
+    }
+
+    func memory(of entry: PageEntry) -> PageMemory {
+        memories[entry.id] ?? entry.memory
+    }
+
+    /// A history with how its pages were left.
+    private func remembered(_ key: HistoryKey) -> PageHistory {
+        var history = history(key)
+        for entry in history.entries {
+            if let memory = memories[entry.id] {
+                history.update(entry.id) { $0.memory = memory }
             }
         }
-        return LaunchMemory.Place(tab: AppTab(for: history.entries[0].page).rawValue, path: Array(path))
+        return history
+    }
+
+    /// Where the window is, to remember (§4.3): its history, the tab it is in, one pane or two.
+    var place: LaunchMemory.Place {
+        let history = remembered(key)
+        return LaunchMemory.Place(tab: (wide ? AppTab(for: history.current.page) : tab).rawValue, history: history, singlePane: singlePane)
     }
 
     /// Open what the launch rule says (§4.3), the outline checked for pages since gone.
@@ -271,22 +292,17 @@ final class Navigation: ObservableObject {
             tab = .today
             histories[.window] = PageHistory(.day(LaunchMemory.today))
         case .place(let place):
-            let tab = AppTab(rawValue: place.tab) ?? .home
-            // Pages deleted since are left off (and what was opened after them).
-            var history = PageHistory(tab.root)
-            for id in place.path {
-                if id.isEmpty {
-                    history.push(PageEntry(.home))
-                } else if store.bullet(id) != nil {
-                    history.push(PageEntry(.bullet(id)))
-                } else {
-                    break
-                }
+            var history = place.history
+            // Pages deleted since are left out.
+            history.prune { page in
+                if case .bullet(let id) = page { return store.bullet(id) != nil }
+                return true
             }
+            let tab = AppTab(rawValue: place.tab) ?? AppTab(for: history.current.page)
             histories[.tab(tab)] = history
             histories[.window] = history
             self.tab = tab
-            LaunchMemory.armScroll()
+            singlePane = place.singlePane
         }
     }
 }
@@ -304,6 +320,8 @@ public struct FlowieShell: View {
     @StateObject private var started = Local(false)
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// This window's own id, kept by the system with the scene: its history is saved under it.
+    @SceneStorage("flowie.window") private var window = ""
     @AppStorage("appearance") private var appearance = "system"
 
     public init(store: OutlineStore, showsSelfHosted: Bool) {
@@ -347,7 +365,8 @@ public struct FlowieShell: View {
             started.value = true
             nav.store = store
             nav.setWide(wide)
-            nav.start(LaunchMemory.start(), store: store)
+            if window.isEmpty { window = UUID().uuidString }
+            nav.start(LaunchMemory.start(window: window), store: store)
             #if DEBUG
             ScreenshotArguments.apply(to: nav, store: store)
             #endif
@@ -357,10 +376,10 @@ public struct FlowieShell: View {
         .onChange(of: scenePhase) { old, phase in
             switch phase {
             case .background:
-                LaunchMemory.leave(nav.place)
+                LaunchMemory.leave(nav.place, window: window)
             case .active where old == .background:
                 // Back after a while, or on another day: today's journal (§4.3).
-                if case .today = LaunchMemory.start() {
+                if case .today = LaunchMemory.start(window: window) {
                     nav.showToday()
                 }
             default:
@@ -748,12 +767,15 @@ struct PageScreen: View {
     @StateObject private var page: PageModel
     @ObservedObject var nav: Navigation
     let slot: PaneSlot
+    let entry: PageEntry
 
     init(store: OutlineStore, entry: PageEntry, nav: Navigation, slot: PaneSlot) {
+        self.entry = entry
         self.store = store
         _page = StateObject(wrappedValue: {
             let page = store.page(entry.page.kind ?? .home)
-            page.reveal = entry.reveal
+            // A search result is pointed out the first time only: back to it, it is as it was left.
+            page.reveal = nav.memory(of: entry).topRow == nil ? entry.reveal : nil
             return page
         }())
         self.nav = nav
@@ -793,10 +815,11 @@ struct PageScreen: View {
             search: { query in nav.showSearch(query, from: slot.position) },
             highlight: slot.highlight,
             focused: slot.focused,
-            onFocus: { [nav, slot] in
-                let id = nav.history(slot.key).entries[min(slot.position, nav.history(slot.key).entries.count - 1)].id
-                if nav.focused != id { nav.focused = id }
-            }
+            onFocus: { [nav, entry] in
+                if nav.focused != entry.id { nav.focused = entry.id }
+            },
+            memory: nav.memory(of: entry),
+            remember: { [nav, entry] memory in nav.remember(entry.id, memory) }
         )
             // The page keeps its rows above the keyboard itself (an inset), and
             // its list scrolls under the tab bar.
@@ -805,7 +828,7 @@ struct PageScreen: View {
             .navigationTitle(title)
             .modifier(Subtitle(text: subtitle))
             .navigationBarTitleDisplayMode(top ? .large : .inline)
-            .modifier(Breadcrumbs(info: page.kind == .home ? nil : page.info) { page, opener in open(page, opener: opener) })
+            .modifier(Breadcrumbs(info: page.root.flatMap { page.kind == .bullet($0) ? page.info : nil }) { page, opener in open(page, opener: opener) })
             // While typing, the keyboard bar takes the bottom: with a hardware keyboard it
             // would sit on the tab bar.
             .toolbar(page.isEditing ? .hidden : .automatic, for: .tabBar)

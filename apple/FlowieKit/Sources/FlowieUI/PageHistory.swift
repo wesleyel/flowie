@@ -61,6 +61,35 @@ public struct PageEntry: Hashable, Codable, Sendable, Identifiable {
     }
 }
 
+/// How a page was left: the row at the top and how far it was scrolled into it (points), and
+/// the row with the caret and where in it (UTF-16).
+public struct PageMemory: Equatable, Sendable {
+    public var topRow: String?
+    public var offset: Double
+    public var focus: String?
+    public var caret: Int
+
+    public init(topRow: String? = nil, offset: Double = 0, focus: String? = nil, caret: Int = 0) {
+        self.topRow = topRow
+        self.offset = offset
+        self.focus = focus
+        self.caret = caret
+    }
+}
+
+extension PageEntry {
+    /// How the page was left, to put it back so.
+    public var memory: PageMemory {
+        get { PageMemory(topRow: topRow, offset: offset, focus: focus, caret: caret) }
+        set {
+            topRow = newValue.topRow
+            offset = newValue.offset
+            focus = newValue.focus
+            caret = newValue.caret
+        }
+    }
+}
+
 /// A window's browser-style history (wiki: Sliding-Panes §1): its pages `[p0 … pn]` and where it
 /// is (`index`). One pane shows `entries[index]`; two panes show the page before it on the left.
 /// Opening a page drops what was ahead of the pane that opened it; Back and Forward move along.

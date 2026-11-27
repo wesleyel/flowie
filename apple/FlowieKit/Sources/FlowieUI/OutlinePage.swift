@@ -24,21 +24,30 @@ public struct OutlinePage: UIViewControllerRepresentable {
     var focused = true
     /// Told when a row of the page starts being typed in: its pane takes the focus.
     var onFocus: () -> Void = {}
+    /// How the page was left before (its history entry's), put back when it first shows.
+    var memory: PageMemory?
+    /// Told how the page is left as it changes: scrolled, or the caret taken away with the focus.
+    var remember: (PageMemory) -> Void = { _ in }
 
     public init(page: PageModel, open: @escaping (String, String?) -> Void, search: @escaping (String) -> Void = { _ in },
-                highlight: String? = nil, focused: Bool = true, onFocus: @escaping () -> Void = {}) {
+                highlight: String? = nil, focused: Bool = true, onFocus: @escaping () -> Void = {},
+                memory: PageMemory? = nil, remember: @escaping (PageMemory) -> Void = { _ in }) {
         self.page = page
         self.open = open
         self.search = search
         self.highlight = highlight
         self.focused = focused
         self.onFocus = onFocus
+        self.memory = memory
+        self.remember = remember
     }
 
     public func makeUIViewController(context: Context) -> OutlinePageController {
         let controller = OutlinePageController(page: page, open: open, search: search)
         controller.highlight = highlight
         controller.focused = focused
+        controller.memory = memory ?? PageMemory()
+        controller.restore = memory
         return controller
     }
 
@@ -46,6 +55,7 @@ public struct OutlinePage: UIViewControllerRepresentable {
         controller.open = open
         controller.search = search
         controller.onFocus = onFocus
+        controller.remember = remember
         controller.highlight = highlight
         controller.focused = focused
     }
@@ -167,6 +177,12 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     var open: (String, String?) -> Void
     var search: (String) -> Void
     var onFocus: () -> Void = {}
+    /// How the page was left before, put back when it first shows; and how it is left now.
+    var restore: PageMemory?
+    var memory = PageMemory()
+    var remember: (PageMemory) -> Void = { _ in }
+    /// The caret is taken away with the focus: where it was stays remembered.
+    private var keepingFocus = false
     /// The row that opened the page in the pane to the right: marked, and kept on screen.
     var highlight: String? {
         didSet {
@@ -188,8 +204,16 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             guard focused != oldValue, isViewLoaded, view.window != nil else { return }
             if focused {
                 if editingID == nil { becomeFirstResponder() }
-            } else if editingID != nil {
+            } else if let id = editingID {
+                // Leaving the page (Back, Forward) or its pane: the caret is remembered there.
+                if let editor = cell(for: id)?.textView {
+                    memory.focus = id
+                    memory.caret = editor.selectedRange.location
+                    remember(memory)
+                }
+                keepingFocus = true
                 view.endEditing(true)
+                keepingFocus = false
             }
         }
     }
@@ -341,10 +365,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         }
         if !shownOnce {
             shownOnce = true
-            if let row = LaunchMemory.takeScroll(for: page.kind.key), let index = indexByID[row] {
-                collectionView.layoutIfNeeded()
-                collectionView.scrollToItem(at: IndexPath(item: index, section: 0), at: .top, animated: false)
-            }
+            restoreMemory()
         }
         revealIfAsked()
         showHighlight()
@@ -352,6 +373,27 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     }
 
     public override var canBecomeFirstResponder: Bool { true }
+
+    /// Put the page back as it was left (Back to it, or the next launch): scrolled to the same
+    /// row, and the caret where it was if it was being typed in.
+    private func restoreMemory() {
+        guard let restore, page.reveal == nil else { return }
+        self.restore = nil
+        if let row = restore.topRow, let index = indexByID[row] {
+            collectionView.layoutIfNeeded()
+            if let frame = collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame {
+                let inset = collectionView.adjustedContentInset
+                let highest = max(-inset.top, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
+                let y = min(highest, max(-inset.top, frame.minY + restore.offset - inset.top))
+                placing = true
+                collectionView.setContentOffset(CGPoint(x: collectionView.contentOffset.x, y: y), animated: false)
+                placing = false
+            }
+        }
+        if let id = restore.focus, focused, !page.isReadOnly, indexByID[id] != nil {
+            place(Focus(id: id, start: restore.caret, end: restore.caret))
+        }
+    }
 
     /// Scroll the row that opened the right pane into view, if it is off screen.
     private func showHighlight() {
@@ -1192,14 +1234,16 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         rememberScroll()
     }
 
-    /// Remember the top row on screen, to come back to it at launch (§4.3).
+    /// Remember the top row on screen, to come back to it (Back, and the next launch: §4.3).
     private func rememberScroll() {
         let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
         let first = collectionView.indexPathsForVisibleItems
             .compactMap { path in collectionView.layoutAttributesForItem(at: path).map { (path, $0.frame) } }
             .filter { $0.1.maxY > top + 1 }
             .min { $0.0.item < $1.0.item }
-        LaunchMemory.rememberScroll(page.kind.key, row: first.flatMap { order.indices.contains($0.0.item) ? order[$0.0.item] : nil })
+        memory.topRow = first.flatMap { order.indices.contains($0.0.item) ? order[$0.0.item] : nil }
+        memory.offset = first.map { Double(top - $0.1.minY) } ?? 0
+        remember(memory)
     }
 
     // MARK: Typing
@@ -1254,9 +1298,14 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
             cell.showRendered()
         }
         guard let id = (textView as? BulletTextView)?.rowID, id == editingID else { return }
+        let keep = keepingFocus
         // When the caret moved to another row, that row has begun editing by now.
         DispatchQueue.main.async { [weak self] in
             guard let self, editingID == id else { return }
+            if !keep, memory.focus != nil {
+                memory.focus = nil
+                remember(memory)
+            }
             editingID = nil
             page.editing(nil)
             refreshGuides()

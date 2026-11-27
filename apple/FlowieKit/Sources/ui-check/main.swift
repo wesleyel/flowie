@@ -241,26 +241,35 @@ func checkShell(_ docs: OutlineStore, home: PageModel) throws {
     print("Shell check: ok")
 }
 
-/// The launch rule (wiki: iOS-Cross-Platform §4.3).
+/// The launch rule (wiki: iOS-Cross-Platform §4.3), for each window's history (Sliding-Panes §1).
 func checkLaunchRule() {
     let defaults = UserDefaults(suiteName: "flowie-launch-check-\(UUID().uuidString)")!
     LaunchMemory.defaults = defaults
     let noon = ISO8601DateFormatter().date(from: "2026-11-27T12:00:00Z")!
     let day = LaunchMemory.day(of: noon)
-    check(LaunchMemory.start(at: noon) == .new, "a new user starts fresh")
+    check(LaunchMemory.start(window: "w1", at: noon) == .new, "a new user starts fresh")
     check(!LaunchMemory.zoomedOnce, "and sees the hint")
-    let place = LaunchMemory.Place(tab: "home", path: ["abc", "def"])
-    LaunchMemory.leave(place, at: noon)
-    check(LaunchMemory.start(at: noon.addingTimeInterval(1800)) == .place(place), "back within the hour: where it was")
-    check(LaunchMemory.start(at: noon.addingTimeInterval(3700)) == .today, "away over an hour: today")
+    var history = PageHistory(.home)
+    history.push(PageEntry(.bullet("abc")))
+    history.update(history.current.id) { $0.memory = PageMemory(topRow: "r1", offset: 12.5, focus: "r2", caret: 3) }
+    history.push(PageEntry(.bullet("def")))
+    history.goBack()
+    let place = LaunchMemory.Place(tab: "home", history: history, singlePane: true)
+    LaunchMemory.leave(place, window: "w1", at: noon)
+    check(LaunchMemory.start(window: "w1", at: noon.addingTimeInterval(1800)) == .place(place), "back within the hour: where it was, forward pages, scroll and caret too")
+    if case .place(let back) = LaunchMemory.start(window: "w1", at: noon.addingTimeInterval(1800)) {
+        check(back.history.current.memory == PageMemory(topRow: "r1", offset: 12.5, focus: "r2", caret: 3) && back.history.canGoForward && back.singlePane, "the page as it was left")
+    }
+    check(LaunchMemory.start(window: "w1", at: noon.addingTimeInterval(3700)) == .today, "away over an hour: today")
+    // Each window has its own; a window not seen before takes the last one left.
+    let other = LaunchMemory.Place(tab: "today", history: PageHistory(.day(day)))
+    LaunchMemory.leave(other, window: "w2", at: noon.addingTimeInterval(60))
+    check(LaunchMemory.start(window: "w1", at: noon.addingTimeInterval(600)) == .place(place), "a window's own history")
+    check(LaunchMemory.start(window: "w3", at: noon.addingTimeInterval(600)) == .place(other), "a new window: the last one left")
     let nextDay = LaunchMemory.date(of: LaunchMemory.day(day, offset: 1))!.addingTimeInterval(60)
-    LaunchMemory.leave(place, at: nextDay.addingTimeInterval(-120))
-    check(LaunchMemory.start(at: nextDay) == .today, "the date changed: today")
+    LaunchMemory.leave(place, window: "w1", at: nextDay.addingTimeInterval(-120))
+    check(LaunchMemory.start(window: "w1", at: nextDay) == .today, "the date changed: today")
     check(LaunchMemory.day("2026-12-31", offset: 1) == "2027-01-01" && LaunchMemory.day("2026-03-01", offset: -1) == "2026-02-28", "days around")
-    LaunchMemory.rememberScroll("b:abc", row: "r1")
-    LaunchMemory.armScroll()
-    check(LaunchMemory.takeScroll(for: "home") == nil && LaunchMemory.takeScroll(for: "b:abc") == "r1", "scroll position for its page")
-    check(LaunchMemory.takeScroll(for: "b:abc") == nil, "once")
     LaunchMemory.defaults = .standard
     print("Launch rule check: ok")
 }

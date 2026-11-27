@@ -716,8 +716,22 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
               let cell = sequence(first: slot as UIView, next: { $0.superview }).first(where: { $0 is RowCell }) as? RowCell,
               let id = cell.textView.rowID, let row = rowsByID[id]
         else { return nil }
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+        let width = view.bounds.width
+        let page = self.page
+        return UIContextMenuConfiguration(identifier: row.id as NSString, previewProvider: {
+            RowPreviewController(row: row, page: (try? page.store.outline.page(root: row.id)) ?? [], width: width)
+        }) { [weak self] _ in
             self?.menu(for: row)
+        }
+    }
+
+    /// Tapping the preview opens the bullet, as Zoom In.
+    public func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willPerformPreviewActionForMenuWith configuration: UIContextMenuConfiguration, animator: any UIContextMenuInteractionCommitAnimating) {
+        guard let id = configuration.identifier as? String else { return }
+        animator.preferredCommitStyle = .dismiss
+        animator.addCompletion { [weak self] in
+            guard let self, let row = rowsByID[id] else { return }
+            zoom(into: row)
         }
     }
 

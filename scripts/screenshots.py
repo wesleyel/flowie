@@ -12,7 +12,7 @@ agent socket, puts the window into each state with the `shot.*` methods
 (crates/flowie-app/src/dev/shots.rs) and captures it with `screencapture -l`.
 
 Writes
-    appstore/fastlane/screenshots-source/<locale>/NN-name.png   2400×1500 captures (10 per locale);
+    appstore/fastlane/macos/screenshots-source/<locale>/NN-name.png   2400×1500 captures (10 per locale);
         scripts/appstore-screenshots.py frames them as screenshots/<locale>/, 2880×1800
     website/images/NN-name-<locale>.jpg                  1600×1000 (website)
 
@@ -39,7 +39,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / "target" / "screenshots"
 BINARY = TARGET / "release" / "flowie"
-APPSTORE = ROOT / "appstore" / "fastlane" / "screenshots-source"  # framed by appstore-screenshots.py
+APPSTORE = ROOT / "appstore" / "fastlane" / "macos" / "screenshots-source"  # framed by appstore-screenshots.py
 WEBSITE = ROOT / "website" / "images"
 WINDOW = (1200, 750)  # points with the title bar; 2400×1500 pixels on a Retina display (16:10)
 TITLEBAR = 32  # points; FLOWIE_WINDOW_SIZE is the content size

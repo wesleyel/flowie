@@ -13,8 +13,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
-SCREENSHOTS = ROOT / "appstore/fastlane/screenshots"
-SOURCES = ROOT / "appstore/fastlane/screenshots-source"
+SCREENSHOTS = ROOT / "appstore/fastlane/macos/screenshots"
+SOURCES = ROOT / "appstore/fastlane/macos/screenshots-source"
 SIZE = (2880, 1800)
 EN_FONT = "/System/Library/Fonts/Supplemental/Avenir Next.ttc"
 ZH_FONT = "/System/Library/Fonts/Hiragino Sans GB.ttc"

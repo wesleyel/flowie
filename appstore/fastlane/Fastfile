@@ -7,6 +7,14 @@ APP_STORE_ID = "6835913837"
 ROOT = File.expand_path("../..", __dir__)
 PKG_DIR = File.join(ROOT, "build/appstore")
 
+# Each platform's listing sits in its own folder: macos/ (the Mac) and ios/ (iPhone and iPad), each
+# with metadata/<locale>/ and screenshots/<locale>/. Text both listings share (name, subtitle, URLs,
+# categories, copyright, the review contact) is kept in macos/ and symlinked from ios/.
+def listing(platform)
+  dir = File.join(__dir__, platform)
+  { metadata_path: File.join(dir, "metadata"), screenshots_path: File.join(dir, "screenshots") }
+end
+
 # US$4.99 in the United States; Apple derives every other storefront's price from it
 # (equalized pricing). Mainland China is left out: distributing there needs an ICP filing.
 BASE_TERRITORY = "USA"
@@ -242,6 +250,7 @@ platform :mac do
   lane :metadata do
     authenticate
     upload_to_app_store(
+      **listing("macos"),
       platform: "osx",
       app_version: marketing_version,
       skip_binary_upload: true,
@@ -250,11 +259,12 @@ platform :mac do
     )
   end
 
-  desc "Make the remote screenshots match fastlane/screenshots exactly"
+  desc "Make the remote screenshots match macos/screenshots exactly"
   lane :screenshots do
     authenticate
     ENV["FASTLANE_ENABLE_BETA_DELIVER_SYNC_SCREENSHOTS"] = "1"
     upload_to_app_store(
+      **listing("macos"),
       platform: "osx",
       app_version: marketing_version,
       skip_binary_upload: true,
@@ -338,6 +348,7 @@ platform :mac do
     version, build = pkg_versions(latest_pkg)
     ensure_versions_match(version)
     upload_to_app_store(
+      **listing("macos"),
       platform: "osx",
       app_version: version,
       build_number: build,
@@ -347,6 +358,39 @@ platform :mac do
       submit_for_review: true,
       automatic_release: true,
       submission_information: SUBMISSION_INFORMATION,
+      force: true
+    )
+  end
+end
+
+# The iOS app ships under the same App Store record (Universal Purchase), with its own listing in
+# ios/. Its build is scripts/package-ios.sh (see docs/building.md); these lanes only push the text
+# and the screenshots (scripts/ios-screenshots.py).
+platform :ios do
+  desc "Push the iPhone and iPad listing text in ios/metadata (no screenshots, no binary)"
+  lane :metadata do
+    authenticate
+    upload_to_app_store(
+      **listing("ios"),
+      platform: "ios",
+      app_version: marketing_version,
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      force: true
+    )
+  end
+
+  desc "Make the remote iPhone and iPad screenshots match ios/screenshots exactly"
+  lane :screenshots do
+    authenticate
+    ENV["FASTLANE_ENABLE_BETA_DELIVER_SYNC_SCREENSHOTS"] = "1"
+    upload_to_app_store(
+      **listing("ios"),
+      platform: "ios",
+      app_version: marketing_version,
+      skip_binary_upload: true,
+      skip_metadata: true,
+      sync_screenshots: true,
       force: true
     )
   end

@@ -7,4 +7,4 @@ cargo test -p flowie-app i18n -- --nocapture   # coverage report + key/placehold
 ```
 
 Pull requests with new languages or fixes are welcome — see [CONTRIBUTING.md](../CONTRIBUTING.md).
-The App Store listing text is translated separately, in `appstore/fastlane/metadata/<locale>/`.
+The App Store listing text is translated separately, in `appstore/fastlane/macos/metadata/<locale>/` (Mac) and `appstore/fastlane/ios/metadata/<locale>/` (iPhone and iPad).

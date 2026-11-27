@@ -1,0 +1,1 @@
+../../../macos/metadata/zh-Hans/privacy_url.txt

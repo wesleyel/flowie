@@ -1,0 +1,3 @@
+Flowie is an outliner. No account or sign-in is needed: the outline is stored on the device and every feature works offline, without a Mac (4.2.3).
+Optional: sync with Flowie for Mac through the user's own iCloud account (CloudKit private database). Nothing is sent anywhere else.
+To try the app: type to add bullets, use the toolbar above the keyboard to indent, outdent and move them, tap a bullet's dot to open it as a page, and use the Today tab for the daily journal. Quick capture: long-press the app icon → Write in Today's Journal, or add Flowie's control in Control Center. Settings (gear on Home) has iCloud status and Recently Deleted.

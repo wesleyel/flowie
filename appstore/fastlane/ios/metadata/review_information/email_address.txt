@@ -1,0 +1,1 @@
+../../../macos/metadata/review_information/email_address.txt

@@ -1,0 +1,27 @@
+Flowie keeps everything in one outline of nested bullets: plans, research notes, lists and a daily journal. Tap any bullet to open it as its own page when you want to focus on one part.
+
+WRITE AND ORGANIZE
+• Nest bullets as deep as you like. Indent, outdent and move them from the toolbar above the keyboard
+• Collapse and expand branches, and complete to-dos or hide them
+• Move a bullet anywhere with Move to…, which finds the place as you type
+• Add a note to any bullet
+• Undo and redo every change
+
+FOCUS ON ONE PAGE
+• Tap a bullet to open it as a page. The path back to Home shows under its title
+• Star the pages you use most
+
+JOURNAL AND QUICK CAPTURE
+• Today opens on today's journal page. Go back a day or forward a day
+• Write in today's journal from the Home Screen, Control Center or the Action Button
+• Add to today's journal with Siri or Shortcuts without opening the app
+
+SEARCH
+• Search the whole outline with words, #tags, dates and filters like is:todo or changed:7d
+
+YOUR OUTLINE, ON YOUR DEVICE
+• Your outline is kept on your iPhone or iPad and works offline. No account needed
+• Sync with Flowie on your Mac through iCloud
+• Restore deleted bullets from Recently Deleted
+
+Text formatting, tags, dates and links show as they do on the Mac. Available in English and Simplified Chinese.

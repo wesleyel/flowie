@@ -1,21 +1,33 @@
 # Mac App Store release
 
-Everything for the Mac App Store lives in this folder; the app's code is the same as
-the open-source build.
+Everything for the App Store lives in this folder: the Mac app, and the iPhone and iPad app
+that ships under the same record. The Mac app's code is the same as the open-source build.
 
 ```
 appstore/
   fastlane/            Appfile, Deliverfile, Fastfile (lanes), .env (git-ignored)
-    metadata/          listing text per locale, categories, copyright, review notes
-    screenshots-source/  2400×1500 app captures per locale (scripts/screenshots.py)
-    screenshots/       2880×1800 framed screenshots per locale (scripts/appstore-screenshots.py)
+    macos/             the Mac listing
+      metadata/        listing text per locale, categories, copyright, review notes
+      screenshots-source/  2400×1500 app captures per locale (scripts/screenshots.py)
+      screenshots/     2880×1800 framed screenshots per locale (scripts/appstore-screenshots.py)
+    ios/               the iPhone and iPad listing (same App Store record: Universal Purchase)
+      metadata/        its own description, keywords, promotional text, release notes and review
+                       notes; everything both listings share is a symlink into macos/metadata/
+      screenshots/     iPhone 6.9" and iPad 13" screenshots per locale
   macos/               sandbox entitlements, privacy manifest, cargo-about notices
                        (+ embedded.provisionprofile, git-ignored)
 ```
 
 App Store Connect is driven by fastlane: listing text, screenshots, review
 information, price, availability, the build upload and the submission. Run lanes from
-this folder: `cd appstore && fastlane mac <lane>`.
+this folder: `cd appstore && fastlane mac <lane>` (or `fastlane ios <lane>` for the iPhone and
+iPad listing).
+
+The two listings sit side by side. App Store Connect keeps the name, subtitle, privacy URL and
+categories once for the whole app, so `ios/metadata/` links those (and the support and marketing
+URLs, copyright and review contact) to the files in `macos/metadata/`: edit them there. A
+fresh clone has no review contact files (below), so those links point at nothing until you
+create them, and fastlane skips them.
 
 ## What the build does
 
@@ -65,13 +77,13 @@ cp ~/Library/Application\ Support/Flowie/flowie.sqlite* ~/Library/Application\ S
 ## Screenshots
 
 Ten shots per language, in two steps. `scripts/screenshots.py` retakes the app captures
-from the current code: 2400×1500 PNGs in `fastlane/screenshots-source/<locale>/` and the
+from the current code: 2400×1500 PNGs in `fastlane/macos/screenshots-source/<locale>/` and the
 website's 1600×1000 JPEGs in `website/images/`. It builds Flowie with the `screenshots`
 feature (into `target/screenshots`), runs it on a throwaway database with a 1200×750
 window, fills it with demo pages through the agent socket and captures each state with
 `screencapture`. The demo text and the list of shots are at the top of the script.
 `scripts/appstore-screenshots.py` then frames each capture under its headline as the
-2880×1800 App Store screenshots in `fastlane/screenshots/<locale>/`; the headlines are at
+2880×1800 App Store screenshots in `fastlane/macos/screenshots/<locale>/`; the headlines are at
 the top of that script.
 
 ```bash
@@ -107,18 +119,20 @@ ASC_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_….p8
 ```
 
 The App Review contact (`first_name.txt`, `last_name.txt`, `phone_number.txt`,
-`email_address.txt` in `appstore/fastlane/metadata/review_information/`) is git-ignored so the
+`email_address.txt` in `appstore/fastlane/macos/metadata/review_information/`) is git-ignored so the
 public repository doesn't carry a phone number; create those four files locally
 before running `fastlane mac metadata`.
 
 | Lane | What it does |
 |---|---|
-| `fastlane mac metadata` | Push `metadata/` (name, subtitle, description, keywords, URLs, categories, copyright, review contact and notes) |
-| `fastlane mac screenshots` | Make the remote screenshots match `screenshots/<locale>/` (2880×1800) |
+| `fastlane mac metadata` | Push `macos/metadata/` (name, subtitle, description, keywords, URLs, categories, copyright, review contact and notes) |
+| `fastlane mac screenshots` | Make the remote screenshots match `macos/screenshots/<locale>/` (2880×1800) |
 | `fastlane mac pricing` | US$4.99, other storefronts equalized by Apple; every storefront except mainland China |
 | `fastlane mac check` | precheck the listing (placeholder text, broken URLs, …) |
 | `fastlane mac build` | `scripts/package-appstore.sh` on a clean tree → `build/appstore/Flowie-<version>-<build>.pkg` |
 | `fastlane mac upload` | Upload the newest pkg with the App Store Connect Build Upload API (no Xcode or Transporter) |
+| `fastlane ios metadata` | Push `ios/metadata/` (the iPhone and iPad listing; the shared fields are the same files as the Mac's) |
+| `fastlane ios screenshots` | Make the remote iPhone and iPad screenshots match `ios/screenshots/<locale>/` |
 | `fastlane mac submit` | Attach that build to the version and submit for review; stops unless Cargo.toml, the pkg and the App Store version agree (release type comes from the metadata lane: automatic, so it goes live once approved) |
 | `fastlane mac beta` | build + upload, then wait until TestFlight's Internal group (all builds) can install it |
 | `fastlane mac cancel` | Withdraw the submission waiting for review, to fix the version and submit again |
@@ -127,7 +141,7 @@ before running `fastlane mac metadata`.
 
 1. Set the workspace version in `Cargo.toml` (the app, the package and App Store Connect
    must all agree; `submit` checks). Move `[Unreleased]` under the new version in both
-   changelogs, and update the two locales' `metadata/<locale>/release_notes.txt` before committing.
+   changelogs, and update the two locales' `macos/metadata/<locale>/release_notes.txt` before committing.
 2. Create the version in App Store Connect (or let `metadata` do it), then
    `fastlane mac metadata` for "What's New" and URLs.
 3. `fastlane mac beta` → try it from TestFlight.

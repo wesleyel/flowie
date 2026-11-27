@@ -1,0 +1,1 @@
+../../macos/metadata/primary_category.txt

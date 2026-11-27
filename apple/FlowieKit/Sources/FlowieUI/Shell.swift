@@ -52,6 +52,12 @@ final class Navigation: ObservableObject {
     @Published var singlePane = false
     /// The pane with the focus (its entry); nil: the current page's.
     @Published var focused: UUID?
+    /// The pages are moving (dragged, or sliding after Back or Forward): the pages beside those
+    /// on screen are there to slide in or out. Settled, they go (and VoiceOver can't reach them).
+    @Published private(set) var moving = false
+    /// The last move went back: pages come in from the left.
+    private(set) var wentBack = false
+    private var settle: DispatchWorkItem?
     weak var store: OutlineStore?
 
     /// The history the window navigates now.
@@ -69,7 +75,22 @@ final class Navigation: ObservableObject {
     private func change(_ key: HistoryKey, _ body: (inout PageHistory) -> Void) {
         var history = history(key)
         body(&history)
+        let before = self.history(key)
+        if history.index != before.index || history.current.id != before.current.id {
+            wentBack = history.index < before.index
+            move()
+        }
         histories[key] = history
+    }
+
+    /// The pages start moving; `settling`: and stop once they have slid (the animation's length).
+    func move(settling: Bool = true) {
+        settle?.cancel()
+        if !moving { moving = true }
+        guard settling else { return }
+        let task = DispatchWorkItem { [weak self] in self?.moving = false }
+        settle = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: task)
     }
 
     /// The window became wide or narrow (Split View, Stage Manager): its history moves between
@@ -372,13 +393,17 @@ public struct FlowieShell: View {
 /// A history's pages side by side (wiki: Sliding-Panes §3): the current page, and the one before
 /// it on the left when the window is wide, landscape and at least 1000pt across. A history of
 /// one page shows it alone, centered. Pages on either side of those on screen are kept ready
-/// (off screen), so Back and Forward slide them in.
+/// (off screen), so Back and Forward slide them in, and a sideways swipe drags them along
+/// (§2): let go past half a pane, or quickly, and it goes; at the ends of the history the pages
+/// pull like a rubber band, and a swipe right at the start brings out the sidebar.
 struct PagesView: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var nav: Navigation
     let key: HistoryKey
     /// Home's settings button, in the tabs.
     let onSettings: (() -> Void)?
+    /// How far the pages are dragged across.
+    @StateObject private var drag = Local<CGFloat>(0)
 
     /// How wide a page alone in a wide window is at most, to keep its lines readable.
     static let readable: CGFloat = 700
@@ -390,7 +415,8 @@ struct PagesView: View {
             let two = key == .window && nav.twoPanes && history.index > 0
             let first = two ? history.index - 1 : history.index
             let width = two ? size.width / 2 : size.width
-            let range = max(0, first - 1)...min(history.entries.count - 1, history.index + 1)
+            // While the pages move, those beside the ones on screen are there to slide in.
+            let range = nav.moving ? max(0, first - 1)...min(history.entries.count - 1, history.index + 1) : first...history.index
             ZStack(alignment: .topLeading) {
                 ForEach(history.entries[range]) { entry in
                     let position = history.position(of: entry.id) ?? 0
@@ -402,6 +428,7 @@ struct PagesView: View {
                             key: key, position: position, leading: position == first,
                             highlight: left ? history.entries[position + 1].opener : nil,
                             focused: shown && nav.focusedPosition(key) == position,
+
                             onSettings: onSettings),
                         entry: entry
                     )
@@ -413,18 +440,70 @@ struct PagesView: View {
                             Rectangle().fill(Color(uiColor: .separator)).frame(width: 1 / UIScreen.main.scale).ignoresSafeArea()
                         }
                     }
-                    .offset(x: CGFloat(position - first) * width)
+                    .offset(x: CGFloat(position - first) * width + drag.value)
                     .allowsHitTesting(shown)
                     .accessibilityHidden(!shown)
-                    .transition(.asymmetric(insertion: .offset(x: width), removal: .opacity))
+                    .transition(.asymmetric(insertion: .offset(x: nav.wentBack ? -width : width), removal: .identity))
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .clipped()
+            .contentShape(Rectangle())
+            .gesture(PageSwipe(changed: { dx in dragged(dx, width: width) }, ended: { dx, speed in
+                let feedback = UISelectionFeedbackGenerator()
+                if let back = settle(dx, speed: speed, width: width) {
+                    feedback.selectionChanged()
+                    withAnimation(.snappy) {
+                        drag.value = 0
+                        if back {
+                            if nav.history(key).canGoBack { goBack() } else { nav.sidebar = true }
+                        } else {
+                            goForward()
+                        }
+                    }
+                } else {
+                    withAnimation(.snappy) { drag.value = 0 }
+                    nav.move()
+                }
+            }))
+            // VoiceOver's three-finger swipes go back and forward too.
+            .accessibilityScrollAction { edge in
+                switch edge {
+                case .leading: if nav.history(key).canGoBack { goBack() }
+                case .trailing: if nav.history(key).canGoForward { goForward() }
+                default: break
+                }
+            }
             .onAppear { updateSplit(size) }
             .onChange(of: size) { _, size in updateSplit(size) }
         }
         .ignoresSafeArea(.keyboard)
+    }
+
+    /// The pages follow the finger; past the ends of the history (nothing to go to), they pull
+    /// less and less. At the start of a wide window's history, the sidebar is to the left.
+    private func dragged(_ dx: CGFloat, width: CGFloat) {
+        nav.move(settling: false)
+        let history = nav.history(key)
+        let open = dx > 0 ? (history.canGoBack || nav.wide) : history.canGoForward
+        drag.value = open ? max(-width, min(width, dx)) : rubberBand(dx, width: width)
+    }
+
+    /// Where a swipe let go goes: back (true), forward (false), or nowhere.
+    private func settle(_ dx: CGFloat, speed: CGFloat, width: CGFloat) -> Bool? {
+        let history = nav.history(key)
+        let far = abs(dx) > width / 2 || (abs(speed) > 600 && speed * dx > 0)
+        guard far else { return nil }
+        if dx > 0 { return history.canGoBack || nav.wide ? true : nil }
+        return history.canGoForward ? false : nil
+    }
+
+    private func goBack() {
+        nav.back()
+    }
+
+    private func goForward() {
+        nav.forward()
     }
 
     /// Two panes only in iPad landscape: wider than tall and at least 1000pt (§3).
@@ -447,6 +526,7 @@ struct PaneSlot {
     let highlight: String?
     /// It has the focus: the keyboard's commands act on it.
     let focused: Bool
+
     let onSettings: (() -> Void)?
 }
 
@@ -937,8 +1017,10 @@ struct StarsScreen: View {
                         .foregroundStyle(.primary)
                         // The left pane: the star that opened the right one.
                         .listRowBackground(slot.highlight == bullet.id ? Color.accentColor.opacity(0.15) : nil)
-                        .swipeActions {
-                            Button(NSLocalizedString("Unstar", comment: "Menu item"), systemImage: "star.slash", role: .destructive) {
+                        // Sideways swipes go back and forward (wiki: Sliding-Panes §2): Unstar is
+                        // in the menu held open.
+                        .contextMenu {
+                            Button(NSLocalizedString("Unstar", comment: "Menu item"), systemImage: "star.slash") {
                                 store.setStarred(bullet.id, false)
                             }
                         }

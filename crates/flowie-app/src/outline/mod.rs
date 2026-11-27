@@ -215,13 +215,13 @@ pub struct Outline {
     pub(crate) window_state: window::WindowState,
     pub hide_completed: bool,
     pub query: String,
-    pub rows: Vec<Row>,
-    pub display: Vec<DisplayRow>,
+    rows: Vec<Row>,
+    display: Vec<DisplayRow>,
     pub list: ListState,
     pub edit: Option<Edit>,
     pub block: Option<BlockSel>,
     pub anims: Anims,
-    pub zoom_tween: Option<Tween>,
+    zoom_tween: Option<Tween>,
     /// How far the page was scrolled last frame, and the timer that snaps a
     /// half-collapsed title open or shut once scrolling stops.
     title_scroll: f32,
@@ -250,7 +250,7 @@ pub struct Outline {
     /// A block selection is being extended by dragging the mouse.
     pub mouse_block: bool,
     /// Snapshots of deleted nodes, so their rows can animate out.
-    pub ghosts: std::collections::HashMap<NodeId, flowie_core::Node>,
+    ghosts: std::collections::HashMap<NodeId, flowie_core::Node>,
     /// Scroll position of the open popup list (palette or inline menu).
     pub popup_scroll: gpui::ScrollHandle,
     /// Short ids shown to agents, rebuilt when the tree changes.
@@ -273,7 +273,7 @@ pub struct Outline {
     /// The one floating popover (references, hidden path levels).
     pub popover: crate::overlays::popover::PopoverState,
     /// Text removed by ⌃K, put back by ⌃Y (macOS keeps this apart from the clipboard).
-    pub kill_buffer: String,
+    kill_buffer: String,
     /// The open right-click menu (text or bullet).
     pub menu: Option<crate::overlays::context_menu::ContextMenu>,
     /// The open menu of the in-window menu bar (see `app_menu`).
@@ -286,10 +286,10 @@ pub struct Outline {
     /// The image shown full-window (Space on an image bullet).
     pub image_preview: Option<NodeId>,
     /// Every list item's height, for the scrollbar (see `heights`).
-    pub heights: heights::Heights,
+    heights: heights::Heights,
     /// Frames left in which to keep revealing the edited row: a row Enter or
     /// undo just created has no height until it's measured, and grows in.
-    pub follow_edit: u8,
+    follow_edit: u8,
     /// What's New to show once the window is (after a background launch).
     pub whats_new_pending: Option<Option<String>>,
     /// Set when the background database writer failed and is retrying.

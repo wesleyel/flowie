@@ -456,12 +456,12 @@ impl Outline {
         self.ws.set_meta(key, value);
     }
 
-    /// Save `saved_searches` (a pref, so it syncs).
     /// The saved searches kept in `ws`'s synced preferences.
     pub(crate) fn saved_searches_in(ws: &Workspace) -> Vec<String> {
         ws.pref("saved_searches").unwrap_or_default().split('\n').filter(|x| !x.is_empty()).map(String::from).collect()
     }
 
+    /// Save `saved_searches` (a pref, so it syncs).
     pub fn save_searches(&mut self) {
         let value = self.saved_searches.join("\n");
         self.ws.set_pref("saved_searches", &value);

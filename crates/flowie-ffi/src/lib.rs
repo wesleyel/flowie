@@ -53,6 +53,19 @@ pub struct RowView {
     pub has_children: bool,
 }
 
+/// Where the caret goes after a key: a row, and a byte offset in its text.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct CaretView {
+    pub id: String,
+    pub offset: u32,
+}
+
+impl From<flowie_core::Caret> for CaretView {
+    fn from(caret: flowie_core::Caret) -> Self {
+        CaretView { id: caret.node.to_string(), offset: caret.offset as u32 }
+    }
+}
+
 /// Where sync stands.
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum SyncStatus {
@@ -234,6 +247,31 @@ impl Outline {
             }
         })?;
         Ok(done)
+    }
+
+    /// Return in a row's text with the bytes `start..end` selected (a caret when equal), on the
+    /// page at `root` (none: Home), as on the desktop (`flowie_doc::keys::enter`): the text after
+    /// the caret moves to a new bullet below. Returns where the caret goes. An undo step.
+    pub fn enter(&self, id: String, start: u32, end: u32, root: Option<String>) -> Result<CaretView, FlowieError> {
+        let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
+        let mut caret = None;
+        self.edit_row(&id, |ws, id| caret = Some(ws.enter(id, start as usize..end.max(start) as usize, root)))?;
+        Ok(caret.expect("edit_row ran").into())
+    }
+
+    /// Backspace with the caret at the start of a row's text, on the page at `root` (none:
+    /// Home), as on the desktop (`flowie_doc::keys::backspace_at_start`): the row joins the one
+    /// above, or goes if it is empty. Returns where the caret goes, or none when nothing
+    /// changed. An undo step.
+    pub fn backspace_at_start(&self, id: String, root: Option<String>) -> Result<Option<CaretView>, FlowieError> {
+        let root = root.as_deref().map(parse).transpose()?.unwrap_or(ROOT);
+        let mut caret = None;
+        self.edit_row(&id, |ws, id| {
+            let (rows, _) = flatten_mapped(&ws.tree, root, &ViewOptions::default());
+            let prev = rows.iter().position(|r| r.id == id).and_then(|i| i.checked_sub(1)).map(|i| rows[i].id);
+            caret = ws.backspace_at_start(id, prev, root);
+        })?;
+        Ok(caret.map(Into::into))
     }
 
     /// Move a bullet and what is under it to the Trash. An undo step.
@@ -490,6 +528,38 @@ mod tests {
             assert_eq!((row.text.as_str(), row.note.as_str()), ("a's text", "b's note"));
             assert!(outline.unsent_ids(10).is_empty());
         }
+    }
+
+    #[test]
+    fn return_and_backspace_split_and_merge_rows() {
+        let outline = Outline::in_memory();
+        let a = outline.create(None, 0, "hello world".into()).unwrap();
+        let b = outline.create(None, 1, "b".into()).unwrap();
+        outline.create(Some(b.clone()), 0, "child".into()).unwrap();
+        let texts = |o: &Outline| o.page(None).unwrap().into_iter().map(|r| (r.text, r.depth)).collect::<Vec<_>>();
+
+        let caret = outline.enter(a.clone(), 5, 5, None).unwrap();
+        assert_eq!(caret.offset, 0);
+        let rows = outline.page(None).unwrap();
+        assert_eq!((rows[1].id.as_str(), rows[1].text.as_str()), (caret.id.as_str(), " world"));
+        // Backspace at the start of the new row joins it back, the caret where they meet.
+        let back = outline.backspace_at_start(caret.id.clone(), None).unwrap().unwrap();
+        assert_eq!((back.id.as_str(), back.offset), (a.as_str(), 5));
+        assert_eq!(texts(&outline)[0].0, "hello world");
+        // A row with children joins a leaf above, children and all.
+        outline.backspace_at_start(b.clone(), None).unwrap().unwrap();
+        assert_eq!(texts(&outline), [("hello worldb".to_string(), 0), ("child".to_string(), 1)]);
+        assert_eq!(outline.backspace_at_start(a.clone(), None).unwrap(), None, "the first row");
+        // Each key is one undo step.
+        assert!(outline.undo());
+        assert!(outline.undo());
+        assert_eq!(texts(&outline)[..2], [("hello".to_string(), 0), (" world".to_string(), 0)]);
+        assert!(outline.undo());
+        assert_eq!(texts(&outline)[0].0, "hello world");
+        // A caret inside a character falls back to its start.
+        let c = outline.create(None, 0, "日记".into()).unwrap();
+        outline.enter(c, 4, 4, None).unwrap();
+        assert_eq!(texts(&outline)[..2], [("日".to_string(), 0), ("记".to_string(), 0)]);
     }
 
     #[test]

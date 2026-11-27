@@ -33,6 +33,15 @@ do {
     check(false, "an unknown id throws")
 } catch FlowieError.NoSuchBullet {
 }
+// Return splits at the caret (UTF-8 byte offsets), Backspace at the start joins back.
+let caret = try outline.enter(id: first, start: 4, end: 4, root: nil)
+// The children stay with the first half; the rest goes after them.
+check(try outline.page(root: nil).map(\.text) == ["From", "A child, 中文 ✓", " Swift"], "Return splits")
+// Backspace joins it to the row shown above it: the child.
+check(try outline.backspaceAtStart(id: caret.id, root: nil)?.id == child, "Backspace joins")
+check(try outline.page(root: nil).map(\.text) == ["From", "A child, 中文 ✓ Swift"], "joined")
+check(outline.undo() && outline.undo(), "two undo steps")
+check(try outline.page(root: nil)[0].text == "From Swift", "undone")
 check(outline.syncStatus() == .off, "sync is off")
 try outline.flush()
 

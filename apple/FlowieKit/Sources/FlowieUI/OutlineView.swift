@@ -64,7 +64,7 @@ struct RowLine: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Button {
                 store.toggle(row)
             } label: {
@@ -72,11 +72,15 @@ struct RowLine: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(row.completed ? "Completed" : "Not completed")
+            #if canImport(UIKit)
+            RowTextView(store: store, row: row)
+            #else
             TextField("", text: $text.value, axis: .vertical)
                 .strikethrough(row.completed)
                 .foregroundStyle(row.completed ? .secondary : .primary)
                 .focused($focused)
                 .onSubmit { focused = false }
+            #endif
             if row.hasChildren {
                 Button {
                     store.open(row)
@@ -88,13 +92,14 @@ struct RowLine: View {
             }
         }
         .padding(.leading, CGFloat(row.depth) * 20)
+        #if !canImport(UIKit)
+        // The Mac preview's field: Return ends editing.
         .onAppear { text.value = row.text }
         .onChange(of: row.text) { _, new in
             if !focused { text.value = new }
         }
         .onChange(of: text.value) { _, new in
-            // Return ends editing (a bullet's text is one line); typing is saved as it goes,
-            // one undo step per bullet.
+            // Typing is saved as it goes, one undo step per bullet.
             if new.contains("\n") {
                 text.value = new.replacingOccurrences(of: "\n", with: "")
                 focused = false
@@ -110,6 +115,7 @@ struct RowLine: View {
                 store.editing(nil)
             }
         }
+        #endif
         .swipeActions(edge: .leading) {
             Button("Indent", systemImage: "increase.indent") { store.indent(row) }
             Button("Outdent", systemImage: "decrease.indent") { store.outdent(row) }

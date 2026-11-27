@@ -14,6 +14,9 @@ public final class OutlineStore: ObservableObject {
     @Published public private(set) var syncStatus: SyncStatus = .off
     /// The last edit that failed, to show.
     @Published public var problem: String?
+    /// Where the caret goes next, after a key moved it to another row: that row's editor takes
+    /// it and clears it. Not published: the key's edit already updates the rows.
+    public var focus: Focus?
 
     public init(outline: Outline) {
         self.outline = outline
@@ -79,6 +82,27 @@ public final class OutlineStore: ObservableObject {
         edit { try outline.setCompleted(id: row.id, completed: !row.completed) }
     }
 
+    /// Return in a bullet's text with `start..<end` selected (UTF-8 byte offsets; equal for a
+    /// caret), as on the desktop: the text after the caret moves to a new bullet below, and the
+    /// caret goes there (`focus`). One undo step.
+    public func enter(_ row: RowView, from start: Int, to end: Int) {
+        edit {
+            let caret = try outline.enter(id: row.id, start: UInt32(max(0, start)), end: UInt32(max(start, end)), root: root)
+            focus = Focus(caret)
+        }
+    }
+
+    /// Backspace with the caret at the start of a bullet's text, as on the desktop: it joins the
+    /// bullet above, or goes if it is empty, and the caret goes where they meet (`focus`). One
+    /// undo step; nothing happens on the first bullet.
+    public func backspaceAtStart(_ row: RowView) {
+        edit {
+            if let caret = try outline.backspaceAtStart(id: row.id, root: root) {
+                focus = Focus(caret)
+            }
+        }
+    }
+
     /// Make a bullet the last child of the one above it.
     public func indent(_ row: RowView) {
         edit { _ = try outline.indent(id: row.id) }
@@ -127,6 +151,36 @@ public final class OutlineStore: ObservableObject {
         } else {
             syncStatus = outline.syncStatus()
         }
+    }
+}
+
+/// Where the caret goes: a row, and a UTF-8 byte offset in its text (as flowie-ffi counts).
+public struct Focus: Equatable {
+    public let id: String
+    public let offset: Int
+
+    public init(id: String, offset: Int) {
+        self.id = id
+        self.offset = offset
+    }
+
+    init(_ caret: CaretView) {
+        self.init(id: caret.id, offset: Int(caret.offset))
+    }
+}
+
+extension String {
+    /// The UTF-8 byte offset of the UTF-16 offset `n` (what UIKit counts).
+    func utf8Offset(utf16 n: Int) -> Int {
+        let index = String.Index(utf16Offset: Swift.min(Swift.max(0, n), utf16.count), in: self)
+        return self[..<index].utf8.count
+    }
+
+    /// The UTF-16 offset of the UTF-8 byte offset `n`.
+    func utf16Offset(utf8 n: Int) -> Int {
+        let index = utf8.index(utf8.startIndex, offsetBy: Swift.min(Swift.max(0, n), utf8.count))
+        let boundary = String.Index(index, within: self) ?? index
+        return utf16.distance(from: startIndex, to: boundary)
     }
 }
 

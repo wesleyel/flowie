@@ -44,6 +44,18 @@ func run() throws {
     store.undo()
     check(store.rows.map(\.depth) == [0, 1, 1], "undo outdents one step back")
 
+    // Return and Backspace, as on the desktop (byte offsets: "rye " is 4 bytes).
+    store.enter(store.rows[2], from: 4, to: 4)
+    check(store.rows.map(\.text) == ["groceries", "milk", "rye ", "bread"], "Return splits at the caret: \(store.rows.map(\.text))")
+    check(store.focus == Focus(id: store.rows[3].id, offset: 0), "the caret goes to the new bullet")
+    store.backspaceAtStart(store.rows[3])
+    check(store.rows.map(\.text) == ["groceries", "milk", "rye bread"], "Backspace at the start joins it back")
+    check(store.focus == Focus(id: store.rows[2].id, offset: 4), "the caret goes where they meet")
+    store.undo()
+    check(store.rows.map(\.text) == ["groceries", "milk", "rye ", "bread"], "undo of Backspace")
+    store.undo()
+    check(store.rows.map(\.text) == ["groceries", "milk", "rye bread"], "undo of Return")
+
     store.startSync(server: "http://127.0.0.1:9", token: "t")
     let deadline = Date().addingTimeInterval(10)
     while Date() < deadline {

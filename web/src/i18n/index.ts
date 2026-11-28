@@ -1,13 +1,13 @@
 // UI text: `t("group.key", { name: value })`. Keys are looked up in the browser's own catalogs
-// (i18n/locales/*.json, web-only text under `web.`) first, then in the desktop app's
+// first, then in the desktop app's
 // (crates/flowie-app/locales/*.json), which the browser reuses but never adds keys to: the
-// desktop's checks fail on keys its code doesn't use. Same format as the desktop: nested groups,
+// desktop's checks fail on keys its code doesn't use. The browser's text is one pair of files per
+// feature, `i18n/locales/<feature>.en.json` and `<feature>.zh-CN.json`, whose keys sit under
+// `web.<feature>.` (so `sync.en.json` holding `{"title": …}` is `t("web.sync.title")`). Same format as the desktop: nested groups,
 // `{name}` placeholders, and `{ "one": …, "other": … }` plurals chosen by `count`.
 import { computed, signal } from "@preact/signals";
 import desktopEn from "../../../crates/flowie-app/locales/en.json";
 import desktopZh from "../../../crates/flowie-app/locales/zh-CN.json";
-import webEn from "./locales/en.json";
-import webZh from "./locales/zh-CN.json";
 
 type Plural = { one?: string; other: string };
 type Message = string | Plural;
@@ -23,9 +23,21 @@ function flatten(group: Group, prefix = "", out = new Map<string, Message>()): M
   return out;
 }
 
+const features = import.meta.glob<Group>("./locales/*.json", { eager: true, import: "default" });
+
+/** The browser's own text in `code`: every `<feature>.<code>.json`, under `web.<feature>`. */
+function web(code: string): Group {
+  const group: Group = {};
+  for (const [path, messages] of Object.entries(features)) {
+    const match = /\/([\w-]+)\.([\w-]+)\.json$/.exec(path);
+    if (match?.[2] === code) group[match[1]] = messages;
+  }
+  return { web: group };
+}
+
 const catalogs = {
-  en: new Map([...flatten(desktopEn as Group), ...flatten(webEn as Group)]),
-  "zh-CN": new Map([...flatten(desktopZh as Group), ...flatten(webZh as Group)]),
+  en: new Map([...flatten(desktopEn as Group), ...flatten(web("en"))]),
+  "zh-CN": new Map([...flatten(desktopZh as Group), ...flatten(web("zh-CN"))]),
 };
 
 export type Locale = keyof typeof catalogs;

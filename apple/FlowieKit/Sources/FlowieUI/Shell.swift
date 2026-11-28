@@ -336,6 +336,9 @@ public struct FlowieShell: View {
     @StateObject private var nav = Navigation()
     @StateObject private var settings = Local(false)
     @StateObject private var started = Local(false)
+    /// The page this window was opened for (Open in New Window, a bullet dragged to the
+    /// screen's edge), when that came before the window started.
+    @StateObject private var opened = Local<PageRef?>(nil)
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     /// This window's own id, kept by the system with the scene: its history is saved under it.
@@ -385,6 +388,10 @@ public struct FlowieShell: View {
             nav.setWide(wide)
             if window.isEmpty { window = UUID().uuidString }
             nav.start(LaunchMemory.start(window: window), store: store)
+            if let page = opened.value {
+                opened.value = nil
+                nav.start(.place(LaunchMemory.Place(tab: AppTab(for: page).rawValue, history: PageHistory(page))), store: store)
+            }
             #if DEBUG
             ScreenshotArguments.apply(to: nav, store: store)
             #endif
@@ -400,7 +407,16 @@ public struct FlowieShell: View {
         .onContinueUserActivity(PageActivity.type) { activity in
             guard let page = PageActivity.page(of: activity) else { return }
             if case .bullet(let id) = page, store.bullet(id) == nil { return }
-            store.show(page)
+            if PageActivity.opensWindow(activity) {
+                // This window was opened for the page: its history starts there.
+                if started.value {
+                    nav.start(.place(LaunchMemory.Place(tab: AppTab(for: page).rawValue, history: PageHistory(page))), store: store)
+                } else {
+                    opened.value = page
+                }
+            } else {
+                store.show(page)
+            }
         }
         .onChange(of: scenePhase) { old, phase in
             switch phase {
@@ -488,6 +504,37 @@ enum PageActivity {
         activity.userInfo = info
         activity.requiredUserInfoKeys = Set(info.keys)
         activity.needsSave = true
+    }
+
+    /// An activity that opens `page` in a new window of its own, its history starting there
+    /// (wiki: Sliding-Panes §6): Open in New Window, or a bullet dragged to the screen's edge.
+    static func newWindow(_ page: PageRef, title: String) -> NSUserActivity {
+        let activity = NSUserActivity(activityType: type)
+        fill(activity, page: page, title: title)
+        activity.isEligibleForHandoff = false
+        activity.userInfo?["window"] = true
+        activity.requiredUserInfoKeys?.insert("window")
+        return activity
+    }
+
+    /// Whether an activity opens its page in a new window (`newWindow`), not Handoff's.
+    static func opensWindow(_ activity: NSUserActivity) -> Bool {
+        activity.userInfo?["window"] as? Bool ?? false
+    }
+
+    /// Whether this device opens pages in windows of their own: an iPad.
+    @MainActor static var opensWindows: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && UIApplication.shared.supportsMultipleScenes
+    }
+
+    /// Open `page` in a new window, beside `scene`'s.
+    @MainActor static func openWindow(_ page: PageRef, title: String, from scene: UIScene?) {
+        let options = UIScene.ActivationRequestOptions()
+        options.requestingScene = scene
+        let request = UISceneSessionActivationRequest(role: .windowApplication, userActivity: newWindow(page, title: title), options: options)
+        UIApplication.shared.activateSceneSession(for: request) { error in
+            NSLog("Flowie: couldn't open a window: \(error)")
+        }
     }
 
     /// The page an activity names: from `page`, or a bare `id` (from another kind of app).

@@ -53,7 +53,9 @@ let project = Project(
                     "UIApplicationShortcutItemTitle": "Write in Today’s Journal",
                     "UIApplicationShortcutItemIconSymbolName": "square.and.pencil",
                 ]],
-                "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": false],
+                // iPad windows: each keeps its own history of pages (FlowieShell), and a bullet
+                // opens in one of its own (Open in New Window, or dragged to the screen's edge).
+                "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": true],
                 // Handoff of the page shown, between iPhone and iPad (FlowieUI's PageActivity).
                 "NSUserActivityTypes": ["flowie.spokey.cn.page"],
                 // CKSyncEngine's silent pushes wake the app to fetch iCloud changes.

@@ -1304,6 +1304,22 @@
         }
       }
     },
+    "Open in New Window": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in New Window"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新窗口打开"
+          }
+        }
+      }
+    },
     "Open Page": {
       "localizations": {
         "en": {

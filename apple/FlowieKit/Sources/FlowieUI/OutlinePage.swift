@@ -742,6 +742,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         cell.onImageTap = { [weak self] path in
             self?.presentImage(path)
         }
+        cell.slot.onOpenWindow = { [weak self, weak cell] in
+            guard let self, let id = cell?.textView.rowID else { return }
+            openInNewWindow(id)
+        }
         cell.configure(row: row, metrics: metrics, strong: strong[row.id] ?? 0, iCloud: iCloud)
         cell.setMarked(row.id == highlight)
     }
@@ -789,6 +793,12 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         LaunchMemory.zoomedOnce = true
         updateHint()
         open(row.id, row.id)
+    }
+
+    /// Open a bullet's page in a new window of its own (iPad), its history starting there.
+    func openInNewWindow(_ id: String) {
+        guard PageActivity.opensWindows else { return }
+        PageActivity.openWindow(page.store.pageRef(bullet: id), title: page.store.bullet(id)?.title ?? "", from: view.window?.windowScene)
     }
 
     /// A tap on a row's rendered text: on a link, a tag or a date it does what the desktop does;
@@ -1016,6 +1026,11 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
                 self?.zoom(into: row)
             },
         ]
+        if PageActivity.opensWindows {
+            items.append(UIAction(title: NSLocalizedString("Open in New Window", comment: "Menu item: open a bullet's page in a window of its own (iPad)"), image: UIImage(systemName: "macwindow.badge.plus")) { [weak self] _ in
+                self?.openInNewWindow(row.id)
+            })
+        }
         if !readOnly {
             items.insert(UIAction(title: NSLocalizedString("Move To…", comment: "Menu item"), image: UIImage(systemName: "arrow.turn.down.right")) { [weak self] _ in
                 self?.presentMoveTo(row)
@@ -1473,7 +1488,12 @@ extension OutlinePageController: UICollectionViewDragDelegate, UICollectionViewD
         else { return [] }
         let point = session.location(in: cell)
         guard cell.slot.grabs(cell.slot.convert(point, from: cell)) || !cell.textView.frame.contains(point) else { return [] }
-        let provider = NSItemProvider(object: (page.store.bullet(row.id)?.text ?? row.text) as NSString)
+        let title = page.store.bullet(row.id)?.text ?? row.text
+        let provider = NSItemProvider(object: title as NSString)
+        if PageActivity.opensWindows {
+            // Dropped at the screen's edge, the bullet opens in a new window.
+            provider.registerObject(PageActivity.newWindow(page.store.pageRef(bullet: row.id), title: title), visibility: .all)
+        }
         let item = UIDragItem(itemProvider: provider)
         item.localObject = RowDrag(id: row.id, grab: point.x - metrics.bulletX(Int(row.depth)))
         return [item]
@@ -2022,8 +2042,11 @@ final class RowCell: UICollectionViewCell {
 /// row with children; holding it opens the row's menu.
 final class SlotView: UIView, UIPointerInteractionDelegate {
     var onTap: (() -> Void)?
+    /// ⌘-clicking or ⌥-tapping the bullet opens the row in a new window (iPad).
+    var onOpenWindow: (() -> Void)?
     /// Double-tapping the bullet of a row with children folds or unfolds it.
     var onDoubleTap: (() -> Void)?
+    private let tap = UITapGestureRecognizer()
     private let doubleTap = UITapGestureRecognizer()
     private var guides: [CGFloat] = []
     private var strong = 0
@@ -2038,7 +2061,7 @@ final class SlotView: UIView, UIPointerInteractionDelegate {
         super.init(frame: frame)
         isOpaque = false
         contentMode = .redraw
-        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+        tap.addTarget(self, action: #selector(tapped))
         doubleTap.numberOfTapsRequired = 2
         doubleTap.addTarget(self, action: #selector(doubleTapped))
         // Rows without children have nothing to fold: their single tap doesn't wait.
@@ -2099,7 +2122,11 @@ final class SlotView: UIView, UIPointerInteractionDelegate {
     }
 
     @objc private func tapped() {
-        onTap?()
+        if PageActivity.opensWindows, !tap.modifierFlags.isDisjoint(with: [.command, .alternate]), let onOpenWindow {
+            onOpenWindow()
+        } else {
+            onTap?()
+        }
     }
 
     func pointerInteraction(_ interaction: UIPointerInteraction, regionFor request: UIPointerRegionRequest, defaultRegion: UIPointerRegion) -> UIPointerRegion? {

@@ -78,7 +78,7 @@ en:
   footer_get: Download
   footer_resources: Resources
   footer_legal: Legal
-  mac_app_store: Mac App Store
+  app_store: App Store
   app_store: App Store
   github_releases: GitHub Releases
   user_guide: User guide
@@ -155,7 +155,7 @@ zh:
   footer_get: 下载
   footer_resources: 资源
   footer_legal: 法律
-  mac_app_store: Mac App Store
+  app_store: App Store
   app_store: App Store
   github_releases: GitHub Releases
   user_guide: 使用指南

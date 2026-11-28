@@ -6,15 +6,15 @@
 进入任意条目，链接和镜像笔记，写公式，搜索大纲。笔记保存在你自己的设备上。</p>
 
 <p align="center">
-  <a href="https://apps.apple.com/app/id6835913837"><img src="assets/mac-app-store-badge-zh-cn.svg" height="48" alt="在 Mac App Store 下载"></a>
+  <a href="https://apps.apple.com/app/id6835913837"><img src="assets/app-store-badge-zh-cn.svg" height="48" alt="在 App Store 下载"></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/wesleyel/flowie/actions/workflows/ci.yml"><img src="https://github.com/wesleyel/flowie/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="许可证：GPL-3.0-or-later"></a>
-  <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13+">
-  <img src="https://img.shields.io/badge/iOS%20%26%20iPadOS-26%2B-black" alt="iPhone 和 iPad，iOS 26+">
-  <img src="https://img.shields.io/badge/Windows-preview-black" alt="Windows 预览版（10 和 11，x64）">
+  <img src="https://img.shields.io/badge/macOS-13%2B-007AFF" alt="macOS 13+">
+  <img src="https://img.shields.io/badge/iOS%20%26%20iPadOS-26%2B-AF52DE" alt="iPhone 和 iPad，iOS 26+">
+  <img src="https://img.shields.io/badge/Windows-preview-F97316" alt="Windows 预览版（10 和 11，x64）">
 </p>
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b> · <a href="https://wesleyel.github.io/flowie/">官网</a> · <a href="website/images">截图</a></p>

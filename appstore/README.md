@@ -125,7 +125,8 @@ The upload directory is `fastlane/ios/screenshots/<locale>/`. [Simulator setup](
 - Review the five PNGs in order for each device and locale. iPhone files are 1320×2868 and iPad files are 2752×2064. Match the two-pane view and keyboard layout to the build selected for review.
 - Check the description, promotional text, keywords and release notes in `fastlane/ios/metadata/<locale>/`. Confirm the shared support, marketing and privacy links, and the local App Review contact. The reviewer walkthrough is in [review notes](fastlane/ios/metadata/review_information/notes.txt). Sign-in is optional and the reviewer can try the outline offline.
 - Test the candidate on a physical iPhone and iPad. Try editing offline, sharing text or a web link to Today, and syncing through production iCloud. Check that the same journal day appears once on iPhone, iPad and Mac. The iOS launch is scheduled after the iCloud-capable Mac version goes live.
-- When ready to update App Store Connect, run `fastlane ios metadata` and `fastlane ios screenshots` from this folder. Select the tested iOS build on the shared app record. Verify App Privacy, age rating, content rights, availability and release timing before submitting the iOS version for review. [Build and TestFlight instructions](../docs/building.md#ios-in-development)
+- Before the first iOS submission, confirm in the CloudKit Console that the `Record` and `Blob` record types are deployed to Production, and answer any new age rating questions in App Store Connect (Flowie has no social or user-generated content features, so the answers stay No and the rating stays 4+).
+- When ready to update App Store Connect, run `fastlane ios metadata`, `fastlane ios screenshots` and `fastlane ios check` from this folder. Verify App Privacy (Data Not Collected), content rights, availability and release timing, then `fastlane ios submit` the tested build. [Build and TestFlight instructions](../docs/building.md#ios-in-development)
 
 ## Releasing with fastlane
 
@@ -161,6 +162,9 @@ before running either platform’s metadata lane.
 | `fastlane mac submit` | Attach that build to the version and submit for review; stops unless Cargo.toml, the pkg and the App Store version agree (release type comes from the metadata lane: automatic, so it goes live once approved) |
 | `fastlane mac beta` | build + upload, then wait until TestFlight's Internal group (all builds) can install it |
 | `fastlane mac cancel` | Withdraw the submission waiting for review, to fix the version and submit again |
+| `fastlane ios check` | precheck the iPhone and iPad listing |
+| `fastlane ios submit` | Attach the newest `build/ios/appstore/Flowie-<version>-<build>.ipa` build (uploaded with `scripts/package-ios.sh --upload`) to the iOS version and submit it for review; the same version checks as `mac submit`, released automatically once approved |
+| `fastlane ios cancel` | Withdraw the iOS submission waiting for review |
 
 ## Releasing a new version
 

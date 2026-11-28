@@ -165,10 +165,27 @@ def upload_pkg(pkg)
   UI.important("Upload not finished after 10 minutes — check TestFlight in App Store Connect")
 end
 
+# The newest .ipa scripts/package-ios.sh produced: build/ios/appstore/Flowie-<version>-<build>.ipa
+# (its --upload sends the same build to App Store Connect).
+IPA_DIR = File.join(ROOT, "build/ios/appstore")
+
+def latest_ipa
+  ipas = Dir.glob(File.join(IPA_DIR, "Flowie-*-*.ipa"))
+  UI.user_error!("No .ipa in #{IPA_DIR} — run scripts/package-ios.sh --upload first") if ipas.empty?
+  ipas.max_by { |p| p[/-(\d+)\.ipa\z/, 1].to_i }
+end
+
+def ipa_versions(ipa)
+  m = File.basename(ipa).match(/\AFlowie-(.+)-(\d+)\.ipa\z/)
+  UI.user_error!("Unexpected .ipa name #{ipa}") unless m
+  [m[1], m[2]]
+end
+
 # The App Store version still open for changes (not live, not in review), if any.
-def editable_version
+# platform: MAC_OS or IOS (the iPhone and iPad version on the same record).
+def editable_version(platform = "MAC_OS")
   asc.get("v1/apps/#{APP_STORE_ID}/appStoreVersions", {
-    "filter[platform]" => "MAC_OS",
+    "filter[platform]" => platform,
     "filter[appStoreState]" => "PREPARE_FOR_SUBMISSION,DEVELOPER_REJECTED,REJECTED,METADATA_REJECTED,INVALID_BINARY",
     "limit" => 1
   }).body["data"].first
@@ -176,14 +193,31 @@ end
 
 # The app, its package and the store must all say the same version: Cargo.toml's
 # workspace version is the source, the package and the store version follow it.
-def ensure_versions_match(pkg_version)
+def ensure_versions_match(pkg_version, platform = "MAC_OS")
   cargo = marketing_version
-  UI.user_error!("Package is #{pkg_version} but Cargo.toml says #{cargo} — run `fastlane mac build`") unless pkg_version == cargo
-  store = editable_version
+  rebuild = platform == "IOS" ? "scripts/package-ios.sh --upload" : "`fastlane mac build`"
+  UI.user_error!("The build is #{pkg_version} but Cargo.toml says #{cargo} — run #{rebuild}") unless pkg_version == cargo
+  store = editable_version(platform)
   UI.user_error!("No App Store version is open for #{cargo} — create it in App Store Connect") unless store
   store_version = store["attributes"]["versionString"]
   UI.user_error!("App Store Connect's version is #{store_version} but the app is #{cargo}") unless store_version == cargo
   UI.message("Versions agree: app, package and App Store are #{cargo}")
+end
+
+# Withdraws the platform's submissions waiting for review (MAC_OS or IOS).
+def cancel_submissions(platform)
+  submissions = asc.get("v1/reviewSubmissions", {
+    "filter[app]" => APP_STORE_ID,
+    "filter[platform]" => platform,
+    "filter[state]" => "WAITING_FOR_REVIEW,IN_REVIEW,UNRESOLVED_ISSUES"
+  }).body["data"]
+  UI.user_error!("Nothing is waiting for review") if submissions.empty?
+  submissions.each do |s|
+    asc.patch("v1/reviewSubmissions/#{s['id']}", {
+      data: { type: "reviewSubmissions", id: s["id"], attributes: { canceled: true } }
+    })
+    UI.success("Canceled submission #{s['id']} (was #{s['attributes']['state']})")
+  end
 end
 
 def price_point_id(territory, price)
@@ -329,18 +363,7 @@ platform :mac do
   desc "Withdraw the submission waiting for review, so the version can be changed and submitted again"
   lane :cancel do
     authenticate
-    submissions = asc.get("v1/reviewSubmissions", {
-      "filter[app]" => APP_STORE_ID,
-      "filter[platform]" => "MAC_OS",
-      "filter[state]" => "WAITING_FOR_REVIEW,IN_REVIEW,UNRESOLVED_ISSUES"
-    }).body["data"]
-    UI.user_error!("Nothing is waiting for review") if submissions.empty?
-    submissions.each do |s|
-      asc.patch("v1/reviewSubmissions/#{s['id']}", {
-        data: { type: "reviewSubmissions", id: s["id"], attributes: { canceled: true } }
-      })
-      UI.success("Canceled submission #{s['id']} (was #{s['attributes']['state']})")
-    end
+    cancel_submissions("MAC_OS")
   end
 
   desc "Attach the newest uploaded build to the version and submit it for review"
@@ -365,8 +388,9 @@ platform :mac do
 end
 
 # The iOS app ships under the same App Store record (Universal Purchase), with its own listing in
-# ios/. Its build is scripts/package-ios.sh (see docs/building.md); these lanes only push the text
-# and the screenshots (scripts/ios-screenshots.py).
+# ios/. Its build and upload are scripts/package-ios.sh --upload (see docs/building.md); these
+# lanes push the text and the screenshots (scripts/ios-screenshots.py), check the listing and
+# submit the uploaded build.
 platform :ios do
   desc "Push the iPhone and iPad listing text in ios/metadata (no screenshots, no binary)"
   lane :metadata do
@@ -392,6 +416,38 @@ platform :ios do
       skip_binary_upload: true,
       skip_metadata: true,
       sync_screenshots: true,
+      force: true
+    )
+  end
+
+  desc "Check the iPhone and iPad listing for anything App Review flags, without uploading"
+  lane :check do
+    authenticate
+    precheck(platform: "ios", include_in_app_purchases: false)
+  end
+
+  desc "Withdraw the iOS submission waiting for review, so the version can be changed and submitted again"
+  lane :cancel do
+    authenticate
+    cancel_submissions("IOS")
+  end
+
+  desc "Attach the newest uploaded iOS build to the version and submit it for review"
+  lane :submit do
+    authenticate
+    version, build = ipa_versions(latest_ipa)
+    ensure_versions_match(version, "IOS")
+    upload_to_app_store(
+      **listing("ios"),
+      platform: "ios",
+      app_version: version,
+      build_number: build,
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: true,
+      automatic_release: true,
+      submission_information: SUBMISSION_INFORMATION,
       force: true
     )
   end

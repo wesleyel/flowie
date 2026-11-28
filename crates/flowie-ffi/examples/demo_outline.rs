@@ -132,8 +132,8 @@ const EN: Content = Content {
     - Launch on {day:12}: ==go / no-go call on Friday==
     - [x] Move the docs to the new theme
     - Test on phones and tablets #qa
-      - [x] Android
-      - iPhone and iPad
+      - [x] iPhone
+      - iPad in landscape
     - Final copy from @Maya by {day:5}
     - Write the launch post ^note=Short: what changed, three screenshots, a link to the docs.
     - Redirect old blog links #dev
@@ -201,8 +201,8 @@ const ZH: Content = Content {
     - {day:12} 上线：==周五决定是否如期==
     - [x] 文档换成新主题
     - 在手机和平板上测试 #测试
-      - [x] 安卓
-      - iPhone 和 iPad
+      - [x] iPhone
+      - iPad 横屏
     - {day:5} 前向 @小林 要最终文案
     - 写上线公告 ^note=简短：改了什么、三张截图、文档链接。
     - 旧博客链接做跳转 #开发

@@ -2488,6 +2488,23 @@
         }
       }
     },
+    "Up a Level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Up a Level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回上一级"
+          }
+        }
+      }
+    },
     "Up to Date" : {
       "extractionState" : "manual",
       "localizations" : {

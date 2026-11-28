@@ -991,6 +991,15 @@ struct PageScreen: View {
                         }
                     }
                 }
+                if case .bullet = page.kind, let info = page.info {
+                    // Up a level: the page of the bullet above (Home at the top), the bullet
+                    // just left pointed out there.
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(NSLocalizedString("Up a Level", comment: "Navigation bar button that opens the page of the bullet above this one"), systemImage: "arrow.up") {
+                            open(info.path.last.map { .bullet($0.id) } ?? .home, opener: info.id)
+                        }
+                    }
+                }
                 if page.rows.contains(where: \.hasChildren) {
                     ToolbarItem(placement: .topBarTrailing) {
                         FoldButton(page: page)
@@ -1079,7 +1088,7 @@ struct FoldButton: View {
     }
 }
 
-/// A page's "…" menu, at its top right beside the fold button (§4.4): star, show or hide completed,
+/// A page's "…" menu, at its top right beside the Up a Level and fold buttons (§4.4): star, show or hide completed,
 /// reading mode, copy link, and in iPad landscape one pane or two.
 /// `showDay`: show another day in its place.
 struct PageMenu: View {

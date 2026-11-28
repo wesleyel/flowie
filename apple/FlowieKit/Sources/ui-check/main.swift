@@ -60,7 +60,14 @@ func run() throws {
     check(home.childCount(home.rows[0]) == 2 && home.childCount(home.rows[1]) == 0, "children counted")
     home.toggleFold(home.rows[0])
     check(home.childCount(home.rows[0]) == 2, "a collapsed row's children counted")
+    check(try docs.outline.pageRows(root: nil) == docs.outline.page(root: nil), "the packed page reads as the page")
     home.toggleFold(home.rows[0])
+    home.toggle(home.rows[1])
+    home.setNote(home.rows[2], "a note, 中文")
+    check(try docs.outline.pageRows(root: nil) == docs.outline.page(root: nil), "with a note and a completed row too")
+    check(try docs.outline.pageRows(root: home.rows[0].id) == docs.outline.page(root: home.rows[0].id), "a bullet's page")
+    home.undo()
+    home.undo()
 
     // VoiceOver's rotors: siblings under the same parent, and the parent.
     let depths = [0, 1, 2, 1, 0, 1]

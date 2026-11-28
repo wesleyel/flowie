@@ -610,6 +610,38 @@ fn row_view(ws: &Workspace, id: NodeId, depth: u16) -> Option<RowView> {
     })
 }
 
+/// Rows in [`Outline::page_packed`]'s format.
+fn pack_rows(rows: &[RowView]) -> Vec<u8> {
+    fn string(out: &mut Vec<u8>, s: &str) {
+        out.extend_from_slice(&(s.len() as u32).to_le_bytes());
+        out.extend_from_slice(s.as_bytes());
+    }
+    let text: usize = rows.iter().map(|r| r.id.len() + r.text.len() + r.note.len() + r.kind.len()).sum();
+    let mut out = Vec::with_capacity(4 + rows.len() * 19 + text);
+    out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+    for row in rows {
+        let image = row.image.as_ref();
+        let flags = u8::from(row.completed)
+            | u8::from(row.collapsed) << 1
+            | u8::from(row.has_children) << 2
+            | u8::from(image.is_some()) << 3
+            | u8::from(image.is_some_and(|i| i.path.is_some())) << 4;
+        out.extend_from_slice(&row.depth.to_le_bytes());
+        out.push(flags);
+        for s in [&row.id, &row.text, &row.note, &row.kind] {
+            string(&mut out, s);
+        }
+        if let Some(image) = image {
+            out.extend_from_slice(&image.width.to_le_bytes());
+            out.extend_from_slice(&image.height.to_le_bytes());
+            if let Some(path) = &image.path {
+                string(&mut out, path);
+            }
+        }
+    }
+    out
+}
+
 /// The depth of bullet `id`'s row on the page at `root`, found by walking up from it: none if
 /// it isn't under `root`, a collapsed bullet hides it, or (with `hide_completed`) it or a bullet
 /// above it is completed. Rows inside mirrors (virtual ids) are not found this way.
@@ -656,6 +688,16 @@ impl Outline {
         let mut state = self.lock();
         let root = page_root(&state.ws.tree, root)?;
         Ok(state.page_rows(root).into_iter().filter_map(|row| row_view(&state.ws, row.id, row.depth)).collect())
+    }
+
+    /// [`page`](Self::page) as one byte buffer, which Swift reads into rows far faster than
+    /// UniFFI reads the list field by field: 20 000 rows took 45–75 ms that way on iOS, which
+    /// every structural edit paid (wiki: TODO-ios ios:24). Little-endian: the row count (u32),
+    /// then per row its depth (u16), flags (u8: 1 completed, 2 collapsed, 4 has children, 8
+    /// image, 16 image file), id, text, note and kind as strings (u32 byte length, UTF-8), and
+    /// for an image its width and height (u32) and file path (a string, with flag 16).
+    pub fn page_packed(&self, root: Option<String>) -> Result<Vec<u8>, FlowieError> {
+        Ok(pack_rows(&self.page(root)?))
     }
 
     /// The rows with these ids on the page at `root` (none: Home), as [`page`](Self::page)
@@ -1999,6 +2041,68 @@ mod tests {
         let again = outline.rows(vec![shown, missing, plain], None).unwrap();
         assert_eq!(again[0].image.as_ref().map(|i| (i.width, i.height)), Some((300, 200)));
         assert!(again[1].image.is_some() && again[2].image.is_none());
+    }
+
+    #[test]
+    fn a_packed_page_reads_back_as_the_page() {
+        struct Reader<'a>(&'a [u8]);
+        impl Reader<'_> {
+            fn take(&mut self, n: usize) -> &[u8] {
+                let (head, rest) = self.0.split_at(n);
+                self.0 = rest;
+                head
+            }
+            fn u32(&mut self) -> u32 {
+                u32::from_le_bytes(self.take(4).try_into().unwrap())
+            }
+            fn string(&mut self) -> String {
+                let len = self.u32() as usize;
+                String::from_utf8(self.take(len).to_vec()).unwrap()
+            }
+        }
+        fn unpack(bytes: &[u8]) -> Vec<RowView> {
+            let mut r = Reader(bytes);
+            let rows = (0..r.u32())
+                .map(|_| {
+                    let depth = u16::from_le_bytes(r.take(2).try_into().unwrap());
+                    let flags = r.take(1)[0];
+                    let [id, text, note, kind] = std::array::from_fn(|_| r.string());
+                    let image = (flags & 8 != 0).then(|| ImageView {
+                        width: r.u32(),
+                        height: r.u32(),
+                        path: (flags & 16 != 0).then(|| r.string()),
+                    });
+                    RowView {
+                        id,
+                        depth,
+                        text,
+                        note,
+                        kind,
+                        completed: flags & 1 != 0,
+                        collapsed: flags & 2 != 0,
+                        has_children: flags & 4 != 0,
+                        image,
+                    }
+                })
+                .collect();
+            assert!(r.0.is_empty(), "nothing left over");
+            rows
+        }
+        let outline = Outline::in_memory();
+        let parent = add(&outline, None, 0, "parent, **bold** 中文 ✓");
+        add(&outline, Some(&parent), 0, "child");
+        outline.set_note(parent.clone(), "a note".into()).unwrap();
+        let done = add(&outline, None, 1, "");
+        outline.set_completed(done, true).unwrap();
+        let page = outline.page(None).unwrap();
+        assert_eq!(unpack(&outline.page_packed(None).unwrap()), page);
+        let image = |path: Option<&str>| ImageView { path: path.map(str::to_string), width: 300, height: 200 };
+        let mut rows = page;
+        rows[0].collapsed = true;
+        rows[1].image = Some(image(Some("/images/ab/cd.png")));
+        rows[2].image = Some(image(None));
+        assert_eq!(unpack(&pack_rows(&rows)), rows);
+        assert_eq!(unpack(&pack_rows(&[])), vec![]);
     }
 
     #[test]

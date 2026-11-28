@@ -449,6 +449,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        // The rows first, so the hint and the backlinks go below where they end.
+        collectionView.layoutIfNeeded()
         layoutHint()
         layoutBacklinks()
     }
@@ -503,11 +505,15 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     private func remeasure() {
         guard isViewLoaded, dataSource != nil else { return }
         metrics = RowMetrics(width: view.bounds.width, traits: traitCollection)
-        var snapshot = dataSource.snapshot()
-        snapshot.reconfigureItems(snapshot.itemIdentifiers)
-        placing = true
-        dataSource.apply(snapshot, animatingDifferences: false)
-        placing = false
+        // Before the first layout no row is shown yet, so none was measured: reconfiguring them
+        // all took 150 ms of opening a 20 000-row page (wiki: TODO-ios ios:24).
+        if !collectionView.visibleCells.isEmpty {
+            var snapshot = dataSource.snapshot()
+            snapshot.reconfigureItems(snapshot.itemIdentifiers)
+            placing = true
+            dataSource.apply(snapshot, animatingDifferences: false)
+            placing = false
+        }
         layoutBacklinks()
     }
 
@@ -981,7 +987,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         let width = view.bounds.width
         let page = self.page
         return UIContextMenuConfiguration(identifier: row.id as NSString, previewProvider: {
-            RowPreviewController(row: row, page: (try? page.store.outline.page(root: row.id)) ?? [], width: width)
+            RowPreviewController(row: row, page: (try? page.store.outline.pageRows(root: row.id)) ?? [], width: width)
         }) { [weak self] _ in
             self?.menu(for: row)
         }

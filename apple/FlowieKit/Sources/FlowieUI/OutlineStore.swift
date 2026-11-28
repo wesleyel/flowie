@@ -414,7 +414,7 @@ public final class PageModel: ObservableObject {
             }
         }
         do {
-            rows = try store.outline.page(root: root)
+            rows = try store.outline.pageRows(root: root)
         } catch {
             // The page's bullet is gone (deleted, maybe on another device).
             rows = []
@@ -546,7 +546,7 @@ public final class PageModel: ObservableObject {
     public func childCount(_ row: RowView) -> Int? {
         guard row.hasChildren else { return 0 }
         if row.collapsed {
-            return (try? store.outline.page(root: row.id))?.filter { $0.depth == 0 }.count
+            return (try? store.outline.pageRows(root: row.id))?.filter { $0.depth == 0 }.count
         }
         guard let index = rows.firstIndex(where: { $0.id == row.id }) else { return nil }
         return RowNavigation.childCount(of: index, in: rows.map { Int($0.depth) })

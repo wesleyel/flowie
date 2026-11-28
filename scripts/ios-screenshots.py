@@ -226,6 +226,10 @@ def shoot(udid, db, ids, today, locale, shot, path):
         old.unlink()
     (data / "icloud-sync-state.json").unlink(missing_ok=True)
     shutil.copy(db, data / "flowie.sqlite")
+    # What's on screen before the launch (the Home Screen), which a slow launch would leave
+    # there long enough to look settled.
+    time.sleep(0.5)
+    before = capture(udid, path)
 
     settings = LOCALES[locale]
     route = ",".join(f'"{ids[key]}"' for key in pushed)
@@ -244,7 +248,7 @@ def shoot(udid, db, ids, today, locale, shot, path):
     for _ in range(STEADY_TRIES):
         frames.append(capture(udid, path))
         recent = frames[-STEADY:]
-        if len(recent) == STEADY and caret_only(recent):
+        if len(recent) == STEADY and caret_only(recent) and not caret_only([before, recent[-1]]):
             if not caret:
                 path.write_bytes(recent[-1])
                 return len(frames)

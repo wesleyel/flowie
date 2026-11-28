@@ -5,3 +5,5 @@ Flowie works on a single iPhone or iPad without a Flowie account, a Mac or an in
 3. For quick capture, touch and hold the Flowie icon on the Home Screen and choose “Write in Today’s Journal”. To try the share extension, share text or a web link to Flowie, tap “Add to Today”, then open Today in Flowie.
 
 Settings is under Home → … → Settings on iPhone and in the sidebar on a wide iPad. It shows Recently Deleted and the iCloud sync status. If the device is signed in to iCloud, Flowie syncs the outline through the user's private CloudKit database.
+
+Images added in the Mac version sync through iCloud and appear in the outline on iPhone and iPad. Inserting new images on iPhone and iPad is planned for a later update, so the keyboard toolbar has no image button.

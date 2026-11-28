@@ -17,6 +17,7 @@ Homebrew cask follows the newest version, including candidates.
 ### Changed
 
 - **iPhone and iPad App Store listing**: updated the English and Simplified Chinese screenshots and descriptions to show the daily journal, tag search, quick capture and side-by-side pages on iPad.
+- **Mac App Store listing**: the description, release notes and review notes describe optional iCloud sync (macOS 14 or later) and sync through your own server.
 
 ### Fixed
 

@@ -1,4 +1,9 @@
-Flowie is a local outliner; no account or sign-in is needed and it makes no network requests.
+Flowie is a local outliner. No account or sign-in is needed, and everything works offline.
+
+Sync (new in 1.1, optional and off by default): Settings → Sync offers Off, iCloud and My own server.
+- iCloud uses CloudKit with the user's private database (container iCloud.flowie.spokey.cn) and needs macOS 14 or later. To test it, sign in to iCloud on one or more Macs and choose iCloud; edits appear on the other Mac within a few seconds. The developer can't read this data.
+- My own server connects over HTTPS to a Flowie sync server the user runs themselves (the open-source flowie-server, docs at https://github.com/wesleyel/flowie/blob/main/docs/sync.md). It needs a server address and a device token, so it can't be tried without such a server. These are the only network requests the app makes.
+An iPhone and iPad version of Flowie (the same app record, universal purchase) will be submitted after this version is live; it syncs with the Mac through the same iCloud database.
 
 Optional feature: an MCP server for AI assistants. The app listens on a Unix domain socket inside its own sandbox container (owner-only permissions). Assistants connect by running the app's own executable with the argument `mcp` (stdio). Access is read-only by default and can be turned off in Settings → Agent. Nothing is exposed over the network.
 

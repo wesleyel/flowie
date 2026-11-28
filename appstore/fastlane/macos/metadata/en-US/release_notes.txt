@@ -1,7 +1,9 @@
-Flowie 1.0 is here. Start with the built-in tutorial, open any bullet as its own page, and keep daily notes in the Journal.
+Flowie 1.1 adds sync. Choose iCloud in Settings → Sync to keep your outline the same on your Macs through your private iCloud database (macOS 14 or later), or sync through a Flowie server you run yourself.
 
-• Restoring a deleted journal day brings back its contents.
-• Deleting items permanently from the Trash now asks for confirmation.
-• If your outline can't be opened, Flowie explains why instead of showing a tutorial in an unsaved window.
+• Bullets, images, stars and saved searches sync, including edits made offline. When two Macs change the same text at once, the other version is kept as a conflict copy you can restore.
+• Limit how wide the text grows in a wide window: Settings → Appearance or ⌃⌘W.
+• Find a shortcut by name or keys in Settings → Shortcuts.
+• Code blocks export as fenced code and import back as code. Markdown articles with headings import with their structure.
+• Long outlines scroll more steadily, large branches fold without stutter, and undo history uses far less memory.
 
-If you used a 1.0 release candidate, export your outline before updating and import it into Flowie 1.0. The old database is kept separately.
+The first launch upgrades your outline's database and keeps a backup beside it.

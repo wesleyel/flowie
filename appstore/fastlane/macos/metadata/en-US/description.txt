@@ -18,8 +18,9 @@ SEARCH AND JUMP
 • Filter by tag, date, completion or recent changes
 • Star pages, save searches and find unread imports with is:new
 
-KEEP AND SHARE YOUR NOTES
-• Notes and images stay on your Mac. No account or cloud sync
+KEEP, SYNC AND SHARE YOUR NOTES
+• Notes and images stay on your Mac, with no Flowie account. Work offline whenever you like
+• Optional sync: keep the outline the same on your Macs through your own private iCloud database (macOS 14 or later), or through a Flowie server you run yourself
 • Share a branch and its images as a .flowie file. The recipient can preview it, choose where to import it, and merge later updates while keeping their own edits
 • Import and export Markdown, plain text and OPML, including imports from Workflowy. Flowie's OPML exports keep internal links and mirrors
 • Restore deleted bullets from the Trash for up to 30 days

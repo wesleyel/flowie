@@ -18,6 +18,12 @@ let project = Project(
             // The Rust core is built for Apple-silicon Simulators only (scripts/build-ios-ffi.sh),
             // so Release Simulator builds, which build every architecture, leave Intel out.
             "EXCLUDED_ARCHS[sdk=iphonesimulator*]": "x86_64",
+            // Resources/Localizable.xcstrings is kept by hand, its strings marked "manual"
+            // (scripts/format-xcstrings.swift, docs/translations.md). Left on, Xcode's string
+            // extraction marks FlowieKit's strings, which it doesn't see from here, stale and
+            // rewrites the catalog after every build.
+            "LOCALIZATION_EXPORT_SUPPORTED": "NO",
+            "SWIFT_EMIT_LOC_STRINGS": "NO",
         ],
         configurations: [
             // Debug builds talk to CloudKit's Development environment and the sandbox push

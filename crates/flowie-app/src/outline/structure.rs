@@ -244,27 +244,16 @@ impl Outline {
         let gap = if below_half { ix + 1 } else { ix };
         let above = gap.checked_sub(1).and_then(|i| self.rows.get(i)).copied();
         let below = self.rows.get(gap).copied();
-        let max_d = above.map_or(0, |a| a.depth + 1);
-        let min_d = below.map_or(0, |b| b.depth).min(max_d);
         let x = f32::from(pos.x - bounds.left()) - PAD_X;
         let want = (x / INDENT).floor().max(0.0) as u16;
-        let depth = want.clamp(min_d, max_d);
-        let (parent, index) = match above {
-            None => (self.zoom, 0),
-            Some(a) if depth == a.depth + 1 => (a.id, 0),
-            Some(a) => {
-                let mut x = a.id;
-                for _ in 0..(a.depth - depth) {
-                    x = self.ws.tree.parent(x);
-                }
-                (self.ws.tree.parent(x), self.ws.tree.index_in_parent(x) + 1)
+        // Where it lands is shared with the native apps (`flowie_doc::drop`).
+        let place =
+            flowie_doc::drop::place(&self.ws.tree, self.zoom, above.map(|a| (a.id, a.depth)), below.map(|b| b.depth), want, Some(dragged));
+        let target = place.map(|p| match below {
+            Some(b) if !below_half || above.is_none() => {
+                DropTarget { node: b.id, below: false, depth: p.depth, parent: p.parent, index: p.index }
             }
-        };
-        // Can't drop a node into itself.
-        let invalid = parent == dragged || self.ws.tree.is_ancestor(dragged, parent);
-        let target = (!invalid).then(|| match below {
-            Some(b) if !below_half || above.is_none() => DropTarget { node: b.id, below: false, depth, parent, index },
-            _ => DropTarget { node: above.map_or(over, |a| a.id), below: true, depth, parent, index },
+            _ => DropTarget { node: above.map_or(over, |a| a.id), below: true, depth: p.depth, parent: p.parent, index: p.index },
         });
         if self.drop != target {
             self.drop = target;

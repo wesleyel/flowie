@@ -233,6 +233,15 @@ pub struct FocusView {
     pub end: u32,
 }
 
+/// Where a dragged bullet lands on a page (`flowie_doc::drop::place`): `index` among
+/// `parent`'s children (none: Home's), shown `depth` levels into the page.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct DropPlace {
+    pub parent: Option<String>,
+    pub index: u32,
+    pub depth: u16,
+}
+
 /// A bullet as lists name it: search results, stars, a page's title and the path to it.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct BulletView {
@@ -860,6 +869,41 @@ impl Outline {
                 ws.tree.set_collapsed(parent, false);
                 ws.commit_with_imports(None, None, None);
             }
+            None
+        })
+    }
+
+    /// Where bullet `dragged` lands on the page at `root` (none: Home) when dropped in the gap
+    /// below row `above` (at `above_depth`; none: the top of the page), over a row at
+    /// `below_depth` (none: the end of the page), with the finger `depth` levels in: as on the
+    /// desktop, no deeper than a child of the row above and no shallower than the row below.
+    /// None when it would go under itself. `dragged` may come from another page; none for
+    /// something new (text dropped from another app).
+    pub fn drop_place(
+        &self,
+        root: Option<String>,
+        dragged: Option<String>,
+        above: Option<String>,
+        above_depth: u16,
+        below_depth: Option<u16>,
+        depth: u16,
+    ) -> Result<Option<DropPlace>, FlowieError> {
+        let dragged = dragged.as_deref().map(|d| self.existing(d)).transpose()?;
+        let above = above.as_deref().map(|a| self.existing(a)).transpose()?;
+        let state = self.lock();
+        let root = page_root(&state.ws.tree, root)?;
+        let place = flowie_doc::drop::place(&state.ws.tree, root, above.map(|a| (a, above_depth)), below_depth, depth, dragged);
+        Ok(place.map(|p| DropPlace { parent: (p.parent != ROOT).then(|| p.parent.to_string()), index: p.index as u32, depth: p.depth }))
+    }
+
+    /// Move bullet `id`, with what is under it, to `place` (from [`Outline::drop_place`]),
+    /// unfolding its new parent; a folded bullet stays folded. Nothing changes when it would go
+    /// under itself. An undo step.
+    pub fn drop_bullet(&self, id: String, place: DropPlace) -> Result<EditOutcome, FlowieError> {
+        let parent = place.parent.as_deref().map(|p| self.existing(p)).transpose()?.unwrap_or(ROOT);
+        let to = flowie_doc::drop::Place { parent, index: place.index as usize, depth: place.depth };
+        self.edit_row(&id, |ws, id| {
+            ws.drop_bullet(id, to);
             None
         })
     }
@@ -1707,6 +1751,28 @@ mod tests {
         assert!(outline.search("  ".into(), 10).is_empty());
         let hit = &outline.search("has:note".into(), 10)[0];
         assert_eq!((hit.text.as_str(), hit.path[0].text.as_str()), ("buy milk #shop", "Errands"));
+    }
+
+    #[test]
+    fn drop_place_and_drop_bullet_move_a_bullet_between_pages() {
+        let outline = Outline::in_memory();
+        let a = add(&outline, None, 0, "a");
+        let b = add(&outline, Some(&a), 0, "b");
+        let c = add(&outline, None, 1, "c");
+        // c dropped on a's page, below b, one level in: under b.
+        let place = outline.drop_place(Some(a.clone()), Some(c.clone()), Some(b.clone()), 0, None, 1).unwrap().unwrap();
+        assert_eq!(place, DropPlace { parent: Some(b.clone()), index: 0, depth: 1 });
+        assert!(outline.drop_bullet(c.clone(), place).unwrap().structure_changed);
+        assert_eq!(
+            outline.page(Some(a.clone())).unwrap().iter().map(|r| (r.text.as_str(), r.depth)).collect::<Vec<_>>(),
+            [("b", 0), ("c", 1)]
+        );
+        outline.undo();
+        assert_eq!(outline.page(None).unwrap().iter().map(|r| r.text.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+        // At the top of Home: Home's first child. Not under itself.
+        let top = outline.drop_place(None, Some(c.clone()), None, 0, Some(0), 3).unwrap().unwrap();
+        assert_eq!(top, DropPlace { parent: None, index: 0, depth: 0 });
+        assert_eq!(outline.drop_place(Some(a.clone()), Some(a.clone()), Some(b), 0, None, 1).unwrap(), None);
     }
 
     #[test]

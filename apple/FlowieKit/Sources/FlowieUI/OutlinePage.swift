@@ -177,7 +177,7 @@ struct RowMetrics: Equatable {
     }
 }
 
-public final class OutlinePageController: UIViewController, UICollectionViewDelegate, UITextViewDelegate, UIGestureRecognizerDelegate, UIContextMenuInteractionDelegate {
+public final class OutlinePageController: UIViewController, UICollectionViewDelegate, UITextViewDelegate, UIGestureRecognizerDelegate {
     let page: PageModel
     var open: (String, String?) -> Void
     var search: (String) -> Void
@@ -260,6 +260,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     private let undoToast = UndoToast()
     /// Keeps the toast above the docked keyboard (and its bar).
     private var toastBottom: NSLayoutConstraint!
+    /// Where a dragged bullet would land: a line at its depth between two rows.
+    fileprivate let dropIndicator = DropIndicator()
 
     init(page: PageModel, open: @escaping (String, String?) -> Void, search: @escaping (String) -> Void) {
         self.page = page
@@ -294,6 +296,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         collectionView.alwaysBounceVertical = true
         collectionView.delegate = self
         collectionView.translatesAutoresizingMaskIntoConstraints = false
+        // Bullets are moved by dragging them, within the page or to another (§6, Sliding-Panes).
+        collectionView.dragDelegate = self
+        collectionView.dropDelegate = self
+        collectionView.dragInteractionEnabled = true
         view.backgroundColor = .systemBackground
         view.addSubview(collectionView)
         NSLayoutConstraint.activate([
@@ -325,6 +331,9 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoved), name: UIResponder.keyboardWillHideNotification, object: nil)
         // A capture asked for while the app was away takes the caret once the app is back.
         NotificationCenter.default.addObserver(self, selector: #selector(takeCapture), name: UIApplication.didBecomeActiveNotification, object: nil)
+
+        dropIndicator.isHidden = true
+        collectionView.addSubview(dropIndicator)
 
         hint.font = .preferredFont(forTextStyle: .subheadline)
         hint.adjustsFontForContentSizeCategory = true
@@ -703,7 +712,6 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
                 guard let self, let id = textView?.rowID, let row = rowsByID[id] else { return }
                 page.backspaceAtStart(row)
             }
-            cell.slot.addInteraction(UIContextMenuInteraction(delegate: self))
             cell.accessibilityCustomRotors = rotors
             textView.accessibilityCustomRotors = rotors
             cell.accessibilityStatus = { [weak self, weak cell] in
@@ -952,9 +960,12 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     // MARK: Long-press menu (§4.4)
 
-    public func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        guard let slot = interaction.view as? SlotView,
-              let cell = sequence(first: slot as UIView, next: { $0.superview }).first(where: { $0 is RowCell }) as? RowCell,
+    // The list's own menu, not an interaction on the bullet: UIKit then lifts the row for a
+    // drag when the finger moves on from the menu (dragging bullets, below).
+
+    public func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath], point: CGPoint) -> UIContextMenuConfiguration? {
+        guard indexPaths.count == 1, let cell = collectionView.cellForItem(at: indexPaths[0]) as? RowCell,
+              cell.slot.grabs(cell.slot.convert(point, from: collectionView)),
               let id = cell.textView.rowID, let row = rowsByID[id]
         else { return nil }
         let width = view.bounds.width
@@ -967,7 +978,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     }
 
     /// Tapping the preview opens the bullet, as Zoom In.
-    public func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willPerformPreviewActionForMenuWith configuration: UIContextMenuConfiguration, animator: any UIContextMenuInteractionCommitAnimating) {
+    public func collectionView(_ collectionView: UICollectionView, willPerformPreviewActionForMenuWith configuration: UIContextMenuConfiguration, animator: any UIContextMenuInteractionCommitAnimating) {
         guard let id = configuration.identifier as? String else { return }
         animator.preferredCommitStyle = .dismiss
         animator.addCompletion { [weak self] in
@@ -977,8 +988,8 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     }
 
     /// The whole row lifts with the menu, not just its bullet.
-    public func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configuration: UIContextMenuConfiguration, highlightPreviewForItemWithIdentifier identifier: any NSCopying) -> UITargetedPreview? {
-        guard let cell = interaction.view.flatMap({ view in sequence(first: view, next: { $0.superview }).first { $0 is RowCell } }) as? RowCell else { return nil }
+    public func collectionView(_ collectionView: UICollectionView, contextMenuConfiguration configuration: UIContextMenuConfiguration, highlightPreviewForItemAt indexPath: IndexPath) -> UITargetedPreview? {
+        guard let cell = collectionView.cellForItem(at: indexPath) as? RowCell else { return nil }
         let parameters = UIPreviewParameters()
         parameters.backgroundColor = .systemBackground
         return UITargetedPreview(view: cell.contentView, parameters: parameters)
@@ -1437,6 +1448,162 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     }
 }
 
+// MARK: Dragging bullets (wiki: Sliding-Panes §6)
+
+/// A bullet being dragged, from this page or another (the pane beside, another window): what
+/// it is, and how far right of its bullet the finger took it, so the depth it lands at follows
+/// the bullet under the finger rather than the finger.
+final class RowDrag: NSObject {
+    let id: String
+    let grab: CGFloat
+
+    init(id: String, grab: CGFloat) {
+        self.id = id
+        self.grab = grab
+    }
+}
+
+extension OutlinePageController: UICollectionViewDragDelegate, UICollectionViewDropDelegate {
+    /// A row lifts by its bullet slot, or a long press outside its text (whose own drag moves
+    /// selected text); never in reading mode. The row's text goes along as plain text, for
+    /// other apps.
+    public func collectionView(_ collectionView: UICollectionView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
+        guard !page.isReadOnly, indexPath.item < order.count, let row = rowsByID[order[indexPath.item]],
+              let cell = collectionView.cellForItem(at: indexPath) as? RowCell
+        else { return [] }
+        let point = session.location(in: cell)
+        guard cell.slot.grabs(cell.slot.convert(point, from: cell)) || !cell.textView.frame.contains(point) else { return [] }
+        let provider = NSItemProvider(object: (page.store.bullet(row.id)?.text ?? row.text) as NSString)
+        let item = UIDragItem(itemProvider: provider)
+        item.localObject = RowDrag(id: row.id, grab: point.x - metrics.bulletX(Int(row.depth)))
+        return [item]
+    }
+
+    /// The lifted row, on the page's background.
+    public func collectionView(_ collectionView: UICollectionView, dragPreviewParametersForItemAt indexPath: IndexPath) -> UIDragPreviewParameters? {
+        let parameters = UIDragPreviewParameters()
+        parameters.backgroundColor = .systemBackground
+        return parameters
+    }
+
+    /// Typing in the row ends as it lifts (what was typed is saved).
+    public func collectionView(_ collectionView: UICollectionView, dragSessionWillBegin session: UIDragSession) {
+        view.endEditing(true)
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, canHandle session: UIDropSession) -> Bool {
+        if Self.dragged(session) != nil { return true }
+        return session.canLoadObjects(ofClass: NSString.self) || session.canLoadObjects(ofClass: URL.self)
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, dropSessionDidUpdate session: UIDropSession, withDestinationIndexPath destinationIndexPath: IndexPath?) -> UICollectionViewDropProposal {
+        let drag = Self.dragged(session)
+        guard let target = dropTarget(at: session.location(in: collectionView), drag: drag) else {
+            dropIndicator.isHidden = true
+            return UICollectionViewDropProposal(operation: .forbidden)
+        }
+        showIndicator(target)
+        return UICollectionViewDropProposal(operation: drag == nil ? .copy : .move, intent: .unspecified)
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator) {
+        dropIndicator.isHidden = true
+        let session = coordinator.session
+        let drag = Self.dragged(session)
+        guard let target = dropTarget(at: session.location(in: collectionView), drag: drag) else { return }
+        // The pane dropped on takes the focus, so ⌘Z there undoes the drop.
+        onFocus()
+        if editingID == nil { becomeFirstResponder() }
+        if let drag {
+            page.drop(drag.id, at: target.place)
+            return
+        }
+        // Text or links from another app: a bullet each.
+        let page = self.page
+        if session.canLoadObjects(ofClass: NSString.self) {
+            _ = session.loadObjects(ofClass: NSString.self) { items in
+                let texts = items.compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                if !texts.isEmpty { page.insert(texts, at: target.place) }
+            }
+        } else {
+            _ = session.loadObjects(ofClass: URL.self) { urls in
+                if !urls.isEmpty { page.insert(urls.map(\.absoluteString), at: target.place) }
+            }
+        }
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, dropSessionDidExit session: UIDropSession) {
+        dropIndicator.isHidden = true
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, dropSessionDidEnd session: UIDropSession) {
+        dropIndicator.isHidden = true
+    }
+
+    /// The bullet dragged in a session from this app, if it is one.
+    private static func dragged(_ session: UIDropSession) -> RowDrag? {
+        guard let items = session.localDragSession?.items, items.count == 1 else { return nil }
+        return items[0].localObject as? RowDrag
+    }
+
+    /// Where a drop at `location` (in the list) lands: the gap nearest the finger, before or
+    /// after the row under it, and the depth of the dragged bullet under the finger, as on the
+    /// desktop (`flowie_doc::drop`). `y` is the gap's line in the list.
+    private func dropTarget(at location: CGPoint, drag: RowDrag?) -> (place: DropPlace, y: CGFloat)? {
+        var gap = order.count
+        var y = rowsBottom
+        if let path = collectionView.indexPathForItem(at: location), let frame = collectionView.layoutAttributesForItem(at: path)?.frame {
+            let below = location.y > frame.midY
+            gap = below ? path.item + 1 : path.item
+            y = below ? frame.maxY : frame.minY
+        } else if let first = collectionView.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))?.frame, !order.isEmpty, location.y < first.minY {
+            gap = 0
+            y = first.minY
+        }
+        let above = gap > 0 ? rowsByID[order[gap - 1]] : nil
+        let below = gap < order.count ? rowsByID[order[gap]] : nil
+        let bullet = location.x - (drag?.grab ?? 0)
+        let depth = Int(((bullet - metrics.bulletX(0)) / metrics.indent).rounded())
+        return page.dropPlace(drag?.id, above: above, below: below, depth: depth).map { ($0, y) }
+    }
+
+    private func showIndicator(_ target: (place: DropPlace, y: CGFloat)) {
+        let x = metrics.bulletX(Int(target.place.depth))
+        let ring: CGFloat = 8
+        dropIndicator.frame = CGRect(x: x - ring / 2, y: target.y - ring / 2, width: max(ring, collectionView.bounds.width - metrics.trailing - x + ring / 2), height: ring)
+        dropIndicator.isHidden = false
+        collectionView.bringSubviewToFront(dropIndicator)
+    }
+}
+
+/// The line a dragged bullet would land on: a ring where its bullet goes, and a line from it to
+/// the right.
+final class DropIndicator: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        isUserInteractionEnabled = false
+        contentMode = .redraw
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("not from a storyboard")
+    }
+
+    override func draw(_ rect: CGRect) {
+        UIColor.tintColor.setStroke()
+        let ring = UIBezierPath(ovalIn: CGRect(x: 1, y: 1, width: bounds.height - 2, height: bounds.height - 2))
+        ring.lineWidth = 2
+        ring.stroke()
+        let line = UIBezierPath()
+        line.move(to: CGPoint(x: bounds.height, y: bounds.midY))
+        line.addLine(to: CGPoint(x: bounds.width, y: bounds.midY))
+        line.lineWidth = 2
+        line.stroke()
+    }
+}
+
 /// One row: its bullet slot (with the guide lines), an image row's picture, its text and a line
 /// of its note. While the row is edited its text is the stored markup; otherwise it shows
 /// rendered (§2.3), read-only, and a tap either follows what is under the finger (a link, a tag,
@@ -1883,7 +2050,7 @@ final class SlotView: UIView, UIPointerInteractionDelegate {
         accessibilityTraits = .button
         accessibilityLabel = NSLocalizedString("Zoom In", comment: "Opens a bullet as the page, for VoiceOver")
         // iPad pointer: the bullet highlights under it, as a button does (§4.4). A secondary
-        // click opens the row's menu (the context menu interaction), as on the desktop; one on
+        // click opens the row's menu (the list's context menu), as on the desktop; one on
         // the text gets the text's own menu.
         addInteraction(UIPointerInteraction(delegate: self))
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
@@ -1923,6 +2090,11 @@ final class SlotView: UIView, UIPointerInteractionDelegate {
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        tapArea.contains(point)
+    }
+
+    /// Whether a drag from `point` lifts the row by its bullet.
+    func grabs(_ point: CGPoint) -> Bool {
         tapArea.contains(point)
     }
 

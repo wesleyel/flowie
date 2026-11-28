@@ -592,6 +592,38 @@ public final class PageModel: ObservableObject {
         edit { try store.outline.moveTo(id: id, parent: parent) }
     }
 
+    /// Where a bullet dragged over the page lands in the gap below `above` (none: the top of
+    /// the page), over `below` (none: the end), with its bullet `depth` levels in, as on the
+    /// desktop. `id` is nil for something new (text from another app). Nil when it can't go
+    /// there: under itself, on a day not made yet, or in reading mode.
+    public func dropPlace(_ id: String?, above: RowView?, below: RowView?, depth: Int) -> DropPlace? {
+        guard !isReadOnly, !isUnmadeDay else { return nil }
+        return try? store.outline.dropPlace(
+            root: root, dragged: id, above: above?.id, aboveDepth: above?.depth ?? 0,
+            belowDepth: below?.depth, depth: UInt16(clamping: max(0, depth)))
+    }
+
+    /// Move a dragged bullet, with what is under it, to `place` (from this page or another),
+    /// as the desktop's drag and drop: its new parent unfolds, it keeps its own folding. One
+    /// undo step.
+    public func drop(_ id: String, at place: DropPlace) {
+        edit { try store.outline.dropBullet(id: id, place: place) }
+    }
+
+    /// Add `texts` (dropped from another app) as new bullets at `place`, one per text, in
+    /// order.
+    public func insert(_ texts: [String], at place: DropPlace) {
+        edit {
+            var outcome = EditOutcome(changedIds: [], structureChanged: false, focus: nil)
+            for (i, text) in texts.enumerated() {
+                let made = try store.outline.create(parent: place.parent, index: place.index + UInt32(i), text: text)
+                outcome.changedIds += made.changedIds
+                outcome.structureChanged = outcome.structureChanged || made.structureChanged
+            }
+            return outcome
+        }
+    }
+
     /// Move a bullet and what is under it to the Trash.
     public func delete(_ row: RowView) {
         edit { try store.outline.delete(id: row.id) }

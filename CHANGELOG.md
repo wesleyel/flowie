@@ -14,6 +14,10 @@ Homebrew cask follows the newest version, including candidates.
 
 - **iPhone and iPad App Store listing**: updated the English and Simplified Chinese screenshots and descriptions to show the daily journal, tag search, quick capture and side-by-side pages on iPad.
 
+### Fixed
+
+- **iPhone and iPad navigation**: pages slide horizontally together during back and forward navigation, keeping the text and toolbar aligned throughout the gesture. Opening a search result dismisses the keyboard. The Hide Keyboard button also lets you browse the results while keeping your search text.
+
 ## [1.1.0-rc.2] - 2026-11-28
 
 ### Fixed

@@ -54,12 +54,10 @@ final class Navigation: ObservableObject {
     @Published var focused: UUID?
     /// The pages are moving (dragged, or sliding after Back or Forward): the pages beside those
     /// on screen are there to slide in or out. Settled, they go (and VoiceOver can't reach them).
-    @Published private(set) var moving = false
-    /// Target history index pre-mounted without animation one frame before a button slide, so
-    /// the incoming pane lays out at its final width before sliding in.
-    @Published private(set) var staged: Int?
-    /// The last move went back: pages come in from the left.
-    private(set) var wentBack = false
+    @Published private(set) var moving: HistoryKey?
+    static var slideAnimation: Animation? {
+        UIAccessibility.isReduceMotionEnabled ? nil : .easeOut(duration: 0.3)
+    }
     /// When the left pane was expanded to fill the window (two-finger spread), the right pane's
     /// entry id so a two-finger pinch puts the pair back as they were.
     private var expandedFromLeft: UUID?
@@ -79,50 +77,22 @@ final class Navigation: ObservableObject {
     }
 
     private func change(_ key: HistoryKey, _ body: (inout PageHistory) -> Void) {
-        var history = history(key)
+        let before = history(key)
+        var history = before
         body(&history)
-        let before = self.history(key)
         if history.index != before.index || history.current.id != before.current.id {
-            wentBack = history.index < before.index
             expandedFromLeft = nil
-            move()
+            move(key)
         }
         histories[key] = history
     }
 
-    /// Pre-mount the incoming pane unanimated when starting from rest, then slide on the next
-    /// run-loop turn so its UIKit list never animates from an initial width.
-    private func slide(_ key: HistoryKey, staging target: Int?, _ body: @escaping (inout PageHistory) -> Void) {
-        if moving {
-            staged = nil
-            withAnimation(.snappy) {
-                change(key, body)
-                focused = nil
-            }
-            return
-        }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            staged = target
-            move(settling: false)
-        }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            withAnimation(.snappy) {
-                self.staged = nil
-                self.change(key, body)
-                self.focused = nil
-            }
-        }
-    }
-
-    /// The pages start moving; `settling`: and stop once they have slid (the animation's length).
-    func move(settling: Bool = true) {
+    /// Keep neighboring pages mounted while this history is being dragged and until it settles.
+    func move(_ key: HistoryKey, settling: Bool = true) {
         settle?.cancel()
-        if !moving { moving = true }
+        if moving != key { moving = key }
         guard settling else { return }
-        let task = DispatchWorkItem { [weak self] in self?.moving = false }
+        let task = DispatchWorkItem { [weak self] in self?.moving = nil }
         settle = task
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: task)
     }
@@ -160,8 +130,12 @@ final class Navigation: ObservableObject {
 
     /// Open a page from the one at `position` of a history (wiki: Sliding-Panes §1).
     func open(_ entry: PageEntry, from position: Int, in key: HistoryKey) {
-        withAnimation(.snappy) {
-            change(key) { $0.open(entry, from: position) }
+        navigate(key) { $0.open(entry, from: position) }
+    }
+
+    private func navigate(_ key: HistoryKey, animated: Bool = true, _ update: (inout PageHistory) -> Void) {
+        withAnimation(animated ? Self.slideAnimation : nil) {
+            change(key, update)
             focused = nil
         }
     }
@@ -197,8 +171,8 @@ final class Navigation: ObservableObject {
     func back() {
         let current = history(key)
         guard current.canGoBack else { return }
-        slide(key, staging: current.index - 1) { history in
-            self.prune(&history)
+        navigate(key) { history in
+            prune(&history)
             history.goBack()
         }
     }
@@ -206,8 +180,8 @@ final class Navigation: ObservableObject {
     func forward() {
         let current = history(key)
         guard current.canGoForward else { return }
-        slide(key, staging: current.index + 1) { history in
-            self.prune(&history)
+        navigate(key) { history in
+            prune(&history)
             history.goForward()
         }
     }
@@ -217,9 +191,10 @@ final class Navigation: ObservableObject {
         let current = history(key)
         let clamped = min(max(0, position), current.entries.count - 1)
         guard clamped != current.index else { return }
+        // Adjacent pages share a slide. A history-menu jump goes straight to its page.
         let id = current.entries[clamped].id
-        slide(key, staging: clamped) { history in
-            self.prune(&history)
+        navigate(key, animated: abs(current.index - clamped) == 1) { history in
+            prune(&history)
             history.go(to: history.position(of: id) ?? history.index)
         }
     }
@@ -251,8 +226,8 @@ final class Navigation: ObservableObject {
         guard canExpandToSinglePane else { return }
         let current = history(.window)
         let rememberedRight = left ? current.current.id : nil
-        move()
-        withAnimation(.snappy) {
+        move(.window)
+        withAnimation(Self.slideAnimation) {
             if left {
                 var next = current
                 next.goBack()
@@ -274,26 +249,16 @@ final class Navigation: ObservableObject {
         } else {
             restoreRight = current.index == 0 && current.canGoForward
         }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            staged = restoreRight ? current.index + 1 : current.index
-            move(settling: false)
-        }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            withAnimation(.snappy) {
-                self.staged = nil
-                if restoreRight {
-                    var next = self.history(.window)
-                    next.goForward()
-                    self.histories[.window] = next
-                }
-                self.expandedFromLeft = nil
-                self.singlePane = false
-                self.focused = nil
-                self.move()
+        move(.window)
+        withAnimation(Self.slideAnimation) {
+            if restoreRight {
+                var next = current
+                next.goForward()
+                histories[.window] = next
             }
+            expandedFromLeft = nil
+            singlePane = false
+            focused = nil
         }
     }
 
@@ -665,6 +630,7 @@ struct PagesView: View {
     let onSettings: (() -> Void)?
     /// How far the pages are dragged across.
     @StateObject private var drag = Local<CGFloat>(0)
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         GeometryReader { geometry in
@@ -676,62 +642,45 @@ struct PagesView: View {
             let step = layout.step
             // A swipe goes part of the way to the page before or after, if there is one.
             let target = drag.value > 0 ? (history.canGoBack ? history.index - 1 : nil) : (drag.value < 0 && history.canGoForward ? history.index + 1 : nil)
-            // While the pages move, those beside the ones on screen (plus any staged target) are
-            // kept in the tree to slide in without mounting mid-animation.
-            let baseRange = nav.moving ? max(0, first - 1)...min(history.entries.count - 1, history.index + 1) : first...history.index
-            let entries: [PageEntry] = {
-                var indices = Set(baseRange)
-                if let staged = nav.staged {
-                    let willSplit = key == .window && nav.wide && nav.canSplit
-                    let low = willSplit ? max(0, staged - 1) : staged
-                    for i in low...min(history.entries.count - 1, staged) where history.entries.indices.contains(i) {
-                        indices.insert(i)
-                    }
-                    if willSplit, history.index > 0 {
-                        indices.insert(history.index - 1)
-                    }
-                }
-                return indices.sorted().map { history.entries[$0] }
-            }()
-            ZStack(alignment: .topLeading) {
-                ForEach(entries) { entry in
-                    let position = history.position(of: entry.id) ?? 0
-                    let shown = position >= first && position <= history.index
-                    let left = two && position == first
-                    let place = layout.place(position, at: history.index, dragged: drag.value, towards: target)
-                    let contentWidth = drag.value == 0 ? layout.place(position, at: history.index).width : place.width
-                    PaneContent(
-                        store: store, nav: nav,
-                        slot: PaneSlot(
-                            key: key, position: position, leading: position == first,
-                            highlight: left ? history.entries[position + 1].opener : nil,
-                            focused: shown && nav.focusedPosition(key) == position,
-
-                            onSettings: onSettings),
-                        entry: entry
-                    )
-                    .frame(width: contentWidth, height: size.height)
-                    .transaction { transaction in
-                        // Size the pane's UIKit list once at its resting width instead of
-                        // reflowing text across every animation frame.
-                        if drag.value == 0 {
-                            transaction.animation = nil
+            let root = layout.place(0, at: history.index, dragged: drag.value, towards: target)
+            let moving = nav.moving == key
+            let mounted = moving ? max(0, first - 1)...min(history.entries.count - 1, history.index + 1) : first...history.index
+            HStack(spacing: 0) {
+                ForEach(Array(history.entries.enumerated()), id: \.element.id) { position, entry in
+                    let shown = (first...history.index).contains(position)
+                    // Lightweight slots stay in history order. Only the first slot changes width
+                    // when a full-width page gives way to two panes.
+                    Color.clear
+                        .frame(width: position == 0 ? root.width : step, height: size.height)
+                        .overlay(alignment: .topLeading) {
+                            if mounted.contains(position) {
+                                PaneContent(store: store, nav: nav, slot: PaneSlot(
+                                    key: key, position: position, leading: position == first,
+                                    highlight: two && position == first ? history.current.opener : nil,
+                                    focused: shown && nav.focusedPosition(key) == position,
+                                    onSettings: onSettings), entry: entry)
+                                .frame(width: layout.place(position, at: history.index).width, height: size.height)
+                                .background(Color(uiColor: .systemBackground))
+                                .overlay(alignment: .leading) {
+                                    if layout.twoUp && position > 0 {
+                                        Rectangle().fill(Color(uiColor: .separator)).frame(width: 1 / displayScale)
+                                    }
+                                }
+                                .transition(.identity)
+                            }
                         }
-                    }
-                    .frame(width: place.width, height: size.height, alignment: .topLeading)
-                    .background(Color(uiColor: .systemBackground))
-                    .clipped()
-                    .overlay(alignment: .leading) {
-                        if layout.twoUp && position > 0 {
-                            Rectangle().fill(Color(uiColor: .separator)).frame(width: 1 / UIScreen.main.scale).ignoresSafeArea()
-                        }
-                    }
-                    .offset(x: place.x)
-                    .allowsHitTesting(shown)
-                    .accessibilityHidden(!shown)
-                    .transition(.asymmetric(insertion: .offset(x: nav.wentBack ? -step : step), removal: .identity))
+                        .clipped()
+                        .geometryGroup()
+                        .allowsHitTesting(shown)
+                        .accessibilityHidden(!shown)
+                        .transition(.identity)
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
+            // Translate the strip as a single view. Applying animated offsets and clips to
+            // individual NavigationStacks can move their masks ahead of their UIKit content.
+            .geometryGroup()
+            .offset(x: root.x)
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .clipped()
             .contentShape(Rectangle())
@@ -739,7 +688,7 @@ struct PagesView: View {
                 let feedback = UISelectionFeedbackGenerator()
                 if let back = settle(dx, speed: speed, width: step) {
                     feedback.selectionChanged()
-                    withAnimation(.snappy) {
+                    withAnimation(Navigation.slideAnimation) {
                         drag.value = 0
                         if back {
                             if nav.history(key).canGoBack { goBack() } else { nav.sidebar = true }
@@ -748,8 +697,8 @@ struct PagesView: View {
                         }
                     }
                 } else {
-                    withAnimation(.snappy) { drag.value = 0 }
-                    nav.move()
+                    withAnimation(Navigation.slideAnimation) { drag.value = 0 }
+                    nav.move(key)
                 }
             }))
             .gesture(PagePinch(
@@ -781,7 +730,7 @@ struct PagesView: View {
     /// The pages follow the finger; past the ends of the history (nothing to go to), they pull
     /// less and less. At the start of a wide window's history, the sidebar is to the left.
     private func dragged(_ dx: CGFloat, width: CGFloat) {
-        nav.move(settling: false)
+        nav.move(key, settling: false)
         let history = nav.history(key)
         let open = dx > 0 ? (history.canGoBack || nav.wide) : history.canGoForward
         drag.value = open ? max(-width, min(width, dx)) : rubberBand(dx, width: width)
@@ -1515,6 +1464,7 @@ struct SearchScreen: View {
     @ObservedObject var nav: Navigation
     let slot: PaneSlot
     @StateObject private var query: Local<String>
+    @FocusState private var fieldFocused: Bool
 
     init(store: OutlineStore, nav: Navigation, slot: PaneSlot, query: String) {
         self.store = store
@@ -1552,7 +1502,8 @@ struct SearchScreen: View {
             } else {
                 ForEach(hits, id: \.id) { bullet in
                     Button {
-                        // The page it is on, pointing it out.
+                        // The search can stay in the left pane. Release its keyboard even then.
+                        fieldFocused = false
                         nav.open(PageEntry(bullet.path.last.map { .bullet($0.id) } ?? .home, opener: bullet.id, reveal: bullet.id), from: slot.position, in: slot.key)
                     } label: {
                         BulletLine(bullet: bullet)
@@ -1572,6 +1523,19 @@ struct SearchScreen: View {
         // Always shown: on the tab view, the search tab didn't turn the tab bar into a search
         // field (iOS 27.2 Simulator), and the field stayed hidden.
         .searchable(text: $query.value, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("Search or filter"))
+        .searchFocused($fieldFocused)
+        .searchPresentationToolbarBehavior(.avoidHidingContent)
+        .onSubmit(of: .search) { fieldFocused = false }
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            if fieldFocused {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(NSLocalizedString("Hide Keyboard", comment: "Dismisses the search keyboard"), systemImage: "keyboard.chevron.compact.down") {
+                        fieldFocused = false
+                    }
+                }
+            }
+        }
         .autocorrectionDisabled()
         .textInputAutocapitalization(.never)
         // The history keeps what was searched for, to come back to.

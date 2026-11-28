@@ -57,12 +57,29 @@ struct FlowieApp: App {
 @MainActor
 final class Launch: ObservableObject {
     /// One for the app: its window and the App Intents, which run in the app (§5), share it.
-    static let shared = Launch(database: OutlineLocation.database())
+    static let shared: Launch = {
+        #if DEBUG && targetEnvironment(simulator)
+        // UI tests get a local journal entry they can search for, with their own history.
+        if let text = ProcessInfo.processInfo.environment["FLOWIE_UI_TEST_ENTRY"] {
+            let suite = "FlowieNavigationTests"
+            let defaults = UserDefaults(suiteName: suite)!
+            defaults.removePersistentDomain(forName: suite)
+            LaunchMemory.defaults = defaults
+            OutlineStore.defaults = defaults
+            let database = URL.temporaryDirectory.appending(path: "FlowieTests/\(UUID())/flowie.sqlite")
+            let launch = Launch(database: database, startServices: false)
+            _ = try? launch.store?.appendToToday(text)
+            return launch
+        }
+        #endif
+        return Launch(database: OutlineLocation.database())
+    }()
     let database: URL
     let store: OutlineStore?
     let error: Error?
     /// The pages in Spotlight, kept current while the app runs.
     private var spotlight: SpotlightIndex?
+    private var inbox: ShareInbox?
     /// A debug or TestFlight build: these keep the self-hosted sync settings, which App Store
     /// builds leave out (they sync only through iCloud; wiki: iOS-Cross-Platform §5).
     @Published private(set) var testing: Bool
@@ -70,7 +87,7 @@ final class Launch: ObservableObject {
     /// Add the shares the share extension left in its inbox to the journal (§5), saved before
     /// their files are deleted.
     func importShares() {
-        guard let store, let inbox = ShareInbox.appGroup() else { return }
+        guard let store, let inbox else { return }
         do {
             try store.importShares(from: inbox)
         } catch {
@@ -84,7 +101,7 @@ final class Launch: ObservableObject {
         return store
     }
 
-    private init(database: URL) {
+    private init(database: URL, startServices: Bool = true) {
         self.database = database
         do {
             store = try OutlineStore.open(databaseAt: database)
@@ -93,6 +110,13 @@ final class Launch: ObservableObject {
             store = nil
             self.error = error
         }
+        #if DEBUG
+        testing = true
+        #else
+        testing = false
+        #endif
+        guard startServices else { return }
+        inbox = ShareInbox.appGroup()
         // iCloud sync starts at launch, and runs while an account is signed in (wiki:
         // Per-Node-Sync §5.2). CKSyncEngine keeps its place beside the database.
         store?.startICloud(stateURL: database.deletingLastPathComponent().appendingPathComponent("icloud-sync-state.json"))
@@ -112,10 +136,7 @@ final class Launch: ObservableObject {
         }, ShareInbox.notification as CFString, nil, .deliverImmediately)
         // Siri's "Open <page> in Flowie" learns the starred pages' names.
         CaptureShortcuts.updateAppShortcutParameters()
-        #if DEBUG
-        testing = true
-        #else
-        testing = false
+        #if !DEBUG
         Task { @MainActor [weak self] in
             // TestFlight installs are signed for the sandbox environment.
             if case .verified(let transaction) = try? await AppTransaction.shared {

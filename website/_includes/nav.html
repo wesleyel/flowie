@@ -1,16 +1,21 @@
-<header class="toolbar">
-  <nav class="toolbar-inner" aria-label="Site">
-    <a class="brand" href="{{ '/' | relative_url }}"><img src="{{ '/images/icon.png' | relative_url }}" width="28" height="28" alt="">Flowie</a>
-    <div class="nav-links">
-      <a href="{{ '/download.html' | relative_url }}"{% if page.url == '/download.html' %} aria-current="page"{% endif %}><span lang="en">Downloads</span><span lang="zh-CN">下载</span></a>
-      <a href="{{ '/privacy.html' | relative_url }}"{% if page.url == '/privacy.html' %} aria-current="page"{% endif %}><span lang="en">{{ site.data.i18n.en.privacy }}</span><span lang="zh-CN">{{ site.data.i18n.zh.privacy }}</span></a>
-      <a href="{{ '/terms.html' | relative_url }}"{% if page.url == '/terms.html' %} aria-current="page"{% endif %}><span lang="en">{{ site.data.i18n.en.terms }}</span><span lang="zh-CN">{{ site.data.i18n.zh.terms }}</span></a>
-      <a href="{{ '/#support' | relative_url }}"><span lang="en">{{ site.data.i18n.en.support }}</span><span lang="zh-CN">{{ site.data.i18n.zh.support }}</span></a>
-      <a href="{{ site.github_url }}">GitHub</a>
+{%- assign en = site.data.i18n.en -%}{%- assign zh = site.data.i18n.zh -%}{%- assign home = '/' | relative_url -%}
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="{{ home }}"><img src="{{ '/images/icon.png' | relative_url }}" width="30" height="30" alt="">Flowie</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="{{ home }}#features"><span lang="en">{{ en.nav_features }}</span><span lang="zh-CN">{{ zh.nav_features }}</span></a>
+      <a href="{{ home }}#platforms"><span lang="en">{{ en.nav_platforms }}</span><span lang="zh-CN">{{ zh.nav_platforms }}</span></a>
+      <a href="{{ home }}#pricing"><span lang="en">{{ en.nav_pricing }}</span><span lang="zh-CN">{{ zh.nav_pricing }}</span></a>
+      <a href="{{ home }}#support"><span lang="en">{{ en.nav_faq }}</span><span lang="zh-CN">{{ zh.nav_faq }}</span></a>
+      <a href="{{ '/download.html' | relative_url }}"{% if page.url == '/download.html' %} aria-current="page"{% endif %}><span lang="en">{{ en.nav_download }}</span><span lang="zh-CN">{{ zh.nav_download }}</span></a>
+    </nav>
+    <div class="nav-actions">
+      {% include gh-star.html t=en %}
+      <div class="segmented" role="group" aria-label="Language / 语言">
+        <button type="button" data-lang-set="en" aria-pressed="false">EN</button>
+        <button type="button" data-lang-set="zh" aria-pressed="false">中文</button>
+      </div>
+      <a class="btn btn-primary btn-sm" href="{{ home }}#pricing"><span lang="en">{{ en.buy_short | replace: '%price%', site.price }}</span><span lang="zh-CN">{{ zh.buy_short | replace: '%price%', site.price }}</span></a>
     </div>
-    <div class="segmented" role="group" aria-label="Language / 语言">
-      <button type="button" data-lang-set="en" aria-pressed="false">EN</button>
-      <button type="button" data-lang-set="zh" aria-pressed="false">中文</button>
-    </div>
-  </nav>
+  </div>
 </header>

@@ -1,89 +1,35 @@
-# Home page feature cards. `icon` picks a glyph in _includes/icon.html; `tint` a tile colour in style.css.
+# Home page feature bento (#features). `icon` picks a glyph in _includes/icon.html;
+# `size` is wide (half a row, with `shot`: images/<shot>-<locale>.jpg) or full (a whole row);
+# small tiles fill a third of a row. Core features only.
 - icon: write
-  tint: blue
-  en:
-    title: Write and organize
-    items:
-      - "Every bullet is a page — zoom in to focus, out for the big picture"
-      - "Headings, to-dos, numbered lists, quotes and code blocks"
-      - "Bold, italic, highlight, colors and links from the keyboard or the <code>/</code> menu"
-      - "Notes under any bullet, plus images with captions"
-  zh:
-    title: 书写与整理
-    items:
-      - "每个条目都是一个页面：进入专注细节，退出纵览全局"
-      - "标题、待办、编号列表、引用、代码块"
-      - "加粗、斜体、高亮、颜色和链接，快捷键或 <code>/</code> 菜单即可"
-      - "条目可以加备注，图片也能加说明"
-- icon: math
-  tint: purple
-  en:
-    title: Math
-    items:
-      - "Inline <code>$…$</code> and display <code>$$…$$</code> LaTeX"
-      - "Rendered natively as you type, with a live preview"
-  zh:
-    title: 数学公式
-    items:
-      - "行内 <code>$…$</code> 与独立 <code>$$…$$</code> LaTeX 公式"
-      - "原生实时渲染，编辑时即时预览"
-- icon: link
-  tint: green
-  en:
-    title: Connect ideas
-    items:
-      - "<code>[[</code> links with hover previews and backlinks"
-      - "Mirrors: one bullet in several places"
-      - "Tags, mentions and clickable dates"
-      - "Daily journal pages and a calendar"
-  zh:
-    title: 连接想法
-    items:
-      - "<code>[[</code> 链接、悬停预览和反向链接"
-      - "镜像：同一条目出现在多个地方"
-      - "标签、提及与可点击的日期"
-      - "每日日记页与日历"
-- icon: search
-  tint: orange
-  en:
-    title: Find anything
-    items:
-      - "⌘P to jump to any bullet or create a page"
-      - "Search with filters for tags, to-dos, dates and recent changes"
-      - "Starred pages, saved searches and <code>is:new</code> for unread imports"
-  zh:
-    title: 查找一切
-    items:
-      - "⌘P 跳转到任意条目，或新建页面"
-      - "按标签、待办、日期、最近修改筛选搜索"
-      - "收藏页面、保存搜索，用 <code>is:new</code> 找未读条目"
-- icon: lock
-  tint: teal
-  en:
-    title: Keep and share your notes
-    items:
-      - "Local storage with no accounts, cloud sync or tracking"
-      - "Share a branch with its images as a <code>.flowie</code> file"
-      - "Preview imports and merge updates to shared branches"
-      - "Import and export OPML, Markdown and plain text"
-  zh:
-    title: 保存和分享笔记
-    items:
-      - "保存在本地，无需账号，没有云同步或追踪"
-      - "把条目、子项和图片打包成 <code>.flowie</code> 文件"
-      - "导入分享包前可以预览，收到新版可以合并变更"
-      - "导入和导出 OPML、Markdown 和纯文本"
+  size: wide
+  shot: 01-outline
+  en: { title: Every bullet is a page, text: "Zoom in to focus on one idea, zoom out for the big picture. Headings, to-dos, quotes, code blocks and images." }
+  zh: { title: 每个条目都是一页, text: "进入一个条目专注细节，退出来纵览全局。支持标题、待办、引用、代码块和图片。" }
 - icon: keyboard
-  tint: indigo
-  en:
-    title: Keyboard and AI
-    items:
-      - "Every shortcut can be changed, mouse side buttons too"
-      - "A built-in tutorial: a quick start, three examples and a full manual"
-      - "An MCP server lets AI assistants read — and, if you allow it, edit — your outline"
-  zh:
-    title: 键盘与 AI
-    items:
-      - "所有快捷键都能修改，也支持鼠标侧键"
-      - "内置教程：快速入门、三个示例和完整手册"
-      - "MCP 服务器让 AI 助手读取你的大纲，允许后还能编辑"
+  size: wide
+  shot: 02-quick-open
+  en: { title: Jump anywhere with ⌘P, text: "Open any page, or start a new one, without touching the mouse. Every command is a shortcut or a <code>/</code> away." }
+  zh: { title: ⌘P 直达任意页面, text: "不碰鼠标就能打开任意页面或新建一页。所有命令都有快捷键，或者输入 <code>/</code> 调出。" }
+- icon: sync
+  size: full
+  en: { title: Sync through iCloud, text: "The App Store version keeps your outline in step on Mac, iPhone and iPad through your private iCloud database, with nothing to set up. The desktop and web versions can also sync through a server you run yourself." }
+  zh: { title: 通过 iCloud 同步, text: "App Store 版通过你的私有 iCloud 数据库，让 Mac、iPhone 和 iPad 上的大纲保持一致，无需任何设置。桌面版和网页版也可以通过你自己运行的服务器同步。" }
+- icon: math
+  en: { title: "Math, natively", text: "Inline <code>$…$</code> and display <code>$$…$$</code> LaTeX, rendered as you type." }
+  zh: { title: 原生数学公式, text: "行内 <code>$…$</code> 与独立 <code>$$…$$</code> LaTeX 公式，输入时即时渲染。" }
+- icon: link
+  en: { title: Links and mirrors, text: "<code>[[</code> links with previews and backlinks. One bullet, in as many places as you need." }
+  zh: { title: 链接与镜像, text: "<code>[[</code> 链接，带预览和反向链接。同一个条目可以出现在多个地方。" }
+- icon: calendar
+  en: { title: Journal and calendar, text: "A page for every day, connected to everything else." }
+  zh: { title: 日记与日历, text: "每天一页日记，与其他所有想法相连。" }
+- icon: search
+  en: { title: Search everything, text: "Filter by tags, to-dos, dates and the words you remember." }
+  zh: { title: 搜索一切, text: "按标签、待办、日期和你记得的字词筛选。" }
+- icon: lock
+  en: { title: Private by default, text: "No account and no tracking. Export Markdown, OPML or text any time." }
+  zh: { title: 默认私密, text: "无需账号，没有追踪。随时导出 Markdown、OPML 或纯文本。" }
+- icon: plug
+  en: { title: Bring your AI, text: "Connect an assistant over MCP. You decide what it can read and write." }
+  zh: { title: 接入 AI, text: "通过 MCP 连接智能助手，由你决定它能读写什么。" }

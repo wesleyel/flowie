@@ -1,0 +1,23 @@
+# Home page platform cards (#platforms). `icon` picks a glyph in _includes/icon.html;
+# `native` cards show the App Store price, the others are free previews.
+- icon: laptop
+  native: true
+  en: { name: Mac, req: "macOS 13 or later. Apple silicon and Intel.", how: "App Store · %price%" }
+  zh: { name: Mac, req: "macOS 13 或更高版本，Apple 芯片和 Intel。", how: "App Store · %price%" }
+- icon: smartphone
+  native: true
+  en: { name: iPhone, req: "iOS 26 or later.", how: "App Store · %price%" }
+  zh: { name: iPhone, req: "iOS 26 或更高版本。", how: "App Store · %price%" }
+- icon: tablet
+  native: true
+  en: { name: iPad, req: "iPadOS 26 or later.", how: "App Store · %price%" }
+  zh: { name: iPad, req: "iPadOS 26 或更高版本。", how: "App Store · %price%" }
+- icon: monitor
+  en: { name: Windows, req: "Windows 10 or 11, x64.", how: "GitHub · Free" }
+  zh: { name: Windows, req: "Windows 10 或 11，x64。", how: "GitHub · 免费" }
+- icon: terminal
+  en: { name: Linux, req: "x86_64, glibc 2.35 or later.", how: "GitHub · Free" }
+  zh: { name: Linux, req: "x86_64，glibc 2.35 或更新。", how: "GitHub · 免费" }
+- icon: globe
+  en: { name: Web, req: "Runs in your browser.", how: "Free" }
+  zh: { name: 网页, req: "在浏览器中运行。", how: "免费" }

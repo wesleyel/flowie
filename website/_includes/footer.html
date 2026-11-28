@@ -1,13 +1,49 @@
+{%- assign en = site.data.i18n.en -%}{%- assign zh = site.data.i18n.zh -%}{%- assign home = '/' | relative_url -%}
+{%- capture blob %}{{ site.github_url }}/blob/main{% endcapture -%}
 <footer class="site-footer">
-  <div class="footer-inner">
-    <a class="brand small" href="{{ '/' | relative_url }}"><img src="{{ '/images/icon.png' | relative_url }}" width="20" height="20" alt="">Flowie</a>
-    <ul class="footer-links">
-      <li><a href="{{ '/privacy.html' | relative_url }}"><span lang="en">{{ site.data.i18n.en.privacy }}</span><span lang="zh-CN">{{ site.data.i18n.zh.privacy }}</span></a></li>
-      <li><a href="{{ '/terms.html' | relative_url }}"><span lang="en">{{ site.data.i18n.en.terms }}</span><span lang="zh-CN">{{ site.data.i18n.zh.terms }}</span></a></li>
-      <li><a href="{{ '/#support' | relative_url }}"><span lang="en">{{ site.data.i18n.en.support }}</span><span lang="zh-CN">{{ site.data.i18n.zh.support }}</span></a></li>
-      <li><a href="{{ site.github_url }}">GitHub</a></li>
-    </ul>
-    <p class="copyright">{{ site.copyright }}</p>
-    <p class="trademark"><span lang="en">Apple, the Apple logo, Mac and Mac App Store are trademarks of Apple Inc., registered in the U.S. and other countries.</span><span lang="zh-CN">Apple、Apple 标志、Mac 和 Mac App Store 是 Apple Inc. 在美国和其他国家和地区注册的商标。</span></p>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-about">
+        <a class="brand" href="{{ home }}"><img src="{{ '/images/icon.png' | relative_url }}" width="30" height="30" alt="">Flowie</a>
+        <p><span lang="en">{{ en.footer_blurb }}</span><span lang="zh-CN">{{ zh.footer_blurb }}</span></p>
+      </div>
+      <div>
+        <h4><span lang="en">{{ en.footer_product }}</span><span lang="zh-CN">{{ zh.footer_product }}</span></h4>
+        <ul>
+          <li><a href="{{ home }}#features"><span lang="en">{{ en.nav_features }}</span><span lang="zh-CN">{{ zh.nav_features }}</span></a></li>
+          <li><a href="{{ home }}#platforms"><span lang="en">{{ en.nav_platforms }}</span><span lang="zh-CN">{{ zh.nav_platforms }}</span></a></li>
+          <li><a href="{{ home }}#pricing"><span lang="en">{{ en.nav_pricing }}</span><span lang="zh-CN">{{ zh.nav_pricing }}</span></a></li>
+          <li><a href="{{ home }}#support"><span lang="en">{{ en.support }}</span><span lang="zh-CN">{{ zh.support }}</span></a></li>
+        </ul>
+      </div>
+      <div>
+        <h4><span lang="en">{{ en.footer_get }}</span><span lang="zh-CN">{{ zh.footer_get }}</span></h4>
+        <ul>
+          <li><a href="{{ site.app_store_url }}">{{ en.mac_app_store }}</a></li>
+          <li><a href="{{ site.github_url }}/releases">{{ en.github_releases }}</a></li>
+          <li><a href="{{ '/download.html' | relative_url }}"><span lang="en">{{ en.download }}</span><span lang="zh-CN">{{ zh.download }}</span></a></li>
+        </ul>
+      </div>
+      <div>
+        <h4><span lang="en">{{ en.footer_resources }}</span><span lang="zh-CN">{{ zh.footer_resources }}</span></h4>
+        <ul>
+          <li><a href="{{ blob }}/docs/usage.md"><span lang="en">{{ en.user_guide }}</span><span lang="zh-CN">{{ zh.user_guide }}</span></a></li>
+          <li><a href="{{ blob }}/docs/mcp.md"><span lang="en">{{ en.mcp_guide }}</span><span lang="zh-CN">{{ zh.mcp_guide }}</span></a></li>
+          <li><a href="{{ blob }}/CHANGELOG.md"><span lang="en">{{ en.changelog }}</span><span lang="zh-CN">{{ zh.changelog }}</span></a></li>
+          <li><a href="{{ site.github_url }}">GitHub</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4><span lang="en">{{ en.footer_legal }}</span><span lang="zh-CN">{{ zh.footer_legal }}</span></h4>
+        <ul>
+          <li><a href="{{ '/privacy.html' | relative_url }}"><span lang="en">{{ en.privacy }}</span><span lang="zh-CN">{{ zh.privacy }}</span></a></li>
+          <li><a href="{{ '/terms.html' | relative_url }}"><span lang="en">{{ en.terms }}</span><span lang="zh-CN">{{ zh.terms }}</span></a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>{{ site.copyright }}</span>
+      <span><span lang="en">{{ en.trademark }}</span><span lang="zh-CN">{{ zh.trademark }}</span></span>
+    </div>
   </div>
 </footer>

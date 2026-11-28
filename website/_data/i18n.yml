@@ -1,32 +1,164 @@
 # Strings for each language. The home page renders one block per entry, in this
 # order; lang.js shows one of them (both show without JavaScript).
+# %price% and %later% are replaced with site.price and site.price_later (_config.yml).
 en:
   lang: en
   shot: en-US
   name: Flowie
-  tagline: A fast, keyboard-first outliner. Zoom into any bullet, link and mirror ideas, write math, and search your outline. Your notes stay on your device.
+  tagline: A fast, keyboard-first outliner for Mac, iPhone and iPad, with free previews for Windows, Linux and the web. Zoom into any bullet, link ideas, write math, and sync through iCloud.
   badge: /images/badge-en.svg
   badge_width: 156
   badge_alt: Download on the Mac App Store
   download: Desktop downloads
   shot_alt: An outline in Flowie with headings, to-dos and math
-  features: Features
-  gallery: Screenshots
+  phone_alt: Flowie on iPhone
+  pad_alt: Flowie on iPad
   privacy: Privacy Policy
   terms: Terms of Use
   support: Support
+  # Nav
+  nav_features: Features
+  nav_platforms: Platforms
+  nav_pricing: Pricing
+  nav_faq: FAQ
+  nav_download: Download
+  buy_short: "Buy · %price%"
+  star: Star
+  star_label: Star Flowie on GitHub
+  # Hero
+  early_bird: Early-bird
+  pill: "%price% now <s>%later%</s> later"
+  headline: "Think in outlines.<br>On every device."
+  buy: "Buy for %price%"
+  download_free: Download free
+  requirements: macOS 13+ · iOS & iPadOS 26+ · Windows 10/11 · Linux · Web
+  # Platforms
+  platforms_eyebrow: Every platform
+  platforms_title: One outline, everywhere you work.
+  platforms_lede: Native on Mac, iPhone and iPad, synced through iCloud. Open source on everything else.
+  native: Native
+  preview: Preview
+  brew_note: "On a Mac, you can also install the free build:"
+  # Features
+  features_eyebrow: Features
+  features_title: Everything an outline needs. Nothing in the way.
+  # Pricing
+  pricing_eyebrow: Pricing
+  pricing_title: Pay once. Early-bird price now.
+  pricing_lede: One price on every Apple device. Free and open source everywhere else.
+  free_title: Open source
+  free_for: Windows · Linux · Web · Mac builds
+  free_price: Free
+  free_note: Forever, with source.
+  free_items:
+    - Full source on GitHub
+    - Windows and Linux previews, and Mac builds
+    - Sync through a server you run yourself
+    - Install on a Mac with Homebrew, or build it yourself
+  free_button: Download from GitHub
+  free_alt: Like it?
+  app_title: App Store
+  app_for: Mac · iPhone · iPad
+  app_note: "Early-bird price. It goes up to %later% once Flowie is mature."
+  app_items:
+    - One price on Mac, iPhone and iPad
+    - iCloud sync across your Apple devices
+    - Signed, sandboxed and updated by the App Store
+    - Every feature, no subscription
+    - Supports an independent developer
+  app_button: Buy on the App Store
+  app_alt: Prices in USD; your App Store shows the local price.
+  # FAQ and closing
+  faq_eyebrow: FAQ
+  cta_title: Start your outline.
+  cta_lede: "%price% while it's early. Free and open source, always."
+  # Footer
+  footer_blurb: A keyboard-first outliner for every device. Open source under the GPL-3.0.
+  footer_product: Product
+  footer_get: Download
+  footer_resources: Resources
+  footer_legal: Legal
+  mac_app_store: Mac App Store
+  app_store: App Store
+  github_releases: GitHub Releases
+  user_guide: User guide
+  mcp_guide: Connect an AI (MCP)
+  changelog: Changelog
+  trademark: Apple, the Apple logo, iPhone, iPad, iCloud, Mac and App Store are trademarks of Apple Inc., registered in the U.S. and other countries.
 zh:
   lang: zh-CN
   shot: zh-Hans
   name: Flowie 大纲笔记
-  tagline: 用键盘就能整理大纲。进入任意条目，链接和镜像笔记，写公式，搜索大纲。笔记保存在你自己的设备上。
+  tagline: 快速、键盘优先的大纲笔记，支持 Mac、iPhone 和 iPad，并为 Windows、Linux 和网页提供免费预览版。进入任意条目，连接想法，书写公式，通过 iCloud 同步。
   badge: /images/badge-zh.svg
   badge_width: 140
   badge_alt: 在 Mac App Store 下载
   download: 下载桌面版
   shot_alt: Flowie 中带有标题、待办和公式的大纲
-  features: 功能
-  gallery: 截图
+  phone_alt: iPhone 上的 Flowie
+  pad_alt: iPad 上的 Flowie
   privacy: 隐私政策
   terms: 使用条款
   support: 支持
+  nav_features: 功能
+  nav_platforms: 平台
+  nav_pricing: 价格
+  nav_faq: 常见问题
+  nav_download: 下载
+  buy_short: "购买 · %price%"
+  star: Star
+  star_label: 在 GitHub 上为 Flowie 点 Star
+  early_bird: 早鸟价
+  pill: "现在 %price%，之后 <s>%later%</s>"
+  headline: "用大纲思考。<br>在每台设备上。"
+  buy: "购买 · %price%"
+  download_free: 免费下载
+  requirements: macOS 13+ · iOS 和 iPadOS 26+ · Windows 10/11 · Linux · 网页
+  platforms_eyebrow: 全平台
+  platforms_title: 一份大纲，随处可用。
+  platforms_lede: 在 Mac、iPhone 和 iPad 上原生运行，通过 iCloud 同步；其他平台开源免费。
+  native: 原生
+  preview: 预览版
+  brew_note: 在 Mac 上也可以安装免费版：
+  features_eyebrow: 功能
+  features_title: 大纲需要的都在这里，多余的都不在。
+  pricing_eyebrow: 价格
+  pricing_title: 一次购买，现在是早鸟价。
+  pricing_lede: 所有 Apple 设备同一个价格；其他平台开源免费。
+  free_title: 开源版
+  free_for: Windows · Linux · 网页 · Mac 版
+  free_price: 免费
+  free_note: 永久免费，附带源代码。
+  free_items:
+    - 完整源代码在 GitHub 上
+    - Windows、Linux 预览版和 Mac 版
+    - 通过你自己运行的服务器同步
+    - 在 Mac 上用 Homebrew 安装，也可以自行编译
+  free_button: 从 GitHub 下载
+  free_alt: 喜欢的话：
+  app_title: App Store 版
+  app_for: Mac · iPhone · iPad
+  app_note: "早鸟价。Flowie 成熟后恢复为 %later%。"
+  app_items:
+    - Mac、iPhone、iPad 同一个价格
+    - 通过 iCloud 在 Apple 设备间同步
+    - 由 App Store 签名、沙盒保护并自动更新
+    - 全部功能，无订阅
+    - 支持独立开发者
+  app_button: 在 App Store 购买
+  app_alt: 价格以美元计；App Store 会显示你所在地区的价格。
+  faq_eyebrow: 常见问题
+  cta_title: 开始你的大纲。
+  cta_lede: "早期只要 %price%。开源版永远免费。"
+  footer_blurb: 适用于所有设备的键盘优先大纲笔记，以 GPL-3.0 开源。
+  footer_product: 产品
+  footer_get: 下载
+  footer_resources: 资源
+  footer_legal: 法律
+  mac_app_store: Mac App Store
+  app_store: App Store
+  github_releases: GitHub Releases
+  user_guide: 使用指南
+  mcp_guide: 连接 AI（MCP）
+  changelog: 更新日志
+  trademark: Apple、Apple 标志、iPhone、iPad、iCloud、Mac 和 App Store 是 Apple Inc. 在美国和其他国家和地区注册的商标。

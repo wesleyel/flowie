@@ -1,4 +1,4 @@
-# Support section on the home page (#support). Values are HTML.
+# Support section on the home page (#support). Values are HTML; %price% and %later% become site.price and site.price_later.
 en:
   heading: Support
   id: support-en
@@ -7,11 +7,11 @@ en:
     - q: What is Flowie?
       a: "Flowie is a keyboard-first outliner. You can zoom into any bullet, link or mirror it elsewhere, keep a daily journal, and write LaTeX right in your notes."
     - q: Which systems does Flowie run on?
-      a: 'See the <a href="download.html">installation guide</a> for macOS 13+ (Apple silicon or Intel) and the Windows 10/11 x64 and Linux x86_64 previews.'
+      a: 'Flowie runs on the Mac (macOS 13 or later, Apple silicon or Intel), iPhone and iPad (iOS and iPadOS 26 or later), with free previews for Windows 10/11 x64, Linux x86_64 and the web. See the <a href="download.html">installation guide</a> for the desktop downloads.'
     - q: Where are my notes stored?
       a: 'Flowie saves your notes in a local SQLite database and keeps attached images in a folder next to it. See <a href="https://github.com/wesleyel/flowie/blob/main/docs/building.md#where-data-lives">where Flowie stores its files on each system</a>.'
     - q: Can I sync across devices?
-      a: "Flowie works offline and has no sync service. You can send part of an outline to another device as a <code>.flowie</code> file."
+      a: 'Yes. The App Store version on Mac, iPhone and iPad syncs through your private iCloud database, with nothing to set up. The desktop and web versions can also sync through a <a href="https://github.com/wesleyel/flowie/blob/main/docs/sync.md">Flowie server you run yourself</a>. Flowie works offline either way.'
     - q: Can Flowie replace Workflowy?
       a: "If you use Workflowy for nested bullets, mirrors, tags and search, those features are in Flowie too. You can import a Workflowy OPML file directly."
     - q: Can I write math in my notes?
@@ -25,7 +25,7 @@ en:
     - q: How do AI assistants connect?
       a: 'Enable access in <b>Settings → Agent</b>, then follow the <a href="https://github.com/wesleyel/flowie/blob/main/docs/mcp.md">MCP setup guide</a> to connect your assistant.'
     - q: Is Flowie free?
-      a: "Flowie is free software under the GPL-3.0. Download the open-source version from <a href=\"https://github.com/wesleyel/flowie/releases/latest\">GitHub Releases</a>, install it with <code>brew install --cask wesleyel/tap/flowie</code>, or build it yourself. The Mac App Store version is the same app, signed, sandboxed and updated for you — buying it supports development."
+      a: "Flowie is free software under the GPL-3.0. Download the open-source version from <a href=\"https://github.com/wesleyel/flowie/releases/latest\">GitHub Releases</a>, install it with <code>brew install --cask wesleyel/tap/flowie</code>, or build it yourself. The App Store version for Mac, iPhone and iPad costs %price% at the early-bird price (%later% later). It adds iCloud sync, is signed, sandboxed and updated for you, and buying it supports development."
 zh:
   heading: 支持
   id: support-zh
@@ -34,11 +34,11 @@ zh:
     - q: Flowie 是什么？
       a: "Flowie 是一款可以用键盘操作的大纲笔记。每个条目都能点进去当一页用。你可以链接或镜像条目、写日记，也可以在笔记里写 LaTeX 公式。"
     - q: Flowie 支持哪些系统？
-      a: '<a href="download.html">安装指南</a>提供 macOS 13 及以上（Apple 芯片和 Intel）正式版，以及 Windows 10/11 x64 和 Linux x86_64 预览版的下载说明。'
+      a: 'Flowie 支持 Mac（macOS 13 及以上，Apple 芯片和 Intel）、iPhone 和 iPad（iOS 和 iPadOS 26 及以上），并为 Windows 10/11 x64、Linux x86_64 和网页提供免费预览版。桌面版下载见<a href="download.html">安装指南</a>。'
     - q: 笔记保存在哪里？
       a: '笔记保存在本地 SQLite 数据库里，图片放在数据库旁边的文件夹里。<a href="https://github.com/wesleyel/flowie/blob/main/docs/building.md#where-data-lives">查看各系统的保存位置</a>。'
     - q: 可以在不同设备间同步吗？
-      a: "Flowie 可以离线使用，没有云同步。要把部分大纲传到另一台设备，可以导出为 <code>.flowie</code> 文件。"
+      a: '可以。Mac、iPhone 和 iPad 上的 App Store 版通过你的私有 iCloud 数据库同步，无需设置。桌面版和网页版也可以通过<a href="https://github.com/wesleyel/flowie/blob/main/docs/sync.md">你自己运行的 Flowie 服务器</a>同步。两种方式都支持离线使用。'
     - q: 可以替代 Workflowy 吗？
       a: "Flowie 也支持嵌套条目、镜像、标签和搜索。Workflowy 导出的 OPML 可以直接导入。"
     - q: 能在笔记里写公式吗？
@@ -52,4 +52,4 @@ zh:
     - q: 如何连接 AI 助手？
       a: '在<b>「设置 → Agent」</b>中允许访问，再按 <a href="https://github.com/wesleyel/flowie/blob/main/docs/mcp.md">MCP 配置指南</a>连接助手。'
     - q: Flowie 免费吗？
-      a: "Flowie 是以 GPL-3.0 授权的自由软件。可以从 <a href=\"https://github.com/wesleyel/flowie/releases/latest\">GitHub Releases</a> 下载开源版、用 <code>brew install --cask wesleyel/tap/flowie</code> 安装，或自行编译。Mac App Store 版本是同一个应用，已签名、沙盒保护并自动更新——购买它就是对开发的支持。"
+      a: "Flowie 是以 GPL-3.0 授权的自由软件。可以从 <a href=\"https://github.com/wesleyel/flowie/releases/latest\">GitHub Releases</a> 下载开源版、用 <code>brew install --cask wesleyel/tap/flowie</code> 安装，或自行编译。Mac、iPhone 和 iPad 的 App Store 版早鸟价 %price%（之后 %later%），额外支持 iCloud 同步，已签名、沙盒保护并自动更新——购买它就是对开发的支持。"

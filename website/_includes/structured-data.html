@@ -16,15 +16,16 @@ _data/support.yml, English). Search engines and AI answer engines read these fac
       "description": {{ en.tagline | jsonify }},
       "url": {{ home | jsonify }},
       "image": {{ '/images/icon.png' | absolute_url | jsonify }},
-      "screenshot": [{{ '/images/01-outline-en-US.jpg' | absolute_url | jsonify }}, {% for g in site.data.gallery %}{{ '/images/' | append: g.file | append: '-en-US.jpg' | absolute_url | jsonify }}{% unless forloop.last %}, {% endunless %}{% endfor %}],
+      "screenshot": [{% for f in site.data.features %}{% if f.shot %}{{ '/images/' | append: f.shot | append: '-en-US.jpg' | absolute_url | jsonify }}, {% endif %}{% endfor %}{{ '/images/iphone-01-home-en-US.jpg' | absolute_url | jsonify }}],
       "applicationCategory": "ProductivityApplication",
       "applicationSubCategory": "Outliner",
-      "operatingSystem": "macOS 13 or later (Apple silicon and Intel), Windows 10 or 11 (x64 preview), Linux x86_64 (preview, glibc 2.35 or later)",
+      "operatingSystem": "macOS 13 or later (Apple silicon and Intel), iOS 26 or later, iPadOS 26 or later, Windows 10 or 11 (x64 preview), Linux x86_64 (preview, glibc 2.35 or later)",
+      "offers": { "@type": "Offer", "price": {{ site.price_usd | jsonify }}, "priceCurrency": "USD", "url": {{ site.app_store_url | jsonify }} },
       "inLanguage": ["en", "zh-CN"],
       "license": "https://www.gnu.org/licenses/gpl-3.0.html",
       "downloadUrl": [{{ site.app_store_url | jsonify }}, {{ site.github_url | append: '/releases/latest' | jsonify }}],
       "installUrl": {{ site.app_store_url | jsonify }},
-      "featureList": [{% for f in site.data.features %}{% for item in f.en.items %}{{ item | strip_html | jsonify }}{% unless forloop.last %}, {% endunless %}{% endfor %}{% unless forloop.last %}, {% endunless %}{% endfor %}],
+      "featureList": [{% for f in site.data.features %}{{ f.en.title | append: ': ' | append: f.en.text | strip_html | jsonify }}{% unless forloop.last %}, {% endunless %}{% endfor %}],
       "author": { "@type": "Person", "name": "Wesley Yang", "url": "https://github.com/wesleyel" },
       "sameAs": [{{ site.app_store_url | jsonify }}, {{ site.github_url | jsonify }}]
     },
@@ -40,7 +41,7 @@ _data/support.yml, English). Search engines and AI answer engines read these fac
       "@type": "FAQPage",
       "mainEntity": [
         {%- for item in site.data.support.en.faq %}
-        { "@type": "Question", "name": {{ item.q | jsonify }}, "acceptedAnswer": { "@type": "Answer", "text": {{ item.a | strip_html | jsonify }} } }{% unless forloop.last %},{% endunless %}
+        { "@type": "Question", "name": {{ item.q | jsonify }}, "acceptedAnswer": { "@type": "Answer", "text": {{ item.a | replace: '%price%', site.price | replace: '%later%', site.price_later | strip_html | jsonify }} } }{% unless forloop.last %},{% endunless %}
         {%- endfor %}
       ]
     }

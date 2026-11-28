@@ -1,7 +1,7 @@
 ---
 layout: page
 title: Downloads
-description: Install Flowie on macOS, Windows or Linux, verify your download, and keep your notes when upgrading from a release candidate.
+description: "Install Flowie on macOS, Windows or Linux (iPhone and iPad from the App Store), verify your download, and keep your notes when upgrading from a release candidate."
 permalink: /download.html
 ---
 
@@ -43,7 +43,7 @@ File dialogs need an XDG desktop portal; for Chinese, Japanese or Korean text, i
 
 - The GitHub downloads each have a `.sha256` file. Run `shasum -a 256 -c <file>.sha256` on macOS or `sha256sum -c <file>.sha256` on Linux, from the downloads folder. On Windows, use `Get-FileHash <file> -Algorithm SHA256` and compare the result with the checksum file.
 - **Upgrading from a 1.0 release candidate:** before updating, go to Home, clear the selection and use **File → Export as OPML**. For branches with images, select those branches and export them as a **Flowie share package** instead. Import the result into 1.0. The old database is kept separately as `flowie.sqlite.old-<timestamp>`; do not replace the new database with it.
-- Notes are stored locally on each device. Cross-device sync is not included in 1.0.
+- Notes are stored on each device. To keep devices in step, the App Store version syncs through iCloud, and every desktop version can sync through a [Flowie server you run yourself]({{ site.github_url }}/blob/main/docs/sync.md).
 
 </section>
 
@@ -77,7 +77,7 @@ tar -xzf Flowie-*-linux-x86_64.tar.gz -C ~/.local --strip-components=1
 
 - GitHub 下载附带 `.sha256` 文件。在下载目录中，macOS 用 `shasum -a 256 -c <文件>.sha256`，Linux 用 `sha256sum -c <文件>.sha256` 校验；Windows 用 `Get-FileHash <文件> -Algorithm SHA256`，再与校验文件里的值比较。
 - **从 1.0 候选版升级：**更新前回到首页，取消选区，使用「文件 → 导出为 OPML」。需要保留图片时，选中相应分支并导出为 Flowie 分享包，再导入 1.0。旧数据库会单独保留为 `flowie.sqlite.old-<时间戳>`；不要用它覆盖新版数据库。
-- 笔记保存在各自设备上。1.0 不包含跨设备同步。
+- 笔记保存在各自设备上。App Store 版可以通过 iCloud 同步，所有桌面版也可以通过[你自己运行的 Flowie 服务器]({{ site.github_url }}/blob/main/docs/sync.md)同步。
 
 </section>
 

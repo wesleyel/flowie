@@ -2,64 +2,151 @@
 layout: default
 main_class: home
 ---
+{%- comment -%}
+The home page. Every section holds one block per language (site.data.i18n); lang.js shows one.
+Section ids (#features, #platforms, #pricing, #support) are shared by both languages; the
+App Store listing and the app's Help menu link to #support.
+{%- endcomment -%}
+{%- assign home = '/' | relative_url -%}
+{%- assign early = false -%}{%- if site.price_later != "" -%}{%- assign early = true -%}{%- endif -%}
+
 <section class="hero">
   <div class="container">
     {%- for pair in site.data.i18n %}{% assign t = pair[1] %}
     <div class="hero-copy" lang="{{ t.lang }}">
-      <div class="hero-brand"><img class="app-icon" src="{{ '/images/icon.png' | relative_url }}" width="256" height="256" alt=""><h1>{{ t.name }}</h1></div>
-      <p class="tagline">{{ t.tagline }}</p>
+      <img class="app-icon" src="{{ '/images/icon.png' | relative_url }}" width="96" height="96" alt="">
+      {%- if early %}
+      <a class="pill" href="#pricing"><span class="tag-promo">{{ t.early_bird }}</span>{{ t.pill | replace: '%price%', site.price | replace: '%later%', site.price_later }} {% include icon.html name='arrow' %}</a>
+      {%- endif %}
+      <h1 class="display-xl">{{ t.headline }}</h1>
+      <p class="lede">{{ t.tagline }}</p>
       <div class="cta">
-        {% include badge.html t=t %}
-        <a class="button" href="{{ '/download.html' | relative_url }}">{{ t.download }}<span class="chevron" aria-hidden="true">›</span></a>
+        <a class="btn btn-primary" href="#pricing">{{ t.buy | replace: '%price%', site.price }}</a>
+        <a class="btn btn-secondary" href="#platforms">{{ t.download_free }} {% include icon.html name='arrow' %}</a>
+      </div>
+      <p class="caption fine">{{ t.requirements }}</p>
+    </div>
+    {%- endfor %}
+  </div>
+  {%- for pair in site.data.i18n %}{% assign t = pair[1] %}
+  <div class="stage" lang="{{ t.lang }}">
+    <figure class="device-mac"><img src="{{ '/images/01-outline-' | append: t.shot | append: '.jpg' | relative_url }}" width="1600" height="1000" alt="{{ t.shot_alt }}"></figure>
+    <figure class="device-pad"><img src="{{ '/images/ipad-01-home-' | append: t.shot | append: '.jpg' | relative_url }}" width="1200" height="900" alt="{{ t.pad_alt }}"></figure>
+    <figure class="device-phone"><img src="{{ '/images/iphone-01-home-' | append: t.shot | append: '.jpg' | relative_url }}" width="600" height="1304" alt="{{ t.phone_alt }}"></figure>
+  </div>
+  {%- endfor %}
+</section>
+
+<section class="section subtle" id="platforms">
+  <div class="container">
+    {%- for pair in site.data.i18n %}{% assign k = pair[0] %}{% assign t = pair[1] %}
+    <div class="block" lang="{{ t.lang }}">
+      <div class="section-head">
+        <span class="eyebrow">{{ t.platforms_eyebrow }}</span>
+        <h2 class="display-l">{{ t.platforms_title }}</h2>
+        <p class="lede">{{ t.platforms_lede }}</p>
+      </div>
+      <div class="platforms">
+        {%- for p in site.data.platforms %}{% assign c = p[k] %}
+        <article class="platform">
+          {% include icon.html name=p.icon class='glyph' %}
+          <div><h3>{{ c.name }}</h3><p>{{ c.req }}</p></div>
+          <div class="how"><span>{{ c.how | replace: '%price%', site.price }}</span><span class="chip{% if p.native %} brand{% endif %}">{% if p.native %}{{ t.native }}{% else %}{{ t.preview }}{% endif %}</span></div>
+        </article>
+        {%- endfor %}
+      </div>
+      <p class="caption center" style="margin-top: var(--space-5)">{{ t.brew_note }} <code>brew install --cask wesleyel/tap/flowie</code></p>
+    </div>
+    {%- endfor %}
+  </div>
+</section>
+
+<section class="section" id="features">
+  <div class="container">
+    {%- for pair in site.data.i18n %}{% assign k = pair[0] %}{% assign t = pair[1] %}
+    <div class="block" lang="{{ t.lang }}">
+      <div class="section-head">
+        <span class="eyebrow">{{ t.features_eyebrow }}</span>
+        <h2 class="display-l">{{ t.features_title }}</h2>
+      </div>
+      <div class="bento">
+        {%- for f in site.data.features %}{% assign c = f[k] %}
+        <article class="tile{% if f.size %} {{ f.size }}{% endif %}">
+          <span class="icon-chip">{% include icon.html name=f.icon %}</span>
+          <div>
+            <h3>{{ c.title }}</h3>
+            <p>{{ c.text }}</p>
+          </div>
+          {%- if f.shot %}
+          <figure class="shot"><img src="{{ '/images/' | append: f.shot | append: '-' | append: t.shot | append: '.jpg' | relative_url }}" width="1600" height="1000" loading="lazy" alt="{{ c.title }}"></figure>
+          {%- endif %}
+        </article>
+        {%- endfor %}
       </div>
     </div>
     {%- endfor %}
   </div>
 </section>
 
-<section class="stage" aria-label="Screenshot">
+<section class="section subtle" id="pricing">
   <div class="container">
     {%- for pair in site.data.i18n %}{% assign t = pair[1] %}
-    <div lang="{{ t.lang }}">
-      {%- capture src %}/images/01-outline-{{ t.shot }}.jpg{% endcapture %}
-      {% include window.html src=src alt=t.shot_alt %}
-    </div>
-    {%- endfor %}
-  </div>
-</section>
-
-<section class="band">
-  <div class="container">
-    {%- for pair in site.data.i18n %}{% assign k = pair[0] %}{% assign t = pair[1] %}
-    <div lang="{{ t.lang }}">
-      <h2 class="section-title" id="features-{{ k }}">{{ t.features }}</h2>
-      <div class="features">
-        {%- for f in site.data.features %}
-        <section class="card feature">
-          <span class="tile tile-{{ f.tint }}">{% include icon.html name=f.icon %}</span>
-          <h3>{{ f[k].title }}</h3>
-          <ul>
-            {%- for item in f[k].items %}
-            <li>{{ item }}</li>
+    <div class="block" lang="{{ t.lang }}">
+      <div class="section-head">
+        <span class="eyebrow">{{ t.pricing_eyebrow }}</span>
+        <h2 class="display-l">{{ t.pricing_title }}</h2>
+        <p class="lede">{{ t.pricing_lede }}</p>
+      </div>
+      <div class="pricing">
+        <article class="price-card">
+          <div class="plan"><h3>{{ t.free_title }}</h3><span class="chip">GPL-3.0</span></div>
+          <p class="for">{{ t.free_for }}</p>
+          <div class="price-row"><span class="price">{{ t.free_price }}</span></div>
+          <p class="price-note">{{ t.free_note }}</p>
+          <ul class="price-list">
+            {%- for item in t.free_items %}
+            <li>{% include icon.html name='check' %}<span>{{ item }}</span></li>
             {%- endfor %}
           </ul>
-        </section>
-        {%- endfor %}
+          <a class="btn btn-secondary" href="{{ '/download.html' | relative_url }}">{% include icon.html name='github' %}{{ t.free_button }}</a>
+          <p class="alt">{{ t.free_alt }} {% include gh-star.html t=t %}</p>
+        </article>
+        <article class="price-card featured">
+          <div class="plan"><h3>{{ t.app_title }}</h3>{% if early %}<span class="promo-tag">{{ t.early_bird }}</span>{% endif %}</div>
+          <p class="for">{{ t.app_for }}</p>
+          <div class="price-row"><span class="price">{{ site.price }}</span>{% if early %}<s class="price-was">{{ site.price_later }}</s>{% endif %}</div>
+          {%- if early %}
+          <p class="price-note">{{ t.app_note | replace: '%later%', site.price_later }}</p>
+          {%- endif %}
+          <ul class="price-list">
+            {%- for item in t.app_items %}
+            <li>{% include icon.html name='check' %}<span>{{ item }}</span></li>
+            {%- endfor %}
+          </ul>
+          <a class="btn btn-primary" href="{{ site.app_store_url }}">{{ t.app_button }}</a>
+          <p class="alt">{{ t.app_alt }}</p>
+        </article>
       </div>
     </div>
     {%- endfor %}
   </div>
 </section>
 
-<section class="band">
+<section class="section" id="support">
   <div class="container">
-    {%- for pair in site.data.i18n %}{% assign k = pair[0] %}{% assign t = pair[1] %}
-    <div lang="{{ t.lang }}">
-      <h2 class="section-title" id="gallery-{{ k }}">{{ t.gallery }}</h2>
-      <div class="gallery">
-        {%- for g in site.data.gallery %}
-        {%- capture src %}/images/{{ g.file }}-{{ t.shot }}.jpg{% endcapture %}{% assign label = g[k] %}
-        {% include window.html src=src alt=label caption=label lazy=true %}
+    {%- for pair in site.data.i18n %}{% assign k = pair[0] %}{% assign t = pair[1] %}{% assign s = site.data.support[k] %}
+    <div class="block" lang="{{ t.lang }}">
+      <div class="section-head">
+        <span class="eyebrow">{{ t.faq_eyebrow }}</span>
+        <h2 class="display-l" id="{{ s.id }}">{{ s.heading }}</h2>
+      </div>
+      <p class="contact">{{ s.intro }}</p>
+      <div class="faq">
+        {%- for item in s.faq %}
+        <details{% if forloop.first %} open{% endif %}>
+          <summary>{{ item.q }}</summary>
+          <p>{{ item.a | replace: '%price%', site.price | replace: '%later%', site.price_later }}</p>
+        </details>
         {%- endfor %}
       </div>
     </div>
@@ -67,20 +154,19 @@ main_class: home
   </div>
 </section>
 
-<section class="band" id="support">
-  <div class="container narrow">
-    {%- for pair in site.data.i18n %}{% assign k = pair[0] %}{% assign s = site.data.support[k] %}
-    <div lang="{{ pair[1].lang }}">
-      <h2 class="section-title" id="{{ s.id }}">{{ s.heading }}</h2>
-      <p class="card contact">{{ s.intro }}</p>
-      <dl class="card inset-list">
-        {%- for item in s.faq %}
-        <div class="row">
-          <dt>{{ item.q }}</dt>
-          <dd>{{ item.a }}</dd>
-        </div>
-        {%- endfor %}
-      </dl>
+<section class="cta-band">
+  <div class="container">
+    {%- for pair in site.data.i18n %}{% assign t = pair[1] %}
+    <div class="block" lang="{{ t.lang }}">
+      <h2 class="display-l">{{ t.cta_title }}</h2>
+      {%- if early %}
+      <p class="lede">{{ t.cta_lede | replace: '%price%', site.price }}</p>
+      {%- endif %}
+      <div class="cta">
+        <a class="btn btn-primary" href="{{ site.app_store_url }}">{{ t.buy | replace: '%price%', site.price }}</a>
+        <a class="btn btn-secondary" href="{{ '/download.html' | relative_url }}">{{ t.download_free }}</a>
+        {% include gh-star.html t=t %}
+      </div>
     </div>
     {%- endfor %}
   </div>

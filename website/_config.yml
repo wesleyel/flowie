@@ -3,12 +3,19 @@
 # link to /flowie/, /flowie/privacy.html, /flowie/terms.html and /flowie/#support,
 # so keep those paths stable.
 title: Flowie
-description: "Flowie is a keyboard-first outliner for Mac, with previews for Windows and Linux. Zoom into any bullet, link and mirror notes, and keep your notes on your device."
+description: "Flowie is a keyboard-first outliner for Mac, iPhone and iPad, with free previews for Windows, Linux and the web. Zoom into any bullet, link and mirror notes, write math, and sync through iCloud."
 url: https://wesleyel.github.io
 baseurl: /flowie
 
 app_store_url: https://apps.apple.com/app/id6835913837
 github_url: https://github.com/wesleyel/flowie
+github_repo: wesleyel/flowie
+# The App Store price on Mac, iPhone and iPad: the early-bird price now, the full price once
+# Flowie is mature. At the full price, set price to it and price_later to "": the struck-out
+# price and the early-bird labels then disappear everywhere.
+price: "$4.99"
+price_usd: "4.99"
+price_later: "$9.99"
 email: wesleyel@icloud.com
 copyright: © 2026 Wesley Yang
 

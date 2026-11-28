@@ -1,0 +1,2 @@
+{%- comment -%} The GitHub star button. stars.js fills in the count; without it (or if GitHub can't be reached) the count stays hidden. Params: t= an entry of site.data.i18n. {%- endcomment -%}
+<a class="gh-star" href="{{ site.github_url }}" aria-label="{{ include.t.star_label }}"><span>{% include icon.html name='github' %}{{ include.t.star }}</span><span class="count" data-gh-stars hidden>{% include icon.html name='star' class='star' %}<span></span></span></a>

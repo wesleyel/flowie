@@ -1680,7 +1680,7 @@ checksum = "8bf7cc16383c4b8d58b9905a8509f02926ce3058053c056376248d958c9df1e8"
 
 [[package]]
 name = "flowie-app"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -1710,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "flowie-cloudkit"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "flowie-doc",
  "serde",
@@ -1719,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "flowie-core"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "chrono",
  "crc32fast",
@@ -1737,7 +1737,7 @@ dependencies = [
 
 [[package]]
 name = "flowie-doc"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "flowie-core",
  "flowie-sync",
@@ -1748,7 +1748,7 @@ dependencies = [
 
 [[package]]
 name = "flowie-ffi"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "chrono",
  "flowie-core",
@@ -1762,7 +1762,7 @@ dependencies = [
 
 [[package]]
 name = "flowie-math"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "gpui-kit",
  "ratex-katex-fonts",
@@ -1774,7 +1774,7 @@ dependencies = [
 
 [[package]]
 name = "flowie-server"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "axum",
  "flowie-core",
@@ -1793,7 +1793,7 @@ dependencies = [
 
 [[package]]
 name = "flowie-sync"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "flowie-core",
  "proptest",
@@ -1804,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "flowie-wasm"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "flowie-core",
  "flowie-doc",

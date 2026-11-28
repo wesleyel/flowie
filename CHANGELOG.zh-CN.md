@@ -6,6 +6,8 @@ Flowie 的重要变更记录于此。
 
 ## [Unreleased]
 
+## [1.1.0-rc.1] - 2026-11-28
+
 ### 新增
 
 - **系统托盘（Windows 和 Linux）**: 点击关闭窗口时现在可以选择隐藏到系统托盘，让 Flowie 在后台继续运行（包括 MCP 访问），点托盘图标或托盘菜单随时重新打开。默认关闭窗口时会弹出选择框（支持「记住我的选择」），也可以随时在「设置 → 通用」中切换为每次询问、隐藏到托盘或直接退出。在没有系统托盘的桌面环境（如未装 AppIndicator 扩展的 GNOME）下会自动降级为直接退出。
@@ -230,7 +232,8 @@ Flowie 1.0.0 的首个候选版本，以 GPL-3.0-or-later 授权。1.0.0 正式�
 
 - **依赖**: 通过 rusqlite 0.43 内置 SQLite 3.54.1，修复 CVE-2026-119375。
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.1.0-rc.1...HEAD
+[1.1.0-rc.1]: https://github.com/wesleyel/flowie/compare/v1.0.1...v1.1.0-rc.1
 [1.0.1]: https://github.com/wesleyel/flowie/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.6...v1.0.0
 [1.0.0-rc.6]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.5...v1.0.0-rc.6

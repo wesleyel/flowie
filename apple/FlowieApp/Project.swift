@@ -11,7 +11,7 @@ let project = Project(
             // Like the desktop: the version is the workspace's in Cargo.toml and the build number
             // the git commit count. scripts/package-ios.sh sets both when it archives; these are
             // what Simulator builds show.
-            "MARKETING_VERSION": "1.0.1",
+            "MARKETING_VERSION": "1.1.0",
             "CURRENT_PROJECT_VERSION": "1",
             "DEVELOPMENT_TEAM": "5D26F33GNM",
             "CODE_SIGN_STYLE": "Automatic",

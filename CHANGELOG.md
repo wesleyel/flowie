@@ -10,6 +10,8 @@ Homebrew cask follows the newest version, including candidates.
 
 ## [Unreleased]
 
+## [1.1.0-rc.1] - 2026-11-28
+
 ### Added
 
 - **System tray (Windows & Linux)**: closing the window can now hide Flowie to the system tray so it stays running in the background (including MCP access) and reopens from the tray icon or menu. By default, closing asks whether to hide to the tray or quit (with a “Remember my choice” checkbox), and Settings → General lets you switch between Ask, Hide to tray, and Quit. On desktops without a system tray host (such as GNOME without an AppIndicator extension), closing falls back to quitting automatically.
@@ -234,7 +236,8 @@ Flowie 1.0.0's first release candidate, free software under GPL-3.0-or-later. Th
 
 - **Dependencies**: bundle SQLite 3.54.1 through rusqlite 0.43 to fix CVE-2026-119375.
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.1.0-rc.1...HEAD
+[1.1.0-rc.1]: https://github.com/wesleyel/flowie/compare/v1.0.1...v1.1.0-rc.1
 [1.0.1]: https://github.com/wesleyel/flowie/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.6...v1.0.0
 [1.0.0-rc.6]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.5...v1.0.0-rc.6

@@ -149,6 +149,23 @@
         }
       }
     },
+    "Add to Today": {
+      "comment": "Share sheet: adds what was shared to today's journal",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to Today"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记到今天"
+          }
+        }
+      }
+    },
     "Add to Today’s Journal": {
       "localizations": {
         "en": {
@@ -641,6 +658,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Flowie 无法读取大纲的数据库。"
+          }
+        }
+      }
+    },
+    "Flowie couldn’t save this. Try again.": {
+      "comment": "The share couldn't be written for the app",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flowie couldn’t save this. Try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flowie 没能保存，请再试一次。"
           }
         }
       }
@@ -1217,6 +1251,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "没有删除的条目"
+          }
+        }
+      }
+    },
+    "OK": {
+      "comment": "Dismisses an alert",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
           }
         }
       }

@@ -82,7 +82,9 @@ let project = Project(
             dependencies: [
                 // Embedded in the app.
                 .target(name: "JournalControl"),
+                .target(name: "Share"),
                 .package(product: "FlowieUI"),
+                .package(product: "FlowieInbox"),
                 // flowie-ffi's static library, from scripts/build-ios-ffi.sh.
                 .xcframework(path: "../../build/ios/FlowieFFI.xcframework"),
                 // What the Rust code needs besides libSystem (rustc --print native-static-libs).
@@ -106,6 +108,36 @@ let project = Project(
             ]),
             sources: ["Control/**", "Shared/**"], resources: ["Resources/Localizable.xcstrings"],
             settings: .settings(base: ["SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) FLOWIE_CONTROL"])
+        ),
+        // The share extension: a sheet that leaves what was shared, text or a web page, in the App
+        // Group's inbox (FlowieInbox) for the app to add to today's journal. No outline, no
+        // Rust here (wiki: iOS-Cross-Platform §5). Images aren't offered: iOS v1 can't insert
+        // them (§2.2).
+        .target(
+            name: "Share", destinations: [.iPhone, .iPad], product: .appExtension,
+            bundleId: "flowie.spokey.cn.Share", deploymentTargets: .iOS("26.0"),
+            infoPlist: .extendingDefault(with: [
+                "CFBundleDisplayName": "Flowie",
+                "NSExtension": [
+                    "NSExtensionPointIdentifier": "com.apple.share-services",
+                    "NSExtensionPrincipalClass": "$(PRODUCT_MODULE_NAME).ShareViewController",
+                    "NSExtensionAttributes": [
+                        "NSExtensionActivationRule": [
+                            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+                            "NSExtensionActivationSupportsText": true,
+                        ],
+                    ],
+                ],
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+            ]),
+            sources: ["Share/**"], resources: ["Resources/Localizable.xcstrings"],
+            // The inbox is in the App Group container; device builds need the group on this
+            // App ID too.
+            entitlements: .dictionary([
+                "com.apple.security.application-groups": .array([.string("group.flowie.spokey.cn")]),
+            ]),
+            dependencies: [.package(product: "FlowieInbox")]
         ),
         // Turns the iPad Simulator to landscape for the App Store screenshots
         // (scripts/ios-screenshots.py): only XCTest can turn a Simulator. Not part of the app.

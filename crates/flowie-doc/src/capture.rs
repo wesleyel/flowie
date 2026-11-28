@@ -2,7 +2,8 @@
 //! "Add to Today's Journal" appends text to a day, and the capture entries (the home-screen
 //! quick action, the Control Center control, the Action Button) open a day with the caret on
 //! an empty row. Days are found and made as the desktop does (`flowie_core::journal`, the same
-//! ids on every device), so capturing into a day on two devices makes one page.
+//! ids on every device), so capturing into a day on two devices makes one page. The share
+//! extension's shares ([`share`]) go in the same way, once each.
 
 use flowie_core::io::Item;
 use flowie_core::journal;
@@ -22,7 +23,11 @@ pub fn items(text: &str) -> Vec<Item> {
 /// typed in. Returns the caret at the end of the last bullet added, or `None` (nothing
 /// changed) when `text` has nothing in it.
 pub fn append(tree: &mut Tree, date: &str, text: &str, keep: Option<NodeId>) -> Option<Caret> {
-    let items = items(text);
+    append_items(tree, date, items(text), keep)
+}
+
+/// [`append`] with the bullets made already.
+fn append_items(tree: &mut Tree, date: &str, items: Vec<Item>, keep: Option<NodeId>) -> Option<Caret> {
     if items.is_empty() {
         return None;
     }
@@ -32,6 +37,60 @@ pub fn append(tree: &mut Tree, date: &str, text: &str, keep: Option<NodeId>) -> 
         tree.delete(id);
     }
     Some(Caret { node: last, offset: tree.node(last).text.len() })
+}
+
+/// The bullets a share makes (the share extension, wiki: iOS-Cross-Platform §5): one per line
+/// of `text`, as [`items`], with `url`, when there is one, as a link on the first,
+/// `[first line](url)`, or on its own when there's no text. A line that is just the url
+/// (apps often share it as text too) isn't kept twice.
+pub fn share_items(text: &str, url: &str) -> Vec<Item> {
+    let url = url.trim();
+    let mut items = items(text);
+    if url.is_empty() {
+        return items;
+    }
+    items.retain(|item| item.text != url);
+    // `[label](url)` ends at the label's first `]` and the url's first `)`, and a url has no
+    // spaces: brackets in the label become parentheses, the url's are percent-encoded.
+    let target: String = url
+        .chars()
+        .map(|c| match c {
+            '(' => "%28".to_string(),
+            ')' => "%29".to_string(),
+            c if c.is_whitespace() => "%20".to_string(),
+            c => c.to_string(),
+        })
+        .collect();
+    let link = match items.first() {
+        Some(first) => {
+            let label = first.text.replace('[', "(").replace(']', ")");
+            format!("[{label}]({target})")
+        }
+        // A bare web address is a link already.
+        None if (url.starts_with("https://") || url.starts_with("http://")) && target == url => url.to_string(),
+        None => format!("[{url}]({target})", url = url.replace('[', "(").replace(']', ")")),
+    };
+    match items.first_mut() {
+        Some(first) => first.text = link,
+        None => items.push(Item::new(&link)),
+    }
+    items
+}
+
+/// Add the share `key` ([`share_items`] of `text` and `url`) to the end of the journal page for
+/// `date` (YYYY-MM-DD), as [`append`] does, unless it is in the outline already. Its first
+/// bullet's id comes from `key` (`journal::share_id`) and goes in with it, in one commit, so
+/// importing a share again (say the app was ended after saving it but before deleting its
+/// inbox file) finds it, in the Trash too, and adds nothing. `None` then, and when there is
+/// nothing in it.
+pub fn share(tree: &mut Tree, date: &str, key: &str, text: &str, url: &str, keep: Option<NodeId>) -> Option<Caret> {
+    let id = journal::share_id(key);
+    if tree.has_record(id) {
+        return None;
+    }
+    let mut items = share_items(text, url);
+    items.first_mut()?.id = Some(id);
+    append_items(tree, date, items, keep)
 }
 
 /// The last top-level row of `day` when it is empty and unfinished, to write in.
@@ -62,6 +121,14 @@ impl Workspace {
     pub fn journal_append(&mut self, date: &str, text: &str) -> Option<Caret> {
         let keep = self.editing();
         let after = append(&mut self.tree, date, text, keep)?;
+        self.commit_with_imports(None, Some(after), None);
+        Some(after)
+    }
+
+    /// [`share`], keeping the bullet being typed in, as one undo step.
+    pub fn journal_share(&mut self, date: &str, key: &str, text: &str, url: &str) -> Option<Caret> {
+        let keep = self.editing();
+        let after = share(&mut self.tree, date, key, text, url, keep)?;
         self.commit_with_imports(None, Some(after), None);
         Some(after)
     }
@@ -193,5 +260,49 @@ mod tests {
         assert_eq!(texts(&ws, day_id(DAY)), ["kept", ""]);
         assert_eq!(ws.tree.parent(row.node), day_id(DAY));
         assert_eq!(ws.tree.children(journal_root_id()), &[day_id(DAY)]);
+    }
+
+    #[test]
+    fn a_share_is_a_link_named_by_its_first_line() {
+        let texts = |items: Vec<Item>| items.into_iter().map(|i| i.text).collect::<Vec<_>>();
+        assert_eq!(
+            texts(share_items("Rust [book]\nread later", "https://doc.rust-lang.org/book/")),
+            ["[Rust (book)](https://doc.rust-lang.org/book/)", "read later"]
+        );
+        assert_eq!(texts(share_items("", " https://example.com/a ")), ["https://example.com/a"], "a bare web address");
+        assert_eq!(
+            texts(share_items("https://en.wikipedia.org/wiki/Rust_(language)", "https://en.wikipedia.org/wiki/Rust_(language)")),
+            ["[https://en.wikipedia.org/wiki/Rust_(language)](https://en.wikipedia.org/wiki/Rust_%28language%29)"]
+        );
+        assert_eq!(texts(share_items("Wiki\nhttps://w.org/x", "https://w.org/x")), ["[Wiki](https://w.org/x)"], "the url isn't kept twice");
+        assert_eq!(texts(share_items("  one \n\n two ", "")), ["one", "two"], "text only: one bullet a line");
+        assert!(share_items(" \n ", " ").is_empty());
+        // The link reads back as one, with its label.
+        let runs = flowie_core::markup::parse("[Rust (book)](https://x.org/a%28b%29)");
+        assert!(runs.iter().any(|r| r.kind == flowie_core::markup::Kind::Link { url: "https://x.org/a%28b%29".into() }));
+    }
+
+    #[test]
+    fn a_share_goes_in_once() {
+        let mut ws = ws();
+        let key = "8B6C2D4E-0F1A-4B3C-9D5E-6F7A8B9C0D1E";
+        let caret = ws.journal_share(DAY, key, "Title\nnote", "https://example.com").unwrap();
+        assert_eq!(texts(&ws, day_id(DAY)), ["[Title](https://example.com)", "note"]);
+        assert_eq!(ws.tree.children(day_id(DAY))[0], journal::share_id(key));
+        assert_eq!(caret.node, ws.tree.children(day_id(DAY))[1]);
+        // Imported again (its inbox file outlived the save): nothing more, not even an undo step.
+        assert_eq!(ws.journal_share(DAY, key, "Title\nnote", "https://example.com"), None);
+        assert_eq!(ws.journal_share("2026-11-28", key, "Title", ""), None, "nor on another day");
+        assert_eq!(texts(&ws, day_id(DAY)), ["[Title](https://example.com)", "note"]);
+        // Deleted, it doesn't come back.
+        ws.tree.trash(journal::share_id(key));
+        ws.commit_with_imports(None, None, None);
+        assert_eq!(ws.journal_share(DAY, key, "Title", ""), None);
+        // Another share of the same page is another share.
+        ws.journal_share(DAY, "other", "", "https://example.com").unwrap();
+        assert_eq!(texts(&ws, day_id(DAY)), ["note", "https://example.com"]);
+        assert!(ws.undo().is_some());
+        assert_eq!(texts(&ws, day_id(DAY)), ["note"], "a share is one step");
+        assert_eq!(ws.journal_share(DAY, "blank", " ", ""), None);
     }
 }

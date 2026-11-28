@@ -43,6 +43,12 @@ pub fn day_blank_id(date: &str) -> NodeId {
     v5(&format!("journal/{date}/0"))
 }
 
+/// The id of the first bullet a share from the share extension makes, from the share's own
+/// id (its inbox file's name): importing the share again finds it (`flowie_doc::capture`).
+pub fn share_id(key: &str) -> NodeId {
+    v5(&format!("share/{key}"))
+}
+
 /// The journal bullet, if there is one.
 pub fn find_journal(tree: &Tree) -> Option<NodeId> {
     let id = journal_root_id();

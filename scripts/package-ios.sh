@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the iOS app for the App Store: archive apple/FlowieApp (the app and its Control Center
-# extension, Release configuration: iCloud Production, push production) and export a signed
+# and share extensions, Release configuration: iCloud Production, push production) and export a signed
 # .ipa. Uploading to App Store Connect (TestFlight) only happens with --upload.
 #
 # usage:
@@ -8,8 +8,9 @@
 #   scripts/package-ios.sh --upload    the same, then upload it to App Store Connect
 #
 # Signing is automatic with the team in apple/FlowieApp/Project.swift: Xcode makes or updates
-# the App Store profiles for flowie.spokey.cn and flowie.spokey.cn.JournalControl. Both App IDs
-# and the App Group group.flowie.spokey.cn must be registered first (appstore/README.md).
+# the App Store profiles for flowie.spokey.cn, flowie.spokey.cn.JournalControl and
+# flowie.spokey.cn.Share. The three App IDs and the App Group group.flowie.spokey.cn (on the app
+# and the share extension) must be registered first (appstore/README.md).
 #
 # environment:
 #   FLOWIE_BUILD   build number (CFBundleVersion); default: git commit count, like the Mac build
@@ -94,13 +95,13 @@ rm -rf "$EXPORT_DIR"
 
 # ---------------------------------------------------------------- check
 # What App Review and iCloud need of the signed app: production environments, the versions
-# above in the app and its extension, the privacy manifest and the icon.
+# above in the app and its extensions, the privacy manifest and the icon.
 CHECK=$(mktemp -d)
 unzip -q "$IPA" -d "$CHECK"
 APP="$CHECK/Payload/$NAME.app"
 fail() { echo "check failed: $*" >&2; exit 1; }
 plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null; }
-for bundle in "$APP" "$APP/PlugIns/JournalControl.appex"; do
+for bundle in "$APP" "$APP/PlugIns/JournalControl.appex" "$APP/PlugIns/Share.appex"; do
     [ "$(plist "$bundle/Info.plist" CFBundleShortVersionString)" = "$VERSION" ] || fail "$bundle isn't version $VERSION"
     [ "$(plist "$bundle/Info.plist" CFBundleVersion)" = "$BUILD" ] || fail "$bundle isn't build $BUILD"
 done
@@ -110,6 +111,8 @@ codesign -d --entitlements - --xml "$APP" > "$ENT" 2>/dev/null
 [ "$(plist "$ENT" com.apple.developer.icloud-container-environment)" = Production ] || fail "the iCloud environment isn't Production"
 plist "$ENT" com.apple.developer.icloud-container-identifiers | grep -q iCloud.flowie.spokey.cn || fail "no iCloud container"
 plist "$ENT" com.apple.security.application-groups | grep -q group.flowie.spokey.cn || fail "no App Group"
+codesign -d --entitlements - --xml "$APP/PlugIns/Share.appex" > "$ENT" 2>/dev/null
+plist "$ENT" com.apple.security.application-groups | grep -q group.flowie.spokey.cn || fail "no App Group in the share extension"
 [ -f "$APP/PrivacyInfo.xcprivacy" ] || fail "no privacy manifest"
 [ "$(plist "$APP/Info.plist" ITSAppUsesNonExemptEncryption)" = false ] || fail "ITSAppUsesNonExemptEncryption isn't false"
 [ "$(plist "$APP/Info.plist" CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName)" = AppIcon ] || fail "no app icon"

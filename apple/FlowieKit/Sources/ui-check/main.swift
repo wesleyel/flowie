@@ -1,7 +1,8 @@
 // Checks FlowieUI's store without drawing anything: pages, edits, undo, the shell's journal,
-// stars, search, Move To and Recently Deleted, the launch rule, and sync to a server that isn't
-// there. Run by scripts/apple-package-check.sh.
+// stars, search, Move To and Recently Deleted, the launch rule, the share extension's inbox, and
+// sync to a server that isn't there. Run by scripts/apple-package-check.sh.
 import FlowieFFI
+import FlowieInbox
 import FlowieUI
 import Foundation
 
@@ -484,8 +485,61 @@ func checkReadingMode() throws {
     print("Reading mode check: ok")
 }
 
+/// The share extension's inbox: a share is written whole, goes into the journal page of its
+/// day as a link named by its first line, and goes in once, also when the app was ended after
+/// saving it but before deleting its file.
+@MainActor
+func checkShares() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("flowie-ui-check-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let inbox = ShareInbox(directory: dir.appendingPathComponent("inbox"))
+    let database = dir.appendingPathComponent("db/outline.sqlite")
+    check(inbox.pending().isEmpty, "no inbox yet, nothing waiting")
+
+    let day = "2026-11-20"
+    let link = SharedItem(day: day, text: "Rust [book]\nread later", url: "https://doc.rust-lang.org/book/", created: Date(timeIntervalSince1970: 1))
+    let note = SharedItem(day: "not a day", text: "  a thought  ", created: Date(timeIntervalSince1970: 2))
+    try inbox.add(note)
+    try inbox.add(link)
+    let names = try FileManager.default.contentsOfDirectory(atPath: inbox.directory.path).sorted()
+    check(names == ["\(link.id).json", "\(note.id).json"].sorted(), "one file a share, no temporary file left: \(names)")
+    // Half a share being written (the temporary file) and a file that isn't one are left out.
+    try Data("{\"id\":".utf8).write(to: inbox.directory.appendingPathComponent(".half.tmp"))
+    try Data("garbage".utf8).write(to: inbox.directory.appendingPathComponent("bad.json"))
+    check(inbox.pending() == [link, note], "the shares waiting, oldest first: \(inbox.pending())")
+    check(FileManager.default.fileExists(atPath: inbox.directory.appendingPathComponent("bad.json.unreadable").path), "an unreadable file is set aside")
+    check(note.journalDay == SharedItem.day(of: note.created), "a share without a day goes to the day it was made")
+    let kept = try Data(contentsOf: inbox.directory.appendingPathComponent("\(link.id).json"))
+
+    do {
+        let docs = try OutlineStore.open(databaseAt: database)
+        check(try docs.importShares(from: inbox) == 2, "both shares added")
+        let page = docs.page(.day(day))
+        check(page.rows.map(\.text) == ["[Rust (book)](https://doc.rust-lang.org/book/)", "read later"], "a link named by its first line, on its day: \(page.rows.map(\.text))")
+        check(docs.page(.day(note.journalDay)).rows.map(\.text).last == "a thought", "plain text, trimmed")
+        check(inbox.pending().isEmpty, "files deleted once saved")
+        check(try docs.importShares(from: inbox) == 0, "nothing more to add")
+    }
+
+    // The app was ended after the save, before the file was deleted: the file is still there
+    // at the next launch, and adds nothing.
+    try kept.write(to: inbox.directory.appendingPathComponent("\(link.id).json"))
+    let docs = try OutlineStore.open(databaseAt: database)
+    let page = docs.page(.day(day))
+    check(page.rows.count == 2, "the share was saved")
+    check(try docs.importShares(from: inbox) == 0, "the share isn't added again")
+    check(page.rows.map(\.text) == ["[Rust (book)](https://doc.rust-lang.org/book/)", "read later"], "no duplicate: \(page.rows.map(\.text))")
+    check(inbox.pending().isEmpty, "its file is deleted now")
+    // Deleted by the user, then its file turns up again: it stays deleted.
+    page.delete(page.rows[0])
+    try kept.write(to: inbox.directory.appendingPathComponent("\(link.id).json"))
+    check(try docs.importShares(from: inbox) == 0 && page.rows.map(\.text) == ["read later"], "a share deleted since doesn't come back")
+    print("Share inbox check: ok")
+}
+
 try MainActor.assumeIsolated {
     try run()
+    try checkShares()
     try checkLocation()
     checkLaunchRule()
     checkPageHistory()

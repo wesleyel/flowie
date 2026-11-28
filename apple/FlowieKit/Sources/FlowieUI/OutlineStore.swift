@@ -1,5 +1,6 @@
 import Foundation
 import FlowieFFI
+import FlowieInbox
 
 /// The open outline, as the app's pages and lists share it: sync, stars, search, Recently
 /// Deleted and the Hide Completed setting. Each page shown has its own `PageModel`; an edit on
@@ -109,6 +110,31 @@ public final class OutlineStore: ObservableObject {
         edited(EditOutcome(changedIds: outcome.changedIds, structureChanged: outcome.structureChanged, focus: nil), from: nil)
         try outline.flush()
         return true
+    }
+
+    /// The share extension's shares waiting in `inbox`, each added to the end of the journal
+    /// page of the day it was shared (wiki: iOS-Cross-Platform §5), oldest first, each one undo
+    /// step. A file is deleted only once the outline has its share saved; a share already in
+    /// the outline (its file outlived the save, say the app was ended between the two) adds
+    /// nothing, as the outline knows it by its id. A row being typed in stays, as with
+    /// `appendToToday`. Returns how many shares were added.
+    @discardableResult
+    public func importShares(from inbox: ShareInbox) throws -> Int {
+        let items = inbox.pending()
+        guard !items.isEmpty else { return 0 }
+        var added = 0
+        for item in items {
+            let outcome = try outline.journalShare(date: item.journalDay, key: item.id, text: item.text, url: item.url ?? "")
+            if outcome.focus != nil {
+                edited(EditOutcome(changedIds: outcome.changedIds, structureChanged: outcome.structureChanged, focus: nil), from: nil)
+                added += 1
+            }
+        }
+        try outline.flush()
+        for item in items {
+            try inbox.remove(item)
+        }
+        return added
     }
 
     /// The capture entries: today's journal with the caret on its empty last row, made only

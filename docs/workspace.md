@@ -43,10 +43,12 @@ GPUI re-renders.
 - `apple/`:
   - `apple/FlowieKit`: Swift package (`Package.swift`) wrapping generated `FlowieFFI` bindings:
     `FlowieCloudKit` (`CKSyncEngine` over a host protocol, shared with the Mac via
-    `flowie-cloudkit`) and `FlowieUI` (the iOS SwiftUI/UIKit layer, which also builds on macOS).
+    `flowie-cloudkit`), `FlowieUI` (the iOS SwiftUI/UIKit layer, which also builds on macOS) and
+    `FlowieInbox` (the share extension's inbox of shares for the app to import; no Rust).
     `scripts/apple-package-check.sh` builds and runs `cloudkit-check` and `ui-check` with the
     plain Swift toolchain.
-  - `apple/FlowieApp`: iOS app (Tuist `Project.swift`, plus `Control` Control Center extension)
+  - `apple/FlowieApp`: iOS app (Tuist `Project.swift`, plus `Control` Control Center extension
+    and `Share` share extension)
     over `FlowieUI` and `build/ios/FlowieFFI.xcframework` (`scripts/build-ios-ffi.sh`,
     `scripts/package-ios.sh`; see [building.md](building.md)).
 - `web/`: browser preview TypeScript app (`web/src`, worker + `fetch` sync, `sw.js`) built against

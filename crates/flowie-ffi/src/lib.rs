@@ -1055,6 +1055,17 @@ impl Outline {
         Ok(tracked(&mut self.lock(), false, |ws| ws.journal_append(date, &text)))
     }
 
+    /// A share from the share extension (its inbox file `key`): `text`, one bullet a line, with
+    /// `url` as a link on the first (`flowie_doc::capture::share`), at the end of the journal
+    /// page for `date` (YYYY-MM-DD), made as [`journal_append`](Self::journal_append) makes it.
+    /// A share already in the outline (in the Trash too) adds nothing: importing an inbox file
+    /// again never adds it twice. One undo step; the focus is the end of the last bullet added,
+    /// none when nothing changed.
+    pub fn journal_share(&self, date: String, key: String, text: String, url: String) -> Result<EditOutcome, FlowieError> {
+        let date = day(&date)?;
+        Ok(tracked(&mut self.lock(), false, |ws| ws.journal_share(date, &key, &text, &url)))
+    }
+
     /// Open the journal page for `date` (YYYY-MM-DD) to capture into: the focus goes to its
     /// last row when that is empty, otherwise to a new empty row at the end
     /// (`flowie_doc::capture::capture_row`). An undo step when it made something.

@@ -2,6 +2,7 @@
 // FlowieKit: what Flowie's Apple apps share, over flowie-ffi (the Rust core through UniFFI).
 // - FlowieCloudKit: CloudKit sync through CKSyncEngine (wiki: Per-Node-Sync §5.2), over a host
 //   protocol: flowie-ffi's outline on iOS (FlowieUI), flowie-cloudkit's bridge on the Mac.
+// - FlowieInbox: the share extension's inbox of shares for the app to import (no Rust).
 // - FlowieUI: the iOS app's SwiftUI layer (ios-cross-platform.md §4): the outline as pages of
 //   bullets, editing, and sync with a self-hosted server. It builds for macOS too, so it can be
 //   compiled and checked without Xcode; the iOS app target adds only its shell.
@@ -15,6 +16,7 @@ let package = Package(
     products: [
         .library(name: "FlowieCloudKit", targets: ["FlowieCloudKit"]),
         .library(name: "FlowieUI", targets: ["FlowieUI"]),
+        .library(name: "FlowieInbox", targets: ["FlowieInbox"]),
     ],
     targets: [
         .target(name: "flowie_ffiFFI", path: "Sources/flowie_ffiFFI"),
@@ -27,7 +29,9 @@ let package = Package(
         // No Rust here: the Mac app links these sources into the GPUI binary through
         // crates/flowie-cloudkit, with its own bridge to the outline.
         .target(name: "FlowieCloudKit", path: "Sources/FlowieCloudKit"),
-        .target(name: "FlowieUI", dependencies: ["FlowieFFI", "FlowieCloudKit"], path: "Sources/FlowieUI"),
+        // The share extension's inbox: Foundation only, so the extension links no Rust.
+        .target(name: "FlowieInbox", path: "Sources/FlowieInbox"),
+        .target(name: "FlowieUI", dependencies: ["FlowieFFI", "FlowieCloudKit", "FlowieInbox"], path: "Sources/FlowieUI"),
         // A window with FlowieUI on the Mac, for trying the views without an iOS build.
         .executableTarget(name: "FlowiePreview", dependencies: ["FlowieUI"], path: "Sources/FlowiePreview"),
         .executableTarget(name: "cloudkit-check", dependencies: ["FlowieCloudKit", "FlowieUI"], path: "Sources/cloudkit-check"),

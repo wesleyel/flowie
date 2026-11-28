@@ -3,6 +3,7 @@ import SwiftUI
 import StoreKit
 import CoreSpotlight
 import FlowieFFI
+import FlowieInbox
 import FlowieUI
 
 @main
@@ -27,6 +28,13 @@ struct FlowieApp: App {
         }
         // Back, Forward and Zoom Out, with the desktop's keys.
         .commands { FlowieCommands() }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            // What the share extension left in the inbox goes into the journal at launch and
+            // each time the app comes back.
+            if phase == .active {
+                launch.importShares()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             // iOS may end the app any time once it's in the background (§5): typing ends first,
             // so text still being composed is kept, then everything queued is saved and no
@@ -59,6 +67,17 @@ final class Launch: ObservableObject {
     /// builds leave out (they sync only through iCloud; wiki: iOS-Cross-Platform §5).
     @Published private(set) var testing: Bool
 
+    /// Add the shares the share extension left in its inbox to the journal (§5), saved before
+    /// their files are deleted.
+    func importShares() {
+        guard let store, let inbox = ShareInbox.appGroup() else { return }
+        do {
+            try store.importShares(from: inbox)
+        } catch {
+            store.problem = error.localizedDescription
+        }
+    }
+
     /// The outline, for the App Intents; they fail when it couldn't be opened.
     func openStore() throws -> OutlineStore {
         guard let store else { throw CaptureFailure.unavailable }
@@ -80,6 +99,17 @@ final class Launch: ObservableObject {
         if let store {
             spotlight = SpotlightIndex(store: store, stateURL: database.deletingLastPathComponent().appendingPathComponent("spotlight-index.json"))
         }
+        // A share made while the app is on screen (beside the sharing app, on iPad) comes in at
+        // once; otherwise it waits for the app to come back.
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if UIApplication.shared.applicationState == .active {
+                        Launch.shared.importShares()
+                    }
+                }
+            }
+        }, ShareInbox.notification as CFString, nil, .deliverImmediately)
         // Siri's "Open <page> in Flowie" learns the starred pages' names.
         CaptureShortcuts.updateAppShortcutParameters()
         #if DEBUG

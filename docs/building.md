@@ -128,8 +128,12 @@ earlier build moves there on launch. To check the launch rule (back to the last 
 hour, otherwise today's journal), a debug build takes another time: `xcrun simctl launch booted
 flowie.spokey.cn -FlowieNow 2026-11-28T09:00:00+08:00`.
 
-`Project.swift` signs automatically with team `5D26F33GNM` (the app `flowie.spokey.cn` and its
-Control Center extension `flowie.spokey.cn.JournalControl`). Debug builds use CloudKit's
+`Project.swift` signs automatically with team `5D26F33GNM` (the app `flowie.spokey.cn`, its
+Control Center extension `flowie.spokey.cn.JournalControl` and its share extension
+`flowie.spokey.cn.Share`, which shares the App Group with the app). The share extension never
+opens the outline: it leaves each share as a JSON file in the group container's `inbox/`, which
+the app adds to the journal when it starts or comes back (`FlowieInbox`); to try the import
+without the share sheet, put a file there by hand. Debug builds use CloudKit's
 Development environment and the development push service, Release builds (TestFlight, the App
 Store) Production. To check a Release build in the Simulator, which leaves out the self-hosted
 sync settings, add `-configuration Release` to the `xcodebuild` line above; the app is then in
@@ -166,8 +170,8 @@ scripts/package-ios.sh --upload    # the same, then upload it to App Store Conne
 
 It builds the Rust core, archives the Release configuration with the desktop's version (from
 `Cargo.toml`) and build number (the git commit count, or `FLOWIE_BUILD`), exports an App Store
-`.ipa` and checks it (production push and iCloud, versions of the app and the extension, privacy
-manifest, icon). Signing is automatic: with the App Store Connect API key in
+`.ipa` and checks it (production push and iCloud, versions of the app and the extensions, the App
+Group, privacy manifest, icon). Signing is automatic: with the App Store Connect API key in
 `appstore/fastlane/.env` (see `appstore/README.md`), xcodebuild makes the profiles itself;
 otherwise it uses the account signed in to Xcode. `--upload` needs a clean working tree.
 

@@ -1,9 +1,1 @@
-Flowie 1.1 adds sync. Choose iCloud in Settings → Sync to keep your outline the same on your Macs through your private iCloud database (macOS 14 or later), or sync through a Flowie server you run yourself.
-
-• Bullets, images, stars and saved searches sync, including edits made offline. When two Macs change the same text at once, the other version is kept as a conflict copy you can restore.
-• Limit how wide the text grows in a wide window: Settings → Appearance or ⌃⌘W.
-• Find a shortcut by name or keys in Settings → Shortcuts.
-• Code blocks export as fenced code and import back as code. Markdown articles with headings import with their structure.
-• Long outlines scroll more steadily, large branches fold without stutter, and undo history uses far less memory.
-
-The first launch upgrades your outline's database and keeps a backup beside it.
+Flowie comes to the Mac App Store. Open any bullet as its own page, keep daily notes in the Journal, and turn on iCloud sync in Settings → Sync to keep your outline the same on your Macs, iPhone and iPad (macOS 14 or later).

@@ -54,6 +54,10 @@
   --shadow-sm: 0 1px 2px #0b0b0f0f;
   --shadow-md: 0 1px 2px #0b0b0f0a, 0 8px 24px #0b0b0f0f;
   --shadow-device: 0 2px 6px #0b0b0f0f, 0 24px 48px #0b0b0f1f, 0 48px 96px #0b0b0f14;
+  --device-rim: #d6d8dd;
+  --device-rim-edge: rgba(11, 11, 15, 0.18);
+  --device-shadow-near: rgba(11, 11, 15, 0.12);
+  --device-shadow-far: rgba(11, 11, 15, 0.16);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -80,6 +84,10 @@
     --shadow-sm: 0 1px 2px #00000066;
     --shadow-md: 0 1px 2px #00000080, 0 8px 24px #00000066;
     --shadow-device: 0 0 0 1px #ffffff14, 0 24px 48px #00000099, 0 48px 96px #00000080;
+    --device-rim: #4a4c53;
+    --device-rim-edge: rgba(0, 0, 0, 0.6);
+    --device-shadow-near: rgba(0, 0, 0, 0.45);
+    --device-shadow-far: rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -123,6 +131,11 @@ code { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: .88em;
 .gh-star .count { border-left: 1px solid var(--hairline-strong); font-variant-numeric: tabular-nums; color: var(--text-2); padding-right: var(--space-4); }
 .gh-star svg { width: 16px; height: 16px; }
 .gh-star .star { color: var(--app-star); fill: currentColor; }
+/* Next to 48px buttons the star button takes their height and label size. */
+.cta .gh-star { height: var(--button-height); font-size: 16px; }
+.cta .gh-star > span { padding: 0 var(--space-4); }
+.cta .gh-star > span:first-child { padding-left: var(--space-5); }
+.cta .gh-star svg { width: 18px; height: 18px; }
 
 /* Pills */
 .pill { display: inline-flex; align-items: center; gap: var(--space-2); height: 32px; padding: 0 var(--space-3) 0 var(--space-2); border-radius: var(--radius-pill); background: var(--surface); border: 1px solid var(--hairline); font: 500 14px/1 var(--font-sans); color: var(--text-2); box-shadow: var(--shadow-sm); white-space: nowrap; }
@@ -133,8 +146,8 @@ code { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: .88em;
 .promo-tag { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: var(--radius-pill); background: var(--promo-bg); color: var(--promo); font: 600 12px/1 var(--font-sans); letter-spacing: .02em; }
 
 /* Language toggle */
-.segmented { display: inline-flex; padding: 3px; border-radius: var(--radius-pill); background: var(--bg-subtle); border: 1px solid var(--hairline); }
-.segmented button { font: 600 13px/1 var(--font-sans); color: var(--text-3); background: transparent; border: 0; border-radius: var(--radius-pill); padding: 0 12px; height: 28px; cursor: pointer; }
+.segmented { display: inline-flex; box-sizing: border-box; height: var(--button-height-sm); padding: 3px; border-radius: var(--radius-pill); background: var(--bg-subtle); border: 1px solid var(--hairline); }
+.segmented button { font: 600 13px/1 var(--font-sans); color: var(--text-3); background: transparent; border: 0; border-radius: var(--radius-pill); padding: 0 14px; height: 100%; cursor: pointer; }
 .segmented button:hover { color: var(--text); }
 .segmented button[aria-pressed="true"] { color: var(--text); background: var(--surface); box-shadow: var(--shadow-sm); }
 
@@ -157,16 +170,36 @@ code { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: .88em;
 .hero .cta { display: flex; justify-content: center; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-6); }
 .hero .fine { margin-top: var(--space-4); }
 
-/* Device stage: Mac window, iPad left, iPhone right */
-.stage { position: relative; max-width: 1120px; margin: var(--space-8) auto 0; padding: 0 var(--space-8) var(--space-8); }
+/* Device stage: Mac window, iPad left, iPhone right. The stage is a size container, so every
+   device dimension follows its width (--w) in the proportions of the real device: iPad Pro 13"
+   (landscape) and iPhone 17 Pro Max — bezel, a display corner concentric with the body, the
+   metal rim and, on the iPhone, the Dynamic Island. */
+.stage { position: relative; max-width: 1120px; margin: var(--space-8) auto 0; padding: 0 var(--space-8) var(--space-8); container-type: inline-size; }
 .stage::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; top: 38%; background: var(--bg-subtle); border-radius: var(--radius-xl); z-index: 0; }
 .device-mac { position: relative; z-index: 1; margin: 0; }
 .device-mac img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; border-radius: var(--radius-md); box-shadow: var(--shadow-device); }
-.device-pad, .device-phone { position: absolute; z-index: 2; margin: 0; background: #0b0b0f; box-shadow: var(--shadow-device); }
-.device-pad { left: 0; bottom: var(--space-6); width: 34%; padding: 8px; border-radius: var(--radius-pad); }
-.device-pad img { display: block; width: 100%; border-radius: 15px; }
-.device-phone { right: 0; bottom: var(--space-5); width: 17%; padding: 6px; border-radius: var(--radius-phone); }
-.device-phone img { display: block; width: 100%; border-radius: 34px; }
+.device-pad, .device-phone {
+  position: absolute; z-index: 2; margin: 0;
+  width: var(--w); padding: calc(var(--w) * var(--bezel)); border-radius: calc(var(--w) * var(--corner));
+  background: #050506;
+  box-shadow:
+    0 0 0 calc(var(--w) * .008) var(--device-rim),
+    0 0 0 calc(var(--w) * .008 + 1px) var(--device-rim-edge),
+    0 calc(var(--w) * .012) calc(var(--w) * .03) var(--device-shadow-near),
+    0 calc(var(--w) * .05) calc(var(--w) * .14) var(--device-shadow-far);
+}
+.device-pad img, .device-phone img { display: block; width: 100%; height: auto; border-radius: calc(var(--w) * (var(--corner) - var(--bezel))); }
+/* iPad Pro 13": 2.6% bezel; the display's 18 pt corner (of 1376 pt) plus the bezel. */
+.device-pad { --w: 34cqw; --bezel: .026; --corner: .038; left: 0; bottom: var(--space-6); }
+/* iPhone 17 Pro Max: 4.2% bezel; the display's 55 pt corner (of 440 pt) plus the bezel. */
+.device-phone { --w: 17cqw; --bezel: .042; --corner: .156; right: 0; bottom: var(--space-5); }
+/* Dynamic Island: 126 × 37 pt, 11 pt below the top of a 440 pt-wide display. */
+.device-phone::after {
+  content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+  top: calc(var(--w) * (var(--bezel) + .916 * .025));
+  width: calc(var(--w) * .916 * .286); height: calc(var(--w) * .916 * .084);
+  border-radius: 999px; background: #050506;
+}
 
 /* Sections */
 .section { padding: var(--space-10) 0; }
@@ -269,7 +302,7 @@ code { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: .88em;
   .section { padding: var(--space-9) 0; }
   .stage { padding: 0 0 var(--space-6); }
   .device-pad { display: none; }
-  .device-phone { width: 26%; right: var(--space-3); bottom: calc(-1 * var(--space-4)); }
+  .device-phone { --w: 30cqw; right: var(--space-3); bottom: calc(-1 * var(--space-4)); }
   .bento { grid-template-columns: 1fr; }
   .platforms { grid-template-columns: 1fr 1fr; }
   .tile, .tile.wide, .tile.full { grid-column: auto; }

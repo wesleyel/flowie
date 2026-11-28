@@ -10,15 +10,17 @@
     scripts/ios-screenshots.py --locale zh-Hans    # one locale
     scripts/ios-screenshots.py --only 03 search    # some shots (by number or name)
     scripts/ios-screenshots.py --no-build          # reuse the last Simulator build
+    scripts/ios-screenshots.py --jobs 2            # at most two Simulators at a time
 
 Builds the app's Debug configuration for the Simulator (scripts/build-ios-ffi.sh, tuist,
 xcodebuild into build/ios/DerivedData, with the ScreenshotTests UI-test target, which turns the
 iPad to landscape: simctl can't) and writes a demo outline per locale with
 `cargo run -p flowie-ffi --example demo_outline` (crates/flowie-ffi/examples/demo_outline.rs,
-the text of every shot). Each shot starts the app on a fresh copy of it, in the app's App Group
-container on a Simulator of its own ("Flowie Screenshots iPhone/iPad", made on first use, never
-signed in to iCloud), and opens the shot's state with launch arguments: the launch rule's keys
-(LaunchMemory) for the page, and in debug builds -FlowieSearch and -FlowieCapture
+the text of every shot). Each device and locale has a Simulator of its own ("Flowie Screenshots
+iPhone en-US" and so on, made on first use, never signed in to iCloud), and they all run at once.
+Each shot starts the app on a fresh copy of the outline, in the app's App Group container, and
+opens the shot's state with launch arguments: the launch rule's keys (LaunchMemory) for the page,
+and in debug builds -FlowieSearch and -FlowieCapture
 (apple/FlowieKit/Sources/FlowieUI/ScreenshotArguments.swift). The Simulator speaks the locale's
 language, its status bar is fixed at 9:41 with full bars, and the appearance is light.
 
@@ -28,6 +30,8 @@ follow today. Your own outline and Simulators are never touched.
 """
 
 import argparse
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import datetime as dt
 import hashlib
 import io
@@ -88,8 +92,13 @@ SHOTS = [
 ]
 
 
+_job = threading.local()
+# One XCTest run at a time: several at once stall the test runner.
+_xctest = threading.Lock()
+
+
 def run(*args, **kw):
-    print("+", " ".join(str(a) for a in args), flush=True)
+    print(f"[{getattr(_job, 'name', '')}] +", " ".join(str(a) for a in args), flush=True)
     return subprocess.run([str(a) for a in args], check=True, **kw)
 
 
@@ -114,9 +123,10 @@ def seed(locale, today, folder):
     return db, json.loads(ids)
 
 
-def device(kind):
-    """The Simulator for `kind`, made on first use and booted."""
+def device(kind, locale):
+    """The Simulator for `kind` in `locale`, made on first use and booted."""
     name, device_type, _, _ = DEVICES[kind]
+    name = f"{name} {locale}"
     devices = json.loads(output("xcrun", "simctl", "list", "devices", "--json"))["devices"]
     udid = next((d["udid"] for runtime in devices.values() for d in runtime
                  if d["name"] == name and d.get("isAvailable", True)), None)
@@ -151,9 +161,16 @@ def landscape(udid):
     xctestrun = sorted((DERIVED / "Build" / "Products").glob("ScreenshotTests_*.xctestrun"))
     if not xctestrun:
         sys.exit("No ScreenshotTests build: run without --no-build")
-    run("xcodebuild", "test-without-building", "-quiet", "-xctestrun", xctestrun[-1],
-        "-destination", f"id={udid}", "-only-testing:ScreenshotTests/Landscape/testTurnToLandscape",
-        stdout=subprocess.DEVNULL)
+    with _xctest:
+        for attempt in (1, 2):
+            try:
+                run("xcodebuild", "test-without-building", "-quiet", "-xctestrun", xctestrun[-1],
+                    "-destination", f"id={udid}", "-only-testing:ScreenshotTests/Landscape/testTurnToLandscape",
+                    stdout=subprocess.DEVNULL)
+                return
+            except subprocess.CalledProcessError:
+                if attempt == 2:
+                    raise
 
 
 def prepare(udid, wide):
@@ -162,9 +179,12 @@ def prepare(udid, wide):
         "--dataNetwork", "wifi", "--wifiMode", "active", "--wifiBars", "3",
         "--cellularMode", "active", "--cellularBars", "4", "--operatorName", "",
         "--batteryState", "charged", "--batteryLevel", "100")
-    # The keyboard's first-run tip (slide to type) would cover the capture shot.
-    for key in ("DidShowContinuousPathIntroduction", "DidShowGestureKeyboardIntroduction"):
-        run("xcrun", "simctl", "spawn", udid, "defaults", "write", "com.apple.Preferences", key, "-bool", "YES")
+    # The keyboard's first-run tip (slide to type) would cover the capture shot. A new Simulator's
+    # keyboard reads it from com.apple.keyboard.preferences too.
+    for domain, key in (("com.apple.Preferences", "DidShowContinuousPathIntroduction"),
+                        ("com.apple.Preferences", "DidShowGestureKeyboardIntroduction"),
+                        ("com.apple.keyboard.preferences", "DidShowContinuousPathIntroduction")):
+        run("xcrun", "simctl", "spawn", udid, "defaults", "write", domain, key, "-bool", "YES")
     fresh = installed(udid) != bundle_hash(APP)
     if fresh:
         run("xcrun", "simctl", "install", udid, APP)
@@ -227,13 +247,13 @@ def shoot(udid, db, ids, today, locale, shot, path):
         if len(recent) == STEADY and caret_only(recent):
             if not caret:
                 path.write_bytes(recent[-1])
-                return
+                return len(frames)
             # The caret fades in and out: a few quick frames more, for one with it solid.
             for _ in range(8):
                 time.sleep(0.12)
                 recent.append(capture(udid, path))
             path.write_bytes(with_caret([f for f in recent if caret_only([recent[0], f])]))
-            return
+            return len(recent) + len(frames) - STEADY
         time.sleep(STEADY_GAP)
     sys.exit(f"{path}: the screen didn't settle")
 
@@ -276,6 +296,30 @@ def with_caret(frames):
     return min(frames, key=lambda f: ImageStat.Stat(gray(f).crop(box)).mean[0])
 
 
+def take(kind, locale, outline, today, shots):
+    """Every shot for one device and locale, on that pair's own Simulator."""
+    _job.name = f"{kind} {locale}"
+    start = time.monotonic()
+    db, ids = outline
+    _, _, prefix, expected = DEVICES[kind]
+    udid = device(kind, locale)
+    speak(udid, locale)
+    prepare(udid, wide=expected[0] > expected[1])
+    folder = OUT / locale
+    folder.mkdir(parents=True, exist_ok=True)
+    print(f"[{_job.name}] ready in {time.monotonic() - start:.0f} s", flush=True)
+    for shot in shots:
+        path = folder / f"{prefix}-{shot[0]}-{shot[1]}.png"
+        began = time.monotonic()
+        frames = shoot(udid, db, ids, today, locale, shot, path)
+        if size(path) != expected:
+            sys.exit(f"{path} is {size(path)}, App Store Connect wants {expected}")
+        print(f"[{_job.name}] {path.relative_to(ROOT)} ({frames} frames, {time.monotonic() - began:.1f} s)", flush=True)
+    subprocess.run(["xcrun", "simctl", "terminate", udid, BUNDLE_ID], capture_output=True)
+    run("xcrun", "simctl", "shutdown", udid)
+    print(f"[{_job.name}] done in {time.monotonic() - start:.0f} s", flush=True)
+
+
 def size(path):
     out = output("sips", "-g", "pixelWidth", "-g", "pixelHeight", path).split()
     return int(out[out.index("pixelWidth:") + 1]), int(out[out.index("pixelHeight:") + 1])
@@ -287,6 +331,7 @@ def main():
     parser.add_argument("--locale", choices=sorted(LOCALES), action="append")
     parser.add_argument("--only", nargs="+", help="shot numbers or names")
     parser.add_argument("--no-build", action="store_true")
+    parser.add_argument("--jobs", type=int, help="Simulators running at once (default: all)")
     args = parser.parse_args()
 
     shots = [s for s in SHOTS if not args.only or s[0] in args.only or s[1] in args.only]
@@ -300,21 +345,10 @@ def main():
     today = dt.date.today()
     with tempfile.TemporaryDirectory(prefix="flowie-ios-shots-") as tmp:
         outlines = {locale: seed(locale, today, Path(tmp)) for locale in args.locale or LOCALES}
-        for kind in args.device or DEVICES:
-            _, _, prefix, expected = DEVICES[kind]
-            udid = device(kind)
-            for locale, (db, ids) in outlines.items():
-                speak(udid, locale)
-                prepare(udid, wide=expected[0] > expected[1])
-                folder = OUT / locale
-                folder.mkdir(parents=True, exist_ok=True)
-                for shot in shots:
-                    path = folder / f"{prefix}-{shot[0]}-{shot[1]}.png"
-                    shoot(udid, db, ids, today, locale, shot, path)
-                    if size(path) != expected:
-                        sys.exit(f"{path} is {size(path)}, App Store Connect wants {expected}")
-            subprocess.run(["xcrun", "simctl", "terminate", udid, BUNDLE_ID], capture_output=True)
-            run("xcrun", "simctl", "shutdown", udid)
+        jobs = [(kind, locale) for kind in args.device or DEVICES for locale in outlines]
+        with ThreadPoolExecutor(max_workers=args.jobs or len(jobs)) as pool:
+            # list(): re-raise the first job that failed.
+            list(pool.map(lambda job: take(*job, outlines[job[1]], today, shots), jobs))
     print(f"Screenshots in {OUT.relative_to(ROOT)}")
 
 

@@ -153,8 +153,9 @@ scripts/ios-screenshots.py --device iphone --locale zh-Hans --only 03 search --n
 
 It builds the Debug app for the Simulator, writes a demo outline per language
 (`cargo run -p flowie-ffi --example demo_outline`, where the demo text is), and takes each shot
-on a Simulator of its own (`Flowie Screenshots iPhone` / `iPad`, made on first use, set to the
-shot's language) with a fresh copy of it, light appearance and a 9:41 status bar. simctl can't
+with a fresh copy of it, light appearance and a 9:41 status bar. Each device and language has a
+Simulator of its own (`Flowie Screenshots iPhone en-US` and so on, made on first use, set to that
+language), and they run at once (`--jobs N` for fewer); an unchanged build isn't reinstalled. simctl can't
 turn a Simulator, so the `ScreenshotTests` UI-test target (only that) turns the iPad to
 landscape. Launch arguments open each state: the launch rule's keys for the page, and, in debug
 builds, `-FlowieSearch <query>` and `-FlowieCapture <text>` (`ScreenshotArguments.swift`). The PNGs go to

@@ -46,7 +46,9 @@ create them, and fastlane skips them.
 - `Contents/Resources/ThirdPartyNotices.txt`: licenses of the bundled open-source
   components (Rust crates via cargo-about, KaTeX fonts OFL, Lucide icons).
   Their licenses (MIT, Apache-2.0, BSD, ISC, OFL…) require shipping these
-  notices with the binary; the file isn't shown anywhere in the UI.
+  notices with the binary; the file isn't shown anywhere in the UI. The iOS app
+  ships the same notices for flowie-ffi (`scripts/package-ios.sh`) and shows them in
+  Settings → About → Open-Source Notices.
 - Signed with your **Apple Distribution** identity and the provisioning profile,
   then wrapped in a `.pkg` signed with **3rd Party Mac Developer Installer**.
 

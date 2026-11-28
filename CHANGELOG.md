@@ -10,6 +10,10 @@ Homebrew cask follows the newest version, including candidates.
 
 ## [Unreleased]
 
+### Added
+
+- **iPhone and iPad settings**: Settings → About links to Support and the Terms of Use, and lists the licenses of Flowie’s open-source components under Open-Source Notices.
+
 ### Changed
 
 - **iPhone and iPad App Store listing**: updated the English and Simplified Chinese screenshots and descriptions to show the daily journal, tag search, quick capture and side-by-side pages on iPad.

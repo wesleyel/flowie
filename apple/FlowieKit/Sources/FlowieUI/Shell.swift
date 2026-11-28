@@ -1706,7 +1706,12 @@ struct SettingsView: View {
                 Section(NSLocalizedString("About", comment: "Settings section")) {
                     LabeledContent(NSLocalizedString("Version", comment: "Settings row"), value: version)
                     Link(NSLocalizedString("Website", comment: "Settings row"), destination: URL(string: "https://wesleyel.github.io/flowie/")!)
+                    Link(NSLocalizedString("Support", comment: "Settings row"), destination: URL(string: "https://wesleyel.github.io/flowie/#support")!)
                     Link(NSLocalizedString("Privacy Policy", comment: "Settings row"), destination: URL(string: "https://wesleyel.github.io/flowie/privacy.html")!)
+                    Link(NSLocalizedString("Terms of Use", comment: "Settings row"), destination: URL(string: "https://wesleyel.github.io/flowie/terms.html")!)
+                    NavigationLink(NSLocalizedString("Open-Source Notices", comment: "Settings row")) {
+                        ThirdPartyNoticesView()
+                    }
                 }
             }
             .navigationTitle(NSLocalizedString("Settings", comment: "Opens the settings sheet"))

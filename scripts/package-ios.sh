@@ -63,6 +63,10 @@ echo "== $NAME for iOS $VERSION ($BUILD), $BID, team $TEAM"
 
 # ---------------------------------------------------------------- build
 scripts/build-ios-ffi.sh
+# The licenses of the bundled Rust crates, shown in Settings → About → Open-Source Notices.
+# Generated before tuist so the Resources/** glob picks the file up.
+cargo about generate -c appstore/macos/about.toml -m crates/flowie-ffi/Cargo.toml \
+    appstore/macos/about.hbs -o apple/FlowieApp/Resources/ThirdPartyNotices.txt 2>/dev/null
 (cd apple/FlowieApp && tuist generate --no-open)
 rm -rf "$ARCHIVE" "$IPA"
 mkdir -p "$OUT"
@@ -95,7 +99,7 @@ rm -rf "$EXPORT_DIR"
 
 # ---------------------------------------------------------------- check
 # What App Review and iCloud need of the signed app: production environments, the versions
-# above in the app and its extensions, the privacy manifest and the icon.
+# above in the app and its extensions, the privacy manifests, the open-source notices and the icon.
 CHECK=$(mktemp -d)
 unzip -q "$IPA" -d "$CHECK"
 APP="$CHECK/Payload/$NAME.app"
@@ -116,6 +120,7 @@ plist "$ENT" com.apple.security.application-groups | grep -q group.flowie.spokey
 for bundle in "$APP" "$APP/PlugIns/JournalControl.appex" "$APP/PlugIns/Share.appex"; do
     [ -f "$bundle/PrivacyInfo.xcprivacy" ] || fail "no privacy manifest in $bundle"
 done
+[ -s "$APP/ThirdPartyNotices.txt" ] || fail "no open-source notices"
 [ "$(plist "$APP/Info.plist" ITSAppUsesNonExemptEncryption)" = false ] || fail "ITSAppUsesNonExemptEncryption isn't false"
 [ "$(plist "$APP/Info.plist" CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName)" = AppIcon ] || fail "no app icon"
 codesign --verify --strict --deep "$APP" || fail "the signature doesn't verify"

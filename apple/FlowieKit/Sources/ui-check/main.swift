@@ -335,6 +335,19 @@ func checkPageHistory() {
     print("Page history check: ok")
 }
 
+/// Where the panes go (wiki: Sliding-Panes §1): one page fills the window, and narrows into
+/// the left pane as the next comes in; a swipe goes part of the way.
+func checkPaneLayout() {
+    let two = PaneLayout(width: 1000, twoUp: true)
+    check(two.place(0, at: 0) == (0, 1000) && two.place(1, at: 0) == (1000, 500), "alone, full width; the next waits past the edge")
+    check(two.place(0, at: 1) == (0, 500) && two.place(1, at: 1) == (500, 500) && two.place(2, at: 1) == (1000, 500), "two panes")
+    check(two.place(0, at: 1, dragged: 250, towards: 0) == (0, 750) && two.place(1, at: 1, dragged: 250, towards: 0) == (750, 500), "swiping back halfway widens the left pane halfway")
+    check(two.place(0, at: 0, dragged: 80, towards: nil) == (80, 1000), "nowhere to go: the page moves with the finger")
+    let one = PaneLayout(width: 800, twoUp: false)
+    check(one.step == 800 && one.place(2, at: 1) == (800, 800) && one.place(1, at: 1, dragged: -400, towards: 2) == (-400, 800), "one pane slides a page at a time")
+    print("Pane layout check: ok")
+}
+
 /// The iOS app's outline moves into the App Group container whole, and only when the
 /// container has none.
 @MainActor
@@ -550,6 +563,7 @@ try MainActor.assumeIsolated {
     try checkLocation()
     checkLaunchRule()
     checkPageHistory()
+    checkPaneLayout()
     try checkRendering()
     try checkReadingMode()
 }

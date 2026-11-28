@@ -230,3 +230,44 @@ public struct PageHistory: Codable, Equatable, Sendable {
         index -= extra
     }
 }
+
+/// Where the pages of a history go across a window (wiki: Sliding-Panes §1, §3): one page fills
+/// it; in two panes the current page is on the right and the one before on the left, each half
+/// wide. A move slides them a pane at a time, and between a history of one page and two panes
+/// the first page narrows into the left pane (or widens back) as the next slides in (or out).
+public struct PaneLayout: Equatable, Sendable {
+    /// The window's width.
+    public var width: Double
+    /// Two panes show once the history holds more than one page.
+    public var twoUp: Bool
+
+    public init(width: Double, twoUp: Bool) {
+        self.width = width
+        self.twoUp = twoUp
+    }
+
+    /// How far the pages slide for one step back or forward, which a swipe follows.
+    public var step: Double { twoUp ? width / 2 : width }
+
+    /// The left edge and width of the page at `position` with the history at `index`.
+    public func place(_ position: Int, at index: Int) -> (x: Double, width: Double) {
+        guard twoUp else { return (Double(position - index) * width, width) }
+        let half = width / 2
+        guard index > 0 else {
+            // Alone it fills the window; the pages after it wait past the right edge.
+            return position <= 0 ? (Double(position) * half, width) : (width + Double(position - 1) * half, half)
+        }
+        return (Double(position - index + 1) * half, half)
+    }
+
+    /// The same, with the pages dragged `drag` across towards `target` (the page before or
+    /// after), a step being `step`: the frames go part of the way there. With nowhere to go
+    /// (the ends of the history), they move with the drag as they are.
+    public func place(_ position: Int, at index: Int, dragged drag: Double, towards target: Int?) -> (x: Double, width: Double) {
+        let from = place(position, at: index)
+        guard let target, drag != 0 else { return (from.x + drag, from.width) }
+        let to = place(position, at: target)
+        let t = min(1, abs(drag) / step)
+        return (from.x + (to.x - from.x) * t, from.width + (to.width - from.width) * t)
+    }
+}

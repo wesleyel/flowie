@@ -548,10 +548,12 @@ enum PageActivity {
 
 /// A history's pages side by side (wiki: Sliding-Panes §3): the current page, and the one before
 /// it on the left when the window is wide, landscape and at least 1000pt across. A history of
-/// one page shows it alone, centered. Pages on either side of those on screen are kept ready
-/// (off screen), so Back and Forward slide them in, and a sideways swipe drags them along
-/// (§2): let go past half a pane, or quickly, and it goes; at the ends of the history the pages
-/// pull like a rubber band, and a swipe right at the start brings out the sidebar.
+/// one page fills the window; in landscape it narrows into the left pane as a second page comes
+/// in, and widens back when the history is down to one again (§1). Pages on either side of
+/// those on screen are kept ready (off screen), so Back and Forward slide them in, and a
+/// sideways swipe drags them along (§2): let go past half a pane, or quickly, and it goes; at
+/// the ends of the history the pages pull like a rubber band, and a swipe right at the start
+/// brings out the sidebar.
 struct PagesView: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var nav: Navigation
@@ -561,16 +563,16 @@ struct PagesView: View {
     /// How far the pages are dragged across.
     @StateObject private var drag = Local<CGFloat>(0)
 
-    /// How wide a page alone in a wide window is at most, to keep its lines readable.
-    static let readable: CGFloat = 700
-
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
             let history = nav.history(key)
-            let two = key == .window && nav.twoPanes && history.index > 0
+            let layout = PaneLayout(width: size.width, twoUp: key == .window && nav.twoPanes)
+            let two = layout.twoUp && history.index > 0
             let first = two ? history.index - 1 : history.index
-            let width = two ? size.width / 2 : size.width
+            let step = layout.step
+            // A swipe goes part of the way to the page before or after, if there is one.
+            let target = drag.value > 0 ? (history.canGoBack ? history.index - 1 : nil) : (drag.value < 0 && history.canGoForward ? history.index + 1 : nil)
             // While the pages move, those beside the ones on screen are there to slide in.
             let range = nav.moving ? max(0, first - 1)...min(history.entries.count - 1, history.index + 1) : first...history.index
             ZStack(alignment: .topLeading) {
@@ -578,6 +580,7 @@ struct PagesView: View {
                     let position = history.position(of: entry.id) ?? 0
                     let shown = position >= first && position <= history.index
                     let left = two && position == first
+                    let place = layout.place(position, at: history.index, dragged: drag.value, towards: target)
                     PaneContent(
                         store: store, nav: nav,
                         slot: PaneSlot(
@@ -588,26 +591,25 @@ struct PagesView: View {
                             onSettings: onSettings),
                         entry: entry
                     )
-                    .frame(maxWidth: key == .window && !two && nav.canSplit ? Self.readable : .infinity)
-                    .frame(width: width, height: size.height)
+                    .frame(width: place.width, height: size.height)
                     .background(Color(uiColor: .systemBackground))
                     .overlay(alignment: .leading) {
-                        if two && position == history.index {
+                        if layout.twoUp && position > 0 {
                             Rectangle().fill(Color(uiColor: .separator)).frame(width: 1 / UIScreen.main.scale).ignoresSafeArea()
                         }
                     }
-                    .offset(x: CGFloat(position - first) * width + drag.value)
+                    .offset(x: place.x)
                     .allowsHitTesting(shown)
                     .accessibilityHidden(!shown)
-                    .transition(.asymmetric(insertion: .offset(x: nav.wentBack ? -width : width), removal: .identity))
+                    .transition(.asymmetric(insertion: .offset(x: nav.wentBack ? -step : step), removal: .identity))
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .clipped()
             .contentShape(Rectangle())
-            .gesture(PageSwipe(changed: { dx in dragged(dx, width: width) }, ended: { dx, speed in
+            .gesture(PageSwipe(changed: { dx in dragged(dx, width: step) }, ended: { dx, speed in
                 let feedback = UISelectionFeedbackGenerator()
-                if let back = settle(dx, speed: speed, width: width) {
+                if let back = settle(dx, speed: speed, width: step) {
                     feedback.selectionChanged()
                     withAnimation(.snappy) {
                         drag.value = 0

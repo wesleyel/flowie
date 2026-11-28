@@ -148,8 +148,10 @@ for cmd in "Add :com.apple.developer.icloud-container-identifiers array" \
            "Add :com.apple.developer.aps-environment string $([ $DEV = 1 ] && echo development || echo production)"; do
     /usr/libexec/PlistBuddy -c "$cmd" "$ENT"
 done
-# A development build talks to the CloudKit Development environment, where the schema can still change.
-[ $DEV = 1 ] && /usr/libexec/PlistBuddy -c "Add :com.apple.developer.icloud-container-environment string Development" "$ENT"
+# A development build talks to the CloudKit Development environment, where the schema can still change;
+# the App Store build to Production. App Store Connect rejects a Mac build that doesn't name it (90046):
+# the distribution profile allows both, and leaving the key out reads as an empty value.
+/usr/libexec/PlistBuddy -c "Add :com.apple.developer.icloud-container-environment string $([ $DEV = 1 ] && echo Development || echo Production)" "$ENT"
 cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
 codesign --force --timestamp --options runtime --entitlements "$ENT" --sign "$APP_IDENTITY" "$APP"
 rm -f "$ENT"

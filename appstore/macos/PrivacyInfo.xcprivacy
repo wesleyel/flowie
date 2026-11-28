@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Privacy manifest: Flowie collects no data and does no tracking. It reads
-     file timestamps of its own files and uses NSUserDefaults (via AppKit on the Mac,
-     directly on iOS). The iOS app (apple/FlowieApp/Project.swift) ships this file too. -->
+     file timestamps of its own files, SQLite asks the file system about the database's
+     volume (statfs / fstatfs) before writing, and it uses NSUserDefaults (via AppKit on the
+     Mac, directly on iOS). The iOS app and its two extensions (apple/FlowieApp/Project.swift)
+     ship this file too. -->
 <plist version="1.0">
 <dict>
 	<key>NSPrivacyTracking</key>
@@ -24,6 +26,12 @@
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array><string>CA92.1</string></array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array><string>E174.1</string></array>
 		</dict>
 	</array>
 </dict>

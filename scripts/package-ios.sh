@@ -113,7 +113,9 @@ plist "$ENT" com.apple.developer.icloud-container-identifiers | grep -q iCloud.f
 plist "$ENT" com.apple.security.application-groups | grep -q group.flowie.spokey.cn || fail "no App Group"
 codesign -d --entitlements - --xml "$APP/PlugIns/Share.appex" > "$ENT" 2>/dev/null
 plist "$ENT" com.apple.security.application-groups | grep -q group.flowie.spokey.cn || fail "no App Group in the share extension"
-[ -f "$APP/PrivacyInfo.xcprivacy" ] || fail "no privacy manifest"
+for bundle in "$APP" "$APP/PlugIns/JournalControl.appex" "$APP/PlugIns/Share.appex"; do
+    [ -f "$bundle/PrivacyInfo.xcprivacy" ] || fail "no privacy manifest in $bundle"
+done
 [ "$(plist "$APP/Info.plist" ITSAppUsesNonExemptEncryption)" = false ] || fail "ITSAppUsesNonExemptEncryption isn't false"
 [ "$(plist "$APP/Info.plist" CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName)" = AppIcon ] || fail "no app icon"
 codesign --verify --strict --deep "$APP" || fail "the signature doesn't verify"

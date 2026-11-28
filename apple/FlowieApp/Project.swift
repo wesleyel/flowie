@@ -114,7 +114,9 @@ let project = Project(
                 "CFBundleShortVersionString": "$(MARKETING_VERSION)",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
             ]),
-            sources: ["Control/**", "Shared/**"], resources: ["Resources/Localizable.xcstrings"],
+            sources: ["Control/**", "Shared/**"],
+            // App Review reads each extension's own privacy manifest.
+            resources: ["Resources/Localizable.xcstrings", "../../appstore/macos/PrivacyInfo.xcprivacy"],
             settings: .settings(base: ["SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) FLOWIE_CONTROL"])
         ),
         // The share extension: a sheet that leaves what was shared, text or a web page, in the App
@@ -139,7 +141,8 @@ let project = Project(
                 "CFBundleShortVersionString": "$(MARKETING_VERSION)",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
             ]),
-            sources: ["Share/**"], resources: ["Resources/Localizable.xcstrings"],
+            sources: ["Share/**"],
+            resources: ["Resources/Localizable.xcstrings", "../../appstore/macos/PrivacyInfo.xcprivacy"],
             // The inbox is in the App Group container; device builds need the group on this
             // App ID too.
             entitlements: .dictionary([

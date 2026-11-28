@@ -41,7 +41,8 @@ create them, and fastlane skips them.
 - App Sandbox with read/write access only to files picked in Open / Save
   panels (import, export) — `appstore/macos/Flowie.entitlements`.
 - Privacy manifest (`PrivacyInfo.xcprivacy`): no tracking, no data collected;
-  required-reason APIs: file timestamps (C617.1), user defaults (CA92.1).
+  required-reason APIs: file timestamps (C617.1), user defaults (CA92.1), disk
+  space (E174.1, SQLite's statfs). The iOS app and both extensions ship it too.
 - `Contents/Resources/ThirdPartyNotices.txt`: licenses of the bundled open-source
   components (Rust crates via cargo-about, KaTeX fonts OFL, Lucide icons).
   Their licenses (MIT, Apache-2.0, BSD, ISC, OFL…) require shipping these

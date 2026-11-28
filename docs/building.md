@@ -92,7 +92,9 @@ scripts/bundle-linux.sh target/release/flowie
 
 This makes `build/Flowie-<version>-linux-<arch>.tar.gz` and, with
 [appimagetool](https://github.com/AppImage/appimagetool) on `PATH` (or in `APPIMAGETOOL`),
-`build/Flowie-<version>-linux-<arch>.AppImage`. Smaller icon sizes need ImageMagick. The tar.gz is
+`build/Flowie-<version>-linux-<arch>.AppImage`, which also needs `patchelf`: the AppImage carries
+`libxkbcommon`, `libxkbcommon-x11` and `libxcb-xkb`, which light X11 desktops may lack. Smaller
+icon sizes need ImageMagick. The tar.gz is
 an install prefix: extract it into `~/.local` and refresh the desktop's caches so the menu
 entry, icon and `.flowie` file type show up (`~/.local/bin` must be on `PATH`, since the menu
 entry runs `flowie`):

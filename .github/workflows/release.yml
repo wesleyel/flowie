@@ -154,6 +154,12 @@ jobs:
           tar -xzf "$base.tar.gz" -C "$RUNNER_TEMP/prefix" --strip-components=1
           python3 scripts/smoke-mcp.py "$RUNNER_TEMP/prefix/bin/flowie"
           APPIMAGE_EXTRACT_AND_RUN=1 python3 scripts/smoke-mcp.py "$base.AppImage"
+          # The bundled xkbcommon libraries must win over the system's (scripts/bundle-linux.sh).
+          (cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/$base.AppImage" --appimage-extract >/dev/null)
+          ldd "$RUNNER_TEMP/squashfs-root/usr/bin/flowie" | tee "$RUNNER_TEMP/ldd.txt" | grep 'squashfs-root/usr/lib/'
+          for lib in libxkbcommon.so.0 libxkbcommon-x11.so.0 libxcb-xkb.so.1; do
+            grep -q "$lib => .*/squashfs-root/usr/lib/$lib" "$RUNNER_TEMP/ldd.txt" || { echo "$lib isn't the bundled one"; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: flowie-${{ matrix.package }}

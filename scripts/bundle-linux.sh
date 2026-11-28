@@ -8,7 +8,9 @@
 # app id the window reports (flowie.spokey.cn), so Wayland matches the window to its icon.
 #
 # The AppImage needs appimagetool (on PATH, or APPIMAGETOOL=/path/to/appimagetool); without
-# it only the tar.gz is made. Icon sizes below 256 px need ImageMagick (magick or convert).
+# it only the tar.gz is made. It also needs patchelf: the AppImage carries the xkbcommon
+# libraries (BUNDLED_LIBS below) that light X11 desktops may lack. Icon sizes below 256 px
+# need ImageMagick (magick or convert).
 # FLOWIE_VERSION overrides the version in the file names (e.g. 1.0.0-rc.7 for a candidate);
 # ARCH overrides the architecture (default: uname -m). Prints the paths it made.
 set -euo pipefail
@@ -63,6 +65,25 @@ if [ -z "$TOOL" ]; then
 fi
 APPDIR="$STAGE/Flowie.AppDir"
 install_prefix "$APPDIR/usr"
+# Libraries the AppImage brings along, from the build machine. Everything else Flowie links
+# is on AppImage's excludelist (fontconfig, freetype, wayland-client, X11-xcb…), but these
+# aren't base libraries: Debian and Ubuntu split libxkbcommon-x11-0 out, and light X11
+# desktops (i3, Openbox, XFCE) may not have it. libxcb-xkb is what libxkbcommon-x11 needs.
+BUNDLED_LIBS=(libxkbcommon.so.0 libxkbcommon-x11.so.0 libxcb-xkb.so.1)
+command -v patchelf >/dev/null || { echo "bundle-linux: the AppImage needs patchelf" >&2; exit 1; }
+mkdir -p "$APPDIR/usr/lib"
+for lib in "${BUNDLED_LIBS[@]}"; do
+  path="$(ldd "$BIN" | awk -v l="$lib" '$1 == l { print $3 }')"
+  [ -f "$path" ] || { echo "bundle-linux: $BIN doesn't resolve $lib" >&2; exit 1; }
+  cp -L "$path" "$APPDIR/usr/lib/$lib"
+done
+# Look in usr/lib first. DT_RPATH (--force-rpath), not RUNPATH, so it also covers
+# libxcb-xkb, which only libxkbcommon-x11 asks for. No LD_LIBRARY_PATH in AppRun: that
+# would leak into the processes Flowie starts.
+# shellcheck disable=SC2016 # $ORIGIN is for the dynamic loader, not the shell
+patchelf --force-rpath --set-rpath '$ORIGIN/../lib' "$APPDIR/usr/bin/flowie"
+# shellcheck disable=SC2016
+patchelf --force-rpath --set-rpath '$ORIGIN' "$APPDIR/usr/lib/libxkbcommon-x11.so.0"
 cp "$ROOT/assets/linux/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
 cp "$ROOT/assets/icon.png" "$APPDIR/$APP_ID.png"
 ln -s "$APP_ID.png" "$APPDIR/.DirIcon"

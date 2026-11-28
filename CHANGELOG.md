@@ -17,6 +17,7 @@ Homebrew cask follows the newest version, including candidates.
 ### Fixed
 
 - **iPhone and iPad navigation**: pages slide horizontally together during back and forward navigation, keeping the text and toolbar aligned throughout the gesture. Opening a search result dismisses the keyboard. The Hide Keyboard button also lets you browse the results while keeping your search text.
+- **iPad settings**: the iCloud sync notes under Settings → Sync say “this device” instead of “this iPhone”, and describe syncing across your devices rather than only with a Mac.
 
 ## [1.1.0-rc.2] - 2026-11-28
 

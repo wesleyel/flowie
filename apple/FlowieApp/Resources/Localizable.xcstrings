@@ -310,19 +310,19 @@
         }
       }
     },
-    "Can’t reach iCloud right now (%@). Your edits are kept on this iPhone and sent when it can." : {
+    "Can’t reach iCloud right now (%@). Your edits are kept on this device and sent when it can." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Can’t reach iCloud right now (%@). Your edits are kept on this iPhone and sent when it can."
+            "value" : "Can’t reach iCloud right now (%@). Your edits are kept on this device and sent when it can."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂时连不上 iCloud（%@）。你的修改保存在这台 iPhone 上，能连上时再发送。"
+            "value" : "暂时连不上 iCloud（%@）。你的修改保存在这台设备上，能连上时再发送。"
           }
         }
       }
@@ -1093,19 +1093,19 @@
         }
       }
     },
-    "iCloud is restricted on this iPhone (Screen Time or a device profile), so your outline stays on this iPhone." : {
+    "iCloud is restricted on this device (Screen Time or a device profile), so your outline stays on this device." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "iCloud is restricted on this iPhone (Screen Time or a device profile), so your outline stays on this iPhone."
+            "value" : "iCloud is restricted on this device (Screen Time or a device profile), so your outline stays on this device."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "这台 iPhone 上的 iCloud 受到限制（屏幕使用时间或描述文件），大纲只保存在这台 iPhone 上。"
+            "value" : "这台设备上的 iCloud 受到限制（屏幕使用时间或描述文件），大纲只保存在这台设备上。"
           }
         }
       }
@@ -2114,19 +2114,19 @@
         }
       }
     },
-    "Sign in to iCloud in the Settings app to sync your outline with your Mac. Your outline stays on this iPhone meanwhile." : {
+    "Sign in to iCloud in the Settings app to sync your outline across your devices. Your outline stays on this device meanwhile." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sign in to iCloud in the Settings app to sync your outline with your Mac. Your outline stays on this iPhone meanwhile."
+            "value" : "Sign in to iCloud in the Settings app to sync your outline across your devices. Your outline stays on this device meanwhile."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在「设置」App 里登录 iCloud，就能与 Mac 同步大纲。在此之前，大纲只保存在这台 iPhone 上。"
+            "value" : "在「设置」App 里登录 iCloud，就能在你的设备间同步大纲。在此之前，大纲只保存在这台设备上。"
           }
         }
       }
@@ -2777,53 +2777,53 @@
         }
       }
     },
-    "Your outline syncs with your Mac through iCloud when this iPhone is signed in to iCloud." : {
+    "Your outline syncs across your devices through iCloud when this device is signed in to iCloud." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your outline syncs with your Mac through iCloud when this iPhone is signed in to iCloud."
+            "value" : "Your outline syncs across your devices through iCloud when this device is signed in to iCloud."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "这台 iPhone 登录 iCloud 后，大纲会通过 iCloud 与你的 Mac 同步。"
+            "value" : "这台设备登录 iCloud 后，大纲会通过 iCloud 在你的设备间同步。"
           }
         }
       }
     },
-    "Your outline syncs with your Mac through your iCloud account." : {
+    "Your outline syncs across your devices through your iCloud account." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your outline syncs with your Mac through your iCloud account."
+            "value" : "Your outline syncs across your devices through your iCloud account."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "大纲通过你的 iCloud 账户与 Mac 同步。"
+            "value" : "大纲通过你的 iCloud 账户在你的设备间同步。"
           }
         }
       }
     },
-    "Your outline syncs with your Mac through your iCloud account. Last synced %@." : {
+    "Your outline syncs across your devices through your iCloud account. Last synced %@." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your outline syncs with your Mac through your iCloud account. Last synced %@."
+            "value" : "Your outline syncs across your devices through your iCloud account. Last synced %@."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "大纲通过你的 iCloud 账户与 Mac 同步。上次同步于 %@。"
+            "value" : "大纲通过你的 iCloud 账户在你的设备间同步。上次同步于 %@。"
           }
         }
       }

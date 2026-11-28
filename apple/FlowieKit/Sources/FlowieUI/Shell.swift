@@ -1636,20 +1636,20 @@ struct SettingsView: View {
     private var iCloudFooter: String {
         switch store.iCloud {
         case .off:
-            return NSLocalizedString("Your outline syncs with your Mac through iCloud when this iPhone is signed in to iCloud.", comment: "Settings footer")
+            return NSLocalizedString("Your outline syncs across your devices through iCloud when this device is signed in to iCloud.", comment: "Settings footer")
         case .checking, .syncing:
-            return NSLocalizedString("Your outline syncs with your Mac through your iCloud account.", comment: "Settings footer")
+            return NSLocalizedString("Your outline syncs across your devices through your iCloud account.", comment: "Settings footer")
         case .synced(let date):
-            return String(format: NSLocalizedString("Your outline syncs with your Mac through your iCloud account. Last synced %@.", comment: "Settings footer; %@ is a time"),
+            return String(format: NSLocalizedString("Your outline syncs across your devices through your iCloud account. Last synced %@.", comment: "Settings footer; %@ is a time"),
                           date.formatted(date: .omitted, time: .shortened))
         case .failed(let error):
-            return String(format: NSLocalizedString("Can’t reach iCloud right now (%@). Your edits are kept on this iPhone and sent when it can.", comment: "Settings footer; %@ is the error"), error)
+            return String(format: NSLocalizedString("Can’t reach iCloud right now (%@). Your edits are kept on this device and sent when it can.", comment: "Settings footer; %@ is the error"), error)
         case .unavailable(let access):
             switch access {
             case .noAccount:
-                return NSLocalizedString("Sign in to iCloud in the Settings app to sync your outline with your Mac. Your outline stays on this iPhone meanwhile.", comment: "Settings footer")
+                return NSLocalizedString("Sign in to iCloud in the Settings app to sync your outline across your devices. Your outline stays on this device meanwhile.", comment: "Settings footer")
             case .restricted:
-                return NSLocalizedString("iCloud is restricted on this iPhone (Screen Time or a device profile), so your outline stays on this iPhone.", comment: "Settings footer")
+                return NSLocalizedString("iCloud is restricted on this device (Screen Time or a device profile), so your outline stays on this device.", comment: "Settings footer")
             case .notEntitled:
                 return NSLocalizedString("This build of Flowie isn’t signed for iCloud, so your outline stays on this device.", comment: "Settings footer")
             case .unsupported:

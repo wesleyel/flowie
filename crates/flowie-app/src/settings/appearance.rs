@@ -98,6 +98,7 @@ impl Outline {
 
     pub fn apply_theme(&mut self, window: &Window) {
         self.theme = Theme::build(window.appearance(), &self.config);
+        crate::ui::prompt::set_theme(self.theme);
     }
 
     pub(super) fn render_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {

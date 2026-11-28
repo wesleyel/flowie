@@ -13,6 +13,7 @@ pub mod button;
 pub mod controls;
 pub mod list;
 pub mod menu;
+pub mod prompt;
 pub mod scrollbar;
 pub mod segmented;
 pub mod surface;

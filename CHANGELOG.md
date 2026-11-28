@@ -22,6 +22,7 @@ Homebrew cask follows the newest version, including candidates.
 ### Fixed
 
 - **iPhone and iPad navigation**: pages slide horizontally together during back and forward navigation, keeping the text and toolbar aligned throughout the gesture. Opening a search result dismisses the keyboard. The Hide Keyboard button also lets you browse the results while keeping your search text.
+- **Linux alerts**: confirmations such as deleting from the Trash forever use Flowie's own dialog in the current theme, and long explanations wrap instead of being cut off (seen on X11 with Openbox).
 - **iPad settings**: the iCloud sync notes under Settings → Sync say “this device” instead of “this iPhone”, and describe syncing across your devices rather than only with a Mac.
 
 ## [1.1.0-rc.2] - 2026-11-28

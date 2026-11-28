@@ -287,6 +287,10 @@ fn main() {
         flowie_math::load_fonts(cx);
         keymap::install(cx, &keys);
         cx.set_quit_mode(if platform::OS == platform::Os::Mac { QuitMode::LastWindowClosed } else { QuitMode::Explicit });
+        // Linux has no native alerts; GPUI's fallback cuts off long text (ui/prompt.rs).
+        if platform::OS == platform::Os::Linux {
+            ui::prompt::install(cx);
+        }
 
         // Screenshot builds: a fixed window size (points) for 2880×1800 shots on a Retina display.
         #[cfg(feature = "screenshots")]

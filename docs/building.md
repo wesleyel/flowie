@@ -227,7 +227,7 @@ local `wiki/` clone).
 
 ## Checks
 
-CI (`.github/workflows/ci.yml`) checks pull requests and pushes to `main` with the same macOS, Windows and Linux matrix. It also checks both changelogs and runs `cargo deny check`. It does not create release archives.
+CI (`.github/workflows/ci.yml`) checks pull requests and pushes to `main` with the same macOS, Windows and Linux matrix. It also checks both changelogs, builds the browser version (`scripts/build-web.sh`) and runs `cargo deny check`. It does not create release archives.
 
 ```bash
 cargo fmt --all -- --check

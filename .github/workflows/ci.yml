@@ -59,6 +59,24 @@ jobs:
         run: bash scripts/check-formats.sh
       - run: cargo check --locked -p flowie-core -p flowie-sync --no-default-features --target wasm32-unknown-unknown
 
+  web:
+    name: Browser version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - run: rustup target add wasm32-unknown-unknown && rustup component add llvm-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # flowie-wasm into web/pkg, then the page's type check and Vite build into web/dist
+      - run: sh scripts/build-web.sh
+
   deny:
     name: Licenses and advisories
     runs-on: ubuntu-latest

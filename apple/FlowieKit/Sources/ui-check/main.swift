@@ -256,7 +256,7 @@ func checkLaunchRule() {
     let noon = ISO8601DateFormatter().date(from: "2026-11-27T12:00:00Z")!
     let day = LaunchMemory.day(of: noon)
     check(LaunchMemory.start(window: "w1", at: noon) == .new, "a new user starts fresh")
-    check(!LaunchMemory.zoomedOnce, "and sees the hint")
+    check(!LaunchMemory.homeHintGone, "and sees the hint")
     var history = PageHistory(.home)
     history.push(PageEntry(.bullet("abc")))
     history.update(history.current.id) { $0.memory = PageMemory(topRow: "r1", offset: 12.5, focus: "r2", caret: 3) }
@@ -469,9 +469,12 @@ func checkReadingMode() throws {
         UserDefaults.standard.removeObject(forKey: "readingMode")
         try? FileManager.default.removeItem(at: dir)
     }
+    LaunchMemory.defaults = UserDefaults(suiteName: "flowie-hint-check-\(UUID().uuidString)")!
     let docs = try OutlineStore.open(databaseAt: dir.appendingPathComponent("outline.sqlite"))
+    check(docs.showsHomeHint, "a new outline shows Home's hint")
     let home = docs.page(.home)
     home.add("parent")
+    check(!docs.showsHomeHint && !OutlineStore(outline: docs.outline).showsHomeHint, "an edit hides it for good")
     _ = try docs.outline.create(parent: home.rows[0].id, index: 0, text: "child")
     home.reload()
     docs.setReadingMode(true)
@@ -492,8 +495,10 @@ func checkReadingMode() throws {
     check(home.rows.map(\.text) == ["parent", "child"] && home.rows == rows && home.focus == nil, "nothing edits in reading mode: \(home.rows.map(\.text))")
     home.toggleFold(rows[0])
     check(home.rows.count == 1 && home.rows[0].collapsed, "folding still works")
-    home.expandToLevel(.max)
-    check(home.rows.count == 2, "unfolding still works")
+    check(home.foldState == nil, "folding a row by hand: the fold button goes neutral")
+    home.fold(to: .expandAll)
+    check(home.rows.count == 2 && home.foldState == .expandAll, "unfolding still works")
+    check(FoldLevel.after(nil) == .collapseAll && FoldLevel.after(.collapseAll) == .two && FoldLevel.after(.two) == .expandAll && FoldLevel.after(.expandAll) == .collapseAll, "the fold button steps through three states")
     docs.setStarred(rows[0].id, true)
     check(docs.bullet(rows[0].id)?.starred == true, "starring still works")
     check(try docs.appendToToday("from Siri") && docs.readingMode, "Add to Today's Journal writes, reading mode stays")

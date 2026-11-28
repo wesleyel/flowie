@@ -991,6 +991,11 @@ struct PageScreen: View {
                         }
                     }
                 }
+                if page.rows.contains(where: \.hasChildren) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        FoldButton(page: page)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     PageMenu(store: store, page: page, nav: nav) { day in
                         nav.replace(at: slot.position, with: .day(day), in: slot.key)
@@ -1056,8 +1061,26 @@ private struct Subtitle: ViewModifier {
     }
 }
 
-/// A page's "…" menu, the only button at its top right (§4.4): star, show or hide completed,
-/// reading mode, fold the page to a level, copy link, and in iPad landscape one pane or two.
+/// Fold the whole page, beside its "…" menu: each tap goes to the next of Collapse All, Show 2
+/// Levels and Expand All, the symbol showing the state the page is in (a neutral one once rows
+/// were folded by hand, the next tap then collapsing all). Works in reading mode.
+struct FoldButton: View {
+    @ObservedObject var page: PageModel
+
+    var body: some View {
+        let next = FoldLevel.after(page.foldState)
+        Button {
+            page.fold(to: next)
+        } label: {
+            Label(NSLocalizedString("Fold", comment: "Navigation bar button that folds the page a step further each tap"), systemImage: page.foldState?.symbol ?? FoldLevel.neutralSymbol)
+        }
+        .accessibilityValue(page.foldState?.title ?? "")
+        .accessibilityHint(next.title)
+    }
+}
+
+/// A page's "…" menu, at its top right beside the fold button (§4.4): star, show or hide completed,
+/// reading mode, copy link, and in iPad landscape one pane or two.
 /// `showDay`: show another day in its place.
 struct PageMenu: View {
     @ObservedObject var store: OutlineStore
@@ -1088,13 +1111,6 @@ struct PageMenu: View {
                 // Landscape only: portrait has one pane anyway (wiki: Sliding-Panes §3).
                 Toggle(isOn: Binding(get: { !nav.singlePane }, set: { two in withAnimation(.snappy) { nav.singlePane = !two } })) {
                     Label(NSLocalizedString("Two Panes", comment: "Page menu toggle: the page before shows beside the current one (iPad landscape)"), systemImage: "rectangle.split.2x1")
-                }
-            }
-            if page.rows.contains(where: \.hasChildren) {
-                Section {
-                    ForEach(FoldLevel.allCases, id: \.self) { level in
-                        Button(level.title, systemImage: level.symbol) { page.expandToLevel(level.levels) }
-                    }
                 }
             }
             if let id = page.root {

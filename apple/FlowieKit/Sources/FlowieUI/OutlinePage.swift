@@ -66,49 +66,6 @@ public struct OutlinePage: UIViewControllerRepresentable {
     }
 }
 
-/// How far the page's "…" menu and ⌃-number keys fold the page: the desktop's Show 1 Level
-/// (here Collapse All), Show 2 and 3 Levels, and Expand All, with its keys.
-enum FoldLevel: CaseIterable {
-    case collapseAll, two, three, expandAll
-
-    var levels: UInt32 {
-        switch self {
-        case .collapseAll: 1
-        case .two: 2
-        case .three: 3
-        case .expandAll: .max
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .collapseAll: NSLocalizedString("Collapse All", comment: "Page menu item: fold every top-level bullet")
-        case .two: NSLocalizedString("Show 2 Levels", comment: "Page menu item: show top-level bullets and their children")
-        case .three: NSLocalizedString("Show 3 Levels", comment: "Page menu item: show three levels of bullets")
-        case .expandAll: NSLocalizedString("Expand All", comment: "Page menu item: unfold every bullet on the page")
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .collapseAll: "rectangle.compress.vertical"
-        case .two: "2.circle"
-        case .three: "3.circle"
-        case .expandAll: "rectangle.expand.vertical"
-        }
-    }
-
-    /// The desktop's key, with ⌃.
-    var key: String {
-        switch self {
-        case .collapseAll: "1"
-        case .two: "2"
-        case .three: "3"
-        case .expandAll: "0"
-        }
-    }
-}
-
 /// Sizes of a row at the current text size and width (§4.1). At the default (Large) size:
 /// 17pt text on 22pt lines, 3pt above and below, a 20pt bullet slot, 16pt a level. In a
 /// regular-width window (iPad full screen, wide Split View or Stage Manager windows) rows sit
@@ -256,6 +213,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     private var iCloud = false
     private var iCloudWatch: AnyCancellable?
     private var readingWatch: AnyCancellable?
+    private var hintWatch: AnyCancellable?
     /// "Deleted · Undo", after a bullet is deleted.
     private let undoToast = UndoToast()
     /// Keeps the toast above the docked keyboard (and its bar).
@@ -367,6 +325,10 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         iCloud = page.store.iCloud.isOn
         iCloudWatch = page.store.$iCloud.map(\.isOn).removeDuplicates().dropFirst().sink { [weak self] on in
             self?.iCloudChanged(on)
+        }
+        // Home's hint for new users goes for good (an edit, sync, a bullet opened).
+        hintWatch = page.store.$showsHomeHint.removeDuplicates().dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.updateHint() }
         }
         // Reading mode (`page.isReadOnly`): the hint changes (no "tap here to write").
         readingWatch = page.store.$readingMode.removeDuplicates().dropFirst().sink { [weak self] on in
@@ -796,8 +758,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
     /// Open a bullet as a page (tapping its bullet or depth number), in the window's history.
     func zoom(into row: RowView) {
         view.endEditing(true)
-        LaunchMemory.zoomedOnce = true
-        updateHint()
+        page.store.retireHomeHint()
         open(row.id, row.id)
     }
 
@@ -895,7 +856,7 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     private func updateHint() {
         let text: String?
-        if case .home = page.kind, !LaunchMemory.zoomedOnce {
+        if case .home = page.kind, page.store.showsHomeHint {
             text = NSLocalizedString("Tap a bullet to open it", comment: "Hint under the rows of Home for new users")
         } else if case .day = page.kind, order.isEmpty, !page.isReadOnly {
             text = NSLocalizedString("Tap here to write in this day", comment: "Hint on a day of the journal with nothing in it")
@@ -1305,17 +1266,17 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
         }
     }()
 
-    /// The desktop's keys for folding the whole page to a level (⌃1 ⌃2 ⌃3 ⌃0), edited or not.
+    /// The desktop's keys for folding the whole page to a level (⌃1 ⌃2 ⌃0), edited or not.
     private lazy var pageKeyCommands: [UIKeyCommand] = FoldLevel.allCases.map { level in
-        let command = UIKeyCommand(title: level.title, action: #selector(foldPage(_:)), input: level.key, modifierFlags: .control, propertyList: level.levels)
+        let command = UIKeyCommand(title: level.title, action: #selector(foldPage(_:)), input: level.key, modifierFlags: .control, propertyList: level.key)
         command.discoverabilityTitle = level.title
         command.wantsPriorityOverSystemBehavior = true
         return command
     }
 
     @objc private func foldPage(_ command: UIKeyCommand) {
-        guard let levels = command.propertyList as? UInt32 else { return }
-        page.expandToLevel(levels)
+        guard let key = command.propertyList as? String, let level = FoldLevel.allCases.first(where: { $0.key == key }) else { return }
+        page.fold(to: level)
     }
 
     public override var keyCommands: [UIKeyCommand]? {

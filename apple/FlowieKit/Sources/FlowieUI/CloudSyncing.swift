@@ -97,7 +97,7 @@ public final class OutlineCloudHost: CloudSyncHost, @unchecked Sendable {
     }
 
     private func changed() async {
-        await MainActor.run { [weak store] in store?.reloadAll() }
+        await MainActor.run { [weak store] in store?.syncedIn() }
     }
 }
 

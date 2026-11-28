@@ -157,8 +157,8 @@ public enum LaunchMemory {
         }
     }
 
-    /// Whether a bullet has been opened as a page once: Home's hint for new users goes then.
-    public static var zoomedOnce: Bool {
+    /// Whether Home's hint for new users has gone for good (`OutlineStore.showsHomeHint`).
+    public static var homeHintGone: Bool {
         get { defaults.bool(forKey: zoomedKey) }
         set { defaults.set(newValue, forKey: zoomedKey) }
     }

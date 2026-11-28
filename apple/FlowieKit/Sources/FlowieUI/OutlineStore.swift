@@ -26,6 +26,10 @@ public final class OutlineStore: ObservableObject {
     /// out what edits), while links, zooming in, folding and stars still work. This device's
     /// view setting for the whole app, kept across launches; a capture turns it off.
     @Published public private(set) var readingMode: Bool
+    /// Whether Home shows "Tap a bullet to open it" under its rows: only for an outline made
+    /// on this device that nothing synced into. It goes for good once anything is edited here,
+    /// sync (iCloud or a self-hosted server) brings changes, or a bullet is opened.
+    @Published public private(set) var showsHomeHint: Bool
     /// Goes up with every change, so lists (stars, search results, Recently Deleted) read again.
     @Published public private(set) var revision = 0
     /// The pages alive now (weakly held).
@@ -44,6 +48,20 @@ public final class OutlineStore: ObservableObject {
         self.outline = outline
         hideCompleted = outline.hideCompleted()
         readingMode = UserDefaults.standard.bool(forKey: Self.readingModeKey)
+        showsHomeHint = !LaunchMemory.homeHintGone
+    }
+
+    /// Hide Home's hint for new users, for good.
+    func retireHomeHint() {
+        guard showsHomeHint else { return }
+        LaunchMemory.homeHintGone = true
+        showsHomeHint = false
+    }
+
+    /// Sync brought changes: pages read them, and Home's hint for new users goes.
+    func syncedIn() {
+        retireHomeHint()
+        reloadAll()
     }
 
     static let readingModeKey = "readingMode"
@@ -62,14 +80,18 @@ public final class OutlineStore: ObservableObject {
     }
 
     /// An edit on `source` changed the outline: the other pages take what it changed (pages not
-    /// on screen read it when they come back), and lists read again.
-    func edited(_ outcome: EditOutcome, from source: PageModel?) {
+    /// on screen read it when they come back), and lists read again. `writes`: false for a
+    /// view change (folding).
+    func edited(_ outcome: EditOutcome, from source: PageModel?, writes: Bool = true) {
+        if writes {
+            retireHomeHint()
+        }
         for page in pages.allObjects where page !== source {
             page.take(outcome)
         }
         revision += 1
         if outline.pumpSync() {
-            reloadAll()
+            syncedIn()
         }
         queueForICloud()
     }
@@ -298,7 +320,7 @@ public final class OutlineStore: ObservableObject {
     /// Take what sync finished; the outline changed if it brought records.
     func pump() {
         if outline.pumpSync() {
-            reloadAll()
+            syncedIn()
         } else {
             syncStatus = outline.syncStatus()
         }
@@ -452,7 +474,7 @@ public final class PageModel: ObservableObject {
             let outcome = try change()
             store.problem = nil
             apply(outcome)
-            store.edited(outcome, from: self)
+            store.edited(outcome, from: self, writes: writes)
         } catch {
             store.problem = String(describing: error)
             reload()
@@ -528,17 +550,23 @@ public final class PageModel: ObservableObject {
         edit { try store.outline.setCompleted(id: row.id, completed: !row.completed) }
     }
 
-    /// Fold a bullet with children, or unfold it (one undo step).
+    /// Fold a bullet with children, or unfold it (one undo step). The fold button goes neutral.
     public func toggleFold(_ row: RowView) {
         guard row.hasChildren else { return }
+        foldState = nil
         edit(writes: false) { try store.outline.setCollapsed(id: row.id, collapsed: !row.collapsed) }
     }
 
-    /// Show `levels` levels of the page, as the desktop's Show N Levels: `1` folds every
-    /// top-level row (Collapse All), `.max` unfolds everything (Expand All). One undo step.
-    public func expandToLevel(_ levels: UInt32) {
+    /// The state the fold button shows: the last one it (or a ⌃-number key) folded the page to
+    /// here, nil once a row was folded or unfolded by hand, or an undo may have changed folding.
+    @Published public private(set) var foldState: FoldLevel?
+
+    /// Fold the page to `level`, as the desktop's Show N Levels (`levels` deep: 1 folds every
+    /// top-level row, `.max` unfolds everything). One undo step; works in reading mode.
+    public func fold(to level: FoldLevel) {
         guard !isUnmadeDay else { return }
-        edit(writes: false) { try store.outline.expandToLevel(root: root, levels: levels) }
+        edit(writes: false) { try store.outline.expandToLevel(root: root, levels: level.levels) }
+        foldState = level
     }
 
     /// How many children a row has as the page would show them (completed ones left out when
@@ -631,10 +659,12 @@ public final class PageModel: ObservableObject {
 
     /// Undo the last step; the caret goes back where it was, when that is known.
     public func undo() {
+        foldState = nil
         edit { store.outline.undo() }
     }
 
     public func redo() {
+        foldState = nil
         edit { store.outline.redo() }
     }
 
@@ -723,5 +753,57 @@ extension BulletView {
         }
         if tail.count == parts.count - 1 { return whole }
         return ([first, "…"] + tail).joined(separator: sep)
+    }
+}
+
+/// The states of the page's fold button and ⌃-number keys, in the order a tap steps through
+/// them: Collapse All (the desktop's Show 1 Level), Show 2 Levels, Expand All.
+public enum FoldLevel: CaseIterable {
+    case collapseAll, two, expandAll
+
+    /// The state a tap on the fold button goes to from `state` (nil: rows were folded or
+    /// unfolded by hand since, or the page wasn't folded from the button yet).
+    public static func after(_ state: FoldLevel?) -> FoldLevel {
+        switch state {
+        case nil, .expandAll: .collapseAll
+        case .collapseAll: .two
+        case .two: .expandAll
+        }
+    }
+
+    var levels: UInt32 {
+        switch self {
+        case .collapseAll: 1
+        case .two: 2
+        case .expandAll: .max
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .collapseAll: NSLocalizedString("Collapse All", comment: "Page menu item: fold every top-level bullet")
+        case .two: NSLocalizedString("Show 2 Levels", comment: "Page menu item: show top-level bullets and their children")
+        case .expandAll: NSLocalizedString("Expand All", comment: "Page menu item: unfold every bullet on the page")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .collapseAll: "rectangle.compress.vertical"
+        case .two: "list.bullet.indent"
+        case .expandAll: "rectangle.expand.vertical"
+        }
+    }
+
+    /// The fold button's symbol when the page isn't in one of the states.
+    static let neutralSymbol = "chevron.up.chevron.down"
+
+    /// The desktop's key, with ⌃.
+    var key: String {
+        switch self {
+        case .collapseAll: "1"
+        case .two: "2"
+        case .expandAll: "0"
+        }
     }
 }

@@ -821,6 +821,23 @@
         }
       }
     },
+    "Fold" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fold"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "折叠"
+          }
+        }
+      }
+    },
     "Format" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1956,24 +1973,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "显示 2 层"
-          }
-        }
-      }
-    },
-    "Show 3 Levels" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show 3 Levels"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "显示 3 层"
+            "value" : "展开两级"
           }
         }
       }

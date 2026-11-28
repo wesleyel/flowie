@@ -304,6 +304,7 @@ fn new_actor() -> u64 {
 /// Keep an image file that came from a backend under the name `remote`
 /// ([`flowie_sync::blob_name`]) in `images`: only one that is an image and matches that name,
 /// else nothing.
+#[cfg(feature = "native")]
 pub(crate) fn keep_image(images: &ImageDir, bytes: &[u8], remote: &str) -> Result<Option<BlobInfo>, String> {
     match flowie_core::images::info(bytes) {
         Ok(info) if flowie_sync::blob_name(&info.name) == remote => images.put(bytes).map(Some).map_err(|e| e.to_string()),

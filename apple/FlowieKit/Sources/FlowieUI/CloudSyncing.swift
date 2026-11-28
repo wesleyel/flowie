@@ -74,12 +74,18 @@ public final class OutlineCloudHost: CloudSyncHost, @unchecked Sendable {
         }
     }
 
+    public func missingFiles(limit: Int) async -> [String] {
+        outline.missingFiles(limit: UInt32(limit))
+    }
+
     /// Records fetched, image files among them: a row whose file came is shown again, at the
     /// file's size.
-    public func onFetched(_ records: [CloudWire]) async {
-        if outline.onFetched(records: records.map(OutlineCloudHost.wireRecord), cursor: "icloud") {
+    public func onFetched(_ records: [CloudWire]) async -> [String: String] {
+        let fetched = outline.onFetched(records: records.map(OutlineCloudHost.wireRecord), cursor: "icloud")
+        if fetched.changed {
             await changed()
         }
+        return Dictionary(fetched.files.map { ($0.id, $0.verdict) }, uniquingKeysWith: { _, last in last })
     }
 
     public func resendAll() async {

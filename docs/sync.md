@@ -122,7 +122,13 @@ just before the bullet the first time it is sent, unless it knows the file is in
 a `Blob` is always saved as a new record, so `serverRecordChanged` on one means the same file is
 there (its name is its contents). A fetched file is kept only if it is an image whose name
 matches the record's, and noted with its size; a bullet whose file comes later shows a
-placeholder (on iOS: *Image not downloaded from iCloud yet*) until it does. Nothing is ever
+placeholder (on iOS: *Image not downloaded from iCloud yet*) until it does. After each fetch,
+the files that rows show but this device doesn't have (`NativeSync::missing_files`) are asked
+for by name, each once while the engine runs (again if iCloud had it but sent no file): a
+`Blob` that came without its download is behind CKSyncEngine's place in the zone and wouldn't
+come again otherwise. Each `Blob` fetched or sent is logged (subsystem `flowie.spokey.cn`,
+category `icloud`) with what became of it; debug builds also write those lines to
+`sync-debug.log` beside `icloud-sync-state.json` (256 KB, then `sync-debug.old.log`). Nothing is ever
 deleted from the zone: Flowie ignores every record deletion it fetches, and unused files aren't
 collected yet. Versions before `Blob` ignore those records.
 

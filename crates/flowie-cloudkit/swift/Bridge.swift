@@ -90,8 +90,12 @@ final class RustHost: CloudSyncHost, @unchecked Sendable {
         _ = await ask(["type": "saved", "outcomes": list])
     }
 
-    func onFetched(_ records: [CloudWire]) async {
-        _ = await ask(["type": "fetched", "records": records.map(RustHost.wire)])
+    func missingFiles(limit: Int) async -> [String] {
+        (await ask(["type": "missing_files", "limit": limit]) as? [String]) ?? []
+    }
+
+    func onFetched(_ records: [CloudWire]) async -> [String: String] {
+        await ask(["type": "fetched", "records": records.map(RustHost.wire)]) as? [String: String] ?? [:]
     }
 
     func resendAll() async {

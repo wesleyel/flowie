@@ -78,13 +78,14 @@ let diskHost = OutlineCloudHost(outline: disk, store: nil)
 let kept = URL(fileURLWithPath: db.path + ".images").appendingPathComponent(String(gifName.prefix(2))).appendingPathComponent(gifName)
 var wrong = fileWire
 wrong.id = String(repeating: "0", count: 64) + ".gif"
-await diskHost.onFetched([wrong])
+check(await diskHost.onFetched([wrong])[wrong.id]?.hasPrefix("dropped: the file is \(gifName)") == true, "and says why")
 check(!FileManager.default.fileExists(atPath: URL(fileURLWithPath: db.path + ".images").appendingPathComponent("00").path),
       "a file that isn't what its name says is dropped")
-await diskHost.onFetched([fileWire])
+check(await diskHost.onFetched([fileWire]) == [gifName: "kept"], "a file that matches is kept")
 check(FileManager.default.contents(atPath: kept.path) == gif, "the file is kept under its name")
 let diskRows = try disk.page(root: nil)
 check(disk.unsentIds(limit: 10).isEmpty && diskRows.isEmpty, "and is no bullet")
+check(await diskHost.missingFiles(limit: 10).isEmpty, "no row is missing its file")
 
 // Saved: the system fields become the etag; the next save starts from them.
 await host.onSaved([.saved(id: id, etag: back.etag!)])
@@ -104,7 +105,7 @@ check(CloudRecordCodec.record(for: foreign, zone: zone).recordID == record.recor
 let other = Outline.inMemory()
 _ = other.beginNativeSync(remote: "icloud")
 let otherHost = OutlineCloudHost(outline: other, store: nil)
-await otherHost.onFetched([back])
+check(await otherHost.onFetched([back]).isEmpty, "a bullet's record is no file")
 _ = try other.setNote(id: id, note: "from the other device")
 let theirs = await otherHost.nextSaves(limit: 10)
 check(theirs.count == 1, "the other device sends its note")

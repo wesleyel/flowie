@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 use flowie_core::images::ImageDir;
 use flowie_core::journal;
 use flowie_core::{NodeId, ROOT};
-use flowie_doc::{NativeSaved, NativeSync, Wire, WireFile, Workspace};
+use flowie_doc::{FileTaken, NativeSaved, NativeSync, Wire, WireFile, Workspace};
 
 /// What one CKRecord holds: a `Record`'s envelope, or a `Blob`'s file (its CKAsset) and the
 /// fields beside it.
@@ -253,7 +253,7 @@ fn a_record_this_version_cant_read_never_touches_a_bullet() {
         .map(|(i, envelope)| Wire { id: name.clone(), etag: Some(format!("later:{i}")), envelope: envelope.clone(), file: None })
         .collect();
 
-    assert!(!mac.native.on_fetched(&mut mac.ws, &wires, ""), "nothing changes");
+    assert!(!mac.native.on_fetched(&mut mac.ws, &wires, "").changed, "nothing changes");
     assert_eq!(mac.ws.tree.children(ROOT), [id]);
     assert_eq!(mac.ws.tree.node(id).text, "keep me");
     assert!(NativeSync::unsent_ids(&mac.ws, 10).is_empty(), "and nothing is sent back");
@@ -271,7 +271,7 @@ fn a_record_this_version_cant_read_never_touches_a_bullet() {
     // The same removal as a bullet's record does remove it: the ones above were ignored for
     // what they are, not for what they carry.
     let removal = Wire { id: name, etag: Some("now".into()), envelope: envelope.to_string(), file: None };
-    assert!(mac.native.on_fetched(&mut mac.ws, &[removal], ""));
+    assert!(mac.native.on_fetched(&mut mac.ws, &[removal], "").changed);
     assert!(mac.ws.tree.children(ROOT).is_empty());
 }
 
@@ -342,13 +342,13 @@ fn a_row_that_comes_before_its_file_shows_it_once_the_file_arrives() {
     assert_eq!(file.file.as_ref().map(|f| (f.width, f.height)), Some((4, 5)));
 
     // The row first, in one fetch: a placeholder of unknown size.
-    assert!(iphone.native.on_fetched(&mut iphone.ws, &record, ""));
+    assert!(iphone.native.on_fetched(&mut iphone.ws, &record, "").changed);
     assert!(iphone.ws.tree.contains(row) && !iphone.ws.blobs.contains_key(&name));
     // Then the file: the outline says something changed, so the row is shown again.
-    assert!(iphone.native.on_fetched(&mut iphone.ws, std::slice::from_ref(&file), ""), "a row waits for it");
+    assert!(iphone.native.on_fetched(&mut iphone.ws, std::slice::from_ref(&file), "").changed, "a row waits for it");
     assert_eq!(iphone.ws.image_dir.as_ref().unwrap().read(&name).unwrap(), bytes);
     assert_eq!((iphone.ws.blobs[&name].width, iphone.ws.blobs[&name].height), (4, 5));
-    assert!(!iphone.native.on_fetched(&mut iphone.ws, &[file], ""), "the same file again changes nothing");
+    assert!(!iphone.native.on_fetched(&mut iphone.ws, &[file], "").changed, "the same file again changes nothing");
 }
 
 #[test]
@@ -357,15 +357,20 @@ fn a_file_that_isnt_what_its_name_says_is_dropped() {
     let mut iphone = Device::open(&dir.path().join("iphone.sqlite"));
     let real = flowie_core::images::info(&gif(2, 2, 2)).unwrap().name;
     let path = dir.path().join("download");
-    for bytes in [gif(2, 2, 3), b"not an image".to_vec()] {
+    let other = flowie_core::images::info(&gif(2, 2, 3)).unwrap().name;
+    for (bytes, why) in [(gif(2, 2, 3), FileTaken::OtherName(other)), (b"not an image".to_vec(), FileTaken::NotAnImage(12))] {
         std::fs::write(&path, bytes).unwrap();
         let file = WireFile { path: path.to_string_lossy().into_owned(), width: 2, height: 2, mime: "image/gif".into() };
         let wire = Wire { id: flowie_sync::blob_name(&real), etag: None, envelope: String::new(), file: Some(file) };
-        assert!(!iphone.native.on_fetched(&mut iphone.ws, &[wire], ""));
+        let fetched = iphone.native.on_fetched(&mut iphone.ws, &[wire], "");
+        assert!(!fetched.changed);
+        assert_eq!(fetched.files, [(real.clone(), why)], "and says why, for the sync log");
     }
     let missing = WireFile { path: dir.path().join("gone").to_string_lossy().into_owned(), width: 0, height: 0, mime: String::new() };
     let wire = Wire { id: real.clone(), etag: None, envelope: String::new(), file: Some(missing) };
-    assert!(!iphone.native.on_fetched(&mut iphone.ws, &[wire], ""));
+    let fetched = iphone.native.on_fetched(&mut iphone.ws, &[wire], "");
+    assert!(!fetched.changed);
+    assert!(matches!(&fetched.files[..], [(_, FileTaken::Unreadable(_))]));
     assert!(iphone.ws.blobs.is_empty() && !iphone.ws.image_dir.as_ref().unwrap().has(&real));
     assert!(iphone.ws.tree.children(ROOT).is_empty(), "and no bullet comes of it");
 }
@@ -441,4 +446,43 @@ fn files_already_in_icloud_and_full_batches_still_go_before_their_rows() {
     for (_, name) in &rows {
         assert!(iphone.ws.image_dir.as_ref().unwrap().has(name));
     }
+}
+
+/// The iPad's case: a device already syncing gets a row in an incremental fetch, but its file
+/// doesn't come with it (CKSyncEngine handed the `Blob` over without its download, or an older
+/// version ignored the record). The change token moves past both, so only asking iCloud for
+/// the file by name brings it: the outline says which files it shows and doesn't have.
+#[test]
+fn a_file_that_didnt_come_with_its_row_is_asked_for_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cloud = FakeCloudKit::default();
+    let mut mac = Device::open(&dir.path().join("mac.sqlite"));
+    let mut ipad = Device::open(&dir.path().join("ipad.sqlite"));
+    mac.sync(&mut cloud);
+    ipad.sync(&mut cloud);
+    assert!(NativeSync::missing_files(&ipad.ws, 10).is_empty());
+
+    let bytes = gif(7, 3, 9);
+    let (row, name) = add_image(&mut mac, &bytes, 0);
+    assert!(NativeSync::missing_files(&mac.ws, 10).is_empty(), "the Mac has its file");
+    mac.sync(&mut cloud);
+
+    // The incremental fetch: the row arrives, the Blob without a file to read.
+    let (mut records, token) = cloud.changes(ipad.token);
+    ipad.token = token;
+    let blob = records.iter_mut().find(|w| w.file.is_some()).unwrap();
+    blob.file.as_mut().unwrap().path = dir.path().join("never downloaded").to_string_lossy().into_owned();
+    let fetched = ipad.native.on_fetched(&mut ipad.ws, &records, "");
+    assert!(matches!(&fetched.files[..], [(id, FileTaken::Unreadable(_))] if *id == name), "the log says why");
+    assert_eq!(ipad.ws.tree.node(row).image, name);
+    ipad.sync(&mut cloud);
+    assert!(ipad.ws.blobs.is_empty(), "the next fetch doesn't bring it again");
+
+    let missing = NativeSync::missing_files(&ipad.ws, 10);
+    assert_eq!(missing, [flowie_sync::blob_name(&name)]);
+    let asked: Vec<Wire> = missing.iter().filter_map(|id| cloud.wire(id)).collect();
+    let fetched = ipad.native.on_fetched(&mut ipad.ws, &asked, "");
+    assert!(fetched.changed && fetched.files == [(name.clone(), FileTaken::Kept)], "the row is shown again");
+    assert_eq!(ipad.ws.image_dir.as_ref().unwrap().read(&name).unwrap(), bytes);
+    assert!(NativeSync::missing_files(&ipad.ws, 10).is_empty());
 }

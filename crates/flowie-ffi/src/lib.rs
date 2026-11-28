@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use flowie_core::images::ImageDir;
 use flowie_core::search::Query;
 use flowie_core::{flatten_mapped, journal, markup, BlockKind, Caret, NodeId, Row, Tree, ViewOptions, ROOT};
-use flowie_doc::{find, utf16, NativeSaved, NativeSync, Outcome, SyncDriver, SyncPhase, Wire, WireFile, Workspace};
+use flowie_doc::{find, utf16, FileTaken, NativeSaved, NativeSync, Outcome, SyncDriver, SyncPhase, Wire, WireFile, Workspace};
 use flowie_sync::http::HttpBackend;
 
 uniffi::setup_scaffolding!();
@@ -436,6 +436,24 @@ pub struct WireRecord {
     pub envelope: String,
     /// An image file (CloudKit: a `Blob` record) instead of a record; `id` is its name there.
     pub file: Option<WireFileRecord>,
+}
+
+/// What came of records a native engine fetched ([`Outline::on_fetched`]).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FetchedRecords {
+    /// The outline changed, or an image file came that a row shows (its `image` now has a
+    /// size): the app re-reads its page.
+    pub changed: bool,
+    /// What became of each image file among them, for the sync log.
+    pub files: Vec<FetchedFile>,
+}
+
+/// What became of one fetched image file: `kept`, `had it already`, or why it was dropped.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FetchedFile {
+    pub id: String,
+    pub kept: bool,
+    pub verdict: String,
 }
 
 /// An image file as a native sync engine moves it (CloudKit: a `Blob` record's CKAsset and the
@@ -1265,14 +1283,30 @@ impl Outline {
     }
 
     /// Records the native engine fetched, and where it is now (CloudKit keeps its own change
-    /// token: pass anything that marks progress, or an empty string). Returns whether the
-    /// outline changed, or an image file came that a row shows (its `image` now has a size).
-    pub fn on_fetched(&self, records: Vec<WireRecord>, cursor: String) -> bool {
+    /// token: pass anything that marks progress, or an empty string). Says whether the outline
+    /// changed, and what became of each image file.
+    pub fn on_fetched(&self, records: Vec<WireRecord>, cursor: String) -> FetchedRecords {
         let mut state = self.lock();
         let State { ws, native, .. } = &mut *state;
-        let Some(native) = native else { return false };
         let records: Vec<Wire> = records.into_iter().map(Wire::from).collect();
-        native.on_fetched(ws, &records, &cursor)
+        let Some(native) = native else {
+            let files = records.iter().filter(|r| r.file.is_some());
+            let files = files.map(|r| FetchedFile { id: r.id.clone(), kept: false, verdict: "dropped: sync isn't running".into() });
+            return FetchedRecords { changed: false, files: files.collect() };
+        };
+        let fetched = native.on_fetched(ws, &records, &cursor);
+        let files = fetched.files.into_iter().map(|(id, taken)| FetchedFile {
+            id,
+            kept: matches!(taken, FileTaken::Kept | FileTaken::Had),
+            verdict: taken.to_string(),
+        });
+        FetchedRecords { changed: fetched.changed, files: files.collect() }
+    }
+
+    /// The names of image files rows here show but this device doesn't have, at most
+    /// `limit`: the native engine asks the backend for them by name.
+    pub fn missing_files(&self, limit: u32) -> Vec<String> {
+        NativeSync::missing_files(&self.lock().ws, limit as usize)
     }
 
     /// Whether the outline has nothing in it yet: no bullets at the top level (Trash aside).
@@ -1983,11 +2017,13 @@ mod tests {
         std::fs::write(&download, &gif).unwrap();
         let mut row = saves[1].clone();
         row.etag = Some("e".into());
-        assert!(iphone.on_fetched(vec![row], "icloud".into()));
+        assert!(iphone.on_fetched(vec![row], "icloud".into()).changed);
         let before = iphone.page(None).unwrap()[0].image.clone().unwrap();
         assert_eq!((before.width, before.height), (0, 0), "a placeholder until the file comes");
         let blob = WireRecord { file: Some(WireFileRecord { path: download.to_string_lossy().into_owned(), ..file }), ..saves[0].clone() };
-        assert!(iphone.on_fetched(vec![blob], "icloud".into()), "the row is shown again");
+        let fetched = iphone.on_fetched(vec![blob], "icloud".into());
+        assert!(fetched.changed, "the row is shown again");
+        assert_eq!((fetched.files.len(), fetched.files[0].kept, fetched.files[0].verdict.as_str()), (1, true, "kept"));
         let after = iphone.page(None).unwrap()[0].image.clone().unwrap();
         assert_eq!((after.width, after.height), (6, 4));
         assert!(std::path::Path::new(after.path.as_deref().unwrap()).is_file());

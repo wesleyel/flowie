@@ -13,8 +13,12 @@ public protocol CloudSyncHost: AnyObject, Sendable {
     /// The next records to save, at most `limit`. Each is in flight until `onSaved` answers.
     func nextSaves(limit: Int) async -> [CloudWire]
     func onSaved(_ outcomes: [CloudSaved]) async
-    /// Records fetched from iCloud, to merge in.
-    func onFetched(_ records: [CloudWire]) async
+    /// The names of image files (`Blob` records) rows here show but this device doesn't have,
+    /// at most `limit`.
+    func missingFiles(limit: Int) async -> [String]
+    /// Records fetched from iCloud, to merge in. Returns what became of each image file among
+    /// them (`kept`, or why not), by record name, for the sync log.
+    func onFetched(_ records: [CloudWire]) async -> [String: String]
     /// Queue every record again: iCloud lost them (the zone was deleted, another account).
     func resendAll() async
     /// How sync is going, for the app to show.
@@ -108,6 +112,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     private var held = Set<String>()
     /// Records gone from iCloud (unknownItem): saved anew, without their system fields.
     private var gone = Set<String>()
+    /// Image files asked for by name (`fetchMissingFiles`).
+    private var asked = Set<String>()
+    let database: CKDatabase
 
     var engine: CKSyncEngine? {
         lock.withLock { engineValue }
@@ -121,6 +128,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
                 onAccountChange: @escaping @Sendable () -> Void) {
         self.host = host
         self.stateURL = stateURL
+        self.database = container.privateCloudDatabase
         self.holding = holdSends
         self.onAccountChange = onAccountChange
         if fresh {
@@ -170,8 +178,11 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         guard let engine else { return }
         do {
             try await engine.fetchChanges()
+            CloudLog.debug("fetch finished", beside: stateURL)
+            await fetchMissingFiles()
             await host.cloudEvent(.fetched)
         } catch {
+            CloudLog.note("fetch failed: \(error)", beside: stateURL)
             await host.cloudEvent(.failed(error.localizedDescription))
         }
     }
@@ -196,14 +207,16 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
             // Deletions are never passed on, whatever their type: Flowie removes a bullet with
             // a removal inside its record and never deletes a CKRecord (nor a `Blob`: image
             // files aren't collected), so a deletion here is one this version doesn't make.
-            // A `Blob`'s file is read while the host takes it (CKSyncEngine may remove its
-            // download afterwards).
-            let records = CloudRecordCodec.wires(from: changes.modifications.map(\.record))
-            if !records.isEmpty {
-                await host.onFetched(records)
-            }
+            CloudLog.debug("fetched \(changes.modifications.count) records, \(changes.deletions.count) deletions", beside: stateURL)
+            await take(changes.modifications.map(\.record))
         case .sentRecordZoneChanges(let sent):
             var outcomes = sent.savedRecords.map { CloudSaved.saved(id: $0.recordID.recordName, etag: CloudRecordCodec.systemFields(of: $0)) }
+            for record in sent.savedRecords where record.recordType == CloudRecordCodec.blobType {
+                CloudLog.note("sent Blob \(record.recordID.recordName)", beside: stateURL)
+            }
+            for failure in sent.failedRecordSaves where failure.record.recordType == CloudRecordCodec.blobType {
+                CloudLog.note("sending Blob \(failure.record.recordID.recordName) failed: \(failure.error.code.rawValue) \(failure.error.localizedDescription)", beside: stateURL)
+            }
             lock.withLock { gone.subtract(sent.savedRecords.map(\.recordID.recordName)) }
             var problem: String?
             var zoneMissing = false
@@ -254,6 +267,59 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
             }
         default:
             break
+        }
+    }
+
+    /// Hand fetched records to the host. A `Blob`'s file is read while the host takes it
+    /// (CloudKit may remove its download afterwards); each `Blob` is logged with what came of it.
+    /// Returns the `Blob`s the host kept (or had), by name.
+    @discardableResult
+    private func take(_ fetched: [CKRecord]) async -> Set<String> {
+        let blobs = fetched.filter { $0.recordType == CloudRecordCodec.blobType }
+            .map { ($0.recordID.recordName, CloudLog.describe(blob: $0)) }
+        let records = CloudRecordCodec.wires(from: fetched)
+        let verdicts = records.isEmpty ? [:] : await host.onFetched(records)
+        for (name, carried) in blobs {
+            CloudLog.note("fetched Blob \(name): \(carried); \(verdicts[name] ?? "not handed to the outline")", beside: stateURL)
+        }
+        return Set(verdicts.filter { $0.value == "kept" || $0.value == "had it already" }.keys)
+    }
+
+    /// Ask iCloud by name for the image files rows here show but this device doesn't have,
+    /// each at most once while the engine runs. A file normally comes with the fetch that
+    /// brings its row, but if CKSyncEngine handed its `Blob` over without the download (or an
+    /// older version ignored it), the change is behind this device's place in the zone and
+    /// never comes again by itself. A file not in iCloud (never sent) is left to its row's
+    /// placeholder until the engine starts again.
+    func fetchMissingFiles() async {
+        let wanted = await host.missingFiles(limit: CloudSync.batch)
+        let names = lock.withLock { () -> [String] in
+            let names = wanted.filter { !asked.contains($0) }
+            asked.formUnion(names)
+            return names
+        }
+        guard !names.isEmpty else { return }
+        CloudLog.note("asking iCloud for \(names.count) missing image files", beside: stateURL)
+        do {
+            let results = try await database.records(for: names.map { CKRecord.ID(recordName: $0, zoneID: zone) })
+            var found: [CKRecord] = []
+            for (id, result) in results {
+                switch result {
+                case .success(let record):
+                    found.append(record)
+                case .failure(let error):
+                    let code = (error as? CKError)?.code == .unknownItem ? "not in iCloud" : error.localizedDescription
+                    CloudLog.note("Blob \(id.recordName): \(code)", beside: stateURL)
+                }
+            }
+            // One iCloud has but that came without its file is asked for again after the next fetch.
+            let kept = await take(found)
+            let again = found.map(\.recordID.recordName).filter { !kept.contains($0) }
+            lock.withLock { asked.subtract(again) }
+        } catch {
+            // Asked again after the next fetch.
+            lock.withLock { asked.subtract(names) }
+            CloudLog.note("asking for missing image files failed: \(error)", beside: stateURL)
         }
     }
 

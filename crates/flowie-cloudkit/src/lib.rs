@@ -79,6 +79,7 @@ enum Incoming {
     NextSaves { limit: usize },
     Saved { outcomes: Vec<NativeSaved> },
     Fetched { records: Vec<Wire> },
+    MissingFiles { limit: usize },
     ResendAll,
     Access { access: String, error: Option<String> },
     FetchedAll,
@@ -140,8 +141,12 @@ impl CloudDriver {
             let answer = match serde_json::from_str::<Incoming>(&message.json) {
                 Ok(Incoming::Fetched { records }) => {
                     self.received += records.iter().filter(|r| r.file.is_none()).count();
-                    images |= self.native.on_fetched(ws, &records, REMOTE);
-                    "null".to_string()
+                    let fetched = self.native.on_fetched(ws, &records, REMOTE);
+                    images |= fetched.changed;
+                    // What became of each image file, for the sync log on the Swift side.
+                    let files: serde_json::Map<String, serde_json::Value> =
+                        fetched.files.into_iter().map(|(id, taken)| (id, taken.to_string().into())).collect();
+                    serde_json::Value::Object(files).to_string()
                 }
                 Ok(incoming) => self.take(ws, incoming),
                 Err(_) => "null".to_string(),
@@ -180,6 +185,7 @@ impl CloudDriver {
             }
             // Taken in `pump`, which notes whether an image file came.
             Incoming::Fetched { .. } => "null".into(),
+            Incoming::MissingFiles { limit } => serde_json::to_string(&NativeSync::missing_files(ws, limit)).expect("names"),
             Incoming::ResendAll => {
                 self.native.resend_all(ws);
                 self.queued.clear();
@@ -383,6 +389,7 @@ mod tests {
         assert_eq!(outcomes.len(), 3);
         assert!(matches!(&outcomes[1], NativeSaved::Conflict { server } if server.etag.is_none()));
         assert!(matches!(serde_json::from_str(r#"{"type":"access","access":"no_account"}"#), Ok(Incoming::Access { .. })));
+        assert!(matches!(serde_json::from_str(r#"{"type":"missing_files","limit":400}"#), Ok(Incoming::MissingFiles { limit: 400 })));
         assert!(matches!(serde_json::from_str(r#"{"type":"next_saves","limit":400}"#), Ok(Incoming::NextSaves { limit: 400 })));
         assert!(matches!(serde_json::from_str(r#"{"type":"fetched_all"}"#), Ok(Incoming::FetchedAll)));
         // A `Blob` record: its file where CKSyncEngine downloaded it, and no envelope.

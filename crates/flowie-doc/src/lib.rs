@@ -9,7 +9,7 @@ pub use driver::{SyncDriver, SyncPhase};
 use flowie_core::images::{BlobInfo, ImageDir};
 use flowie_core::store::{self, ImportRecord, ImportState, Writer};
 use flowie_core::{Caret, History, HistoryKind, NodeId, Tree};
-pub use native::{NativeSaved, NativeSync, Wire, WireFile};
+pub use native::{Fetched, FileTaken, NativeSaved, NativeSync, Wire, WireFile};
 pub use outcome::Outcome;
 pub use sync::{LostCopy, SyncState};
 

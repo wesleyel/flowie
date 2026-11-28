@@ -80,6 +80,53 @@ pub enum NativeSaved {
     },
 }
 
+/// What [`NativeSync::on_fetched`] did with a batch of fetched records.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Fetched {
+    /// The outline changed, or an image file came that a row may be waiting for.
+    pub changed: bool,
+    /// What became of each image file among them, by its record's name.
+    pub files: Vec<(String, FileTaken)>,
+}
+
+/// What became of a fetched image file, for the platform's sync log: a file that isn't kept
+/// is otherwise dropped without a word.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileTaken {
+    /// Kept: this device didn't have it.
+    Kept,
+    /// This device had it already.
+    Had,
+    /// The outline has no image folder (no database).
+    NoImageFolder,
+    /// The engine's download couldn't be read.
+    Unreadable(String),
+    /// Larger than `images::MAX_BYTES` (its size).
+    TooLarge(u64),
+    /// Not a PNG, JPEG, GIF or WebP image (its size).
+    NotAnImage(u64),
+    /// Its contents are another file than its record names (the name they have).
+    OtherName(String),
+    /// Couldn't be written to the image folder.
+    NotStored(String),
+}
+
+/// FlowieCloudKit's log takes `kept` and `had it already` as kept, anything else as dropped.
+impl std::fmt::Display for FileTaken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FileTaken::Kept => write!(f, "kept"),
+            FileTaken::Had => write!(f, "had it already"),
+            FileTaken::NoImageFolder => write!(f, "dropped: no image folder"),
+            FileTaken::Unreadable(error) => write!(f, "dropped: can't read the download: {error}"),
+            FileTaken::TooLarge(size) => write!(f, "dropped: {size} bytes, larger than {} MB", images::MAX_BYTES >> 20),
+            FileTaken::NotAnImage(size) => write!(f, "dropped: {size} bytes, not a PNG, JPEG, GIF or WebP image"),
+            FileTaken::OtherName(name) => write!(f, "dropped: the file is {name}"),
+            FileTaken::NotStored(error) => write!(f, "dropped: can't store it: {error}"),
+        }
+    }
+}
+
 /// The sync engine for one outline while a native engine drives it.
 #[derive(Debug, Default)]
 pub struct NativeSync {
@@ -201,42 +248,67 @@ impl NativeSync {
     /// Records the native engine fetched. It keeps its own place in the backend's changes, so
     /// `cursor` only marks that this backend has been fetched from (see
     /// [`Workspace::use_remote`]). Image files among them are kept first, so a bullet that
-    /// comes with its file shows it at once. Returns whether the outline changed, or an image
-    /// file came that a row may be waiting for.
-    pub fn on_fetched(&mut self, ws: &mut Workspace, records: &[Wire], cursor: &str) -> bool {
+    /// comes with its file shows it at once. Says whether the outline changed, or an image
+    /// file came that a row may be waiting for, and what became of each image file.
+    pub fn on_fetched(&mut self, ws: &mut Workspace, records: &[Wire], cursor: &str) -> Fetched {
         let revision = ws.tree.revision();
         let mut images = false;
+        let mut files = Vec::new();
         for wire in records {
             if let Some(file) = &wire.file {
-                images |= self.take_file(ws, &wire.id, file);
+                let taken = self.take_file(ws, &wire.id, file);
+                images |= taken == FileTaken::Kept;
+                files.push((wire.id.clone(), taken));
             }
         }
         let records = records.iter().filter_map(Wire::to_envelope).collect();
         self.engine.on_fetched(ws, ChangeBatch { records, cursor: cursor.to_string(), more: false });
-        images || ws.tree.revision() != revision
+        Fetched { changed: images || ws.tree.revision() != revision, files }
     }
 
-    /// Keep a fetched image file, if it is one and matches its name. Returns whether this
-    /// device didn't have it.
-    fn take_file(&mut self, ws: &mut Workspace, remote: &str, file: &WireFile) -> bool {
-        let Some(dir) = ws.image_dir.clone() else { return false };
+    /// Keep a fetched image file, if it is one and matches its name.
+    fn take_file(&mut self, ws: &mut Workspace, remote: &str, file: &WireFile) -> FileTaken {
+        let Some(dir) = ws.image_dir.clone() else { return FileTaken::NoImageFolder };
         let bytes = match std::fs::metadata(&file.path) {
-            Ok(meta) if meta.len() <= images::MAX_BYTES as u64 => std::fs::read(&file.path).ok(),
-            _ => None,
+            Ok(meta) if meta.len() > images::MAX_BYTES as u64 => return FileTaken::TooLarge(meta.len()),
+            Ok(_) => std::fs::read(&file.path),
+            Err(error) => Err(error),
         };
-        let Some(bytes) = bytes else { return false };
+        let bytes = match bytes {
+            Ok(bytes) => bytes,
+            Err(error) => return FileTaken::Unreadable(error.to_string()),
+        };
         // Only an image that matches its name is kept.
-        let Ok(info) = images::info(&bytes) else { return false };
+        let Ok(info) = images::info(&bytes) else { return FileTaken::NotAnImage(bytes.len() as u64) };
         if blob_name(&info.name) != remote {
-            return false;
+            return FileTaken::OtherName(info.name);
         }
         let had = dir.has(&info.name) && ws.blobs.contains_key(&info.name);
-        if dir.put(&bytes).is_err() {
-            return false;
+        if let Err(error) = dir.put(&bytes) {
+            return FileTaken::NotStored(error.to_string());
         }
         self.blobs.there.insert(remote.to_string());
         ws.record_blob(info);
-        !had
+        if had {
+            FileTaken::Had
+        } else {
+            FileTaken::Kept
+        }
+    }
+
+    /// The image files rows here show but this device doesn't have, by their names on the
+    /// backend, at most `limit`: to ask the backend for by name. A file normally comes with
+    /// the fetch that brings its row, but one the native engine handed over without its
+    /// download (or that an older version ignored) never comes again by itself.
+    pub fn missing_files(ws: &Workspace, limit: usize) -> Vec<String> {
+        let Some(dir) = &ws.image_dir else { return Vec::new() };
+        let names: BTreeSet<&str> = ws
+            .tree
+            .nodes()
+            .map(|node| node.image.as_str())
+            .filter(|name| images::is_name(name) && !(ws.blobs.contains_key(*name) && dir.has(name)))
+            .collect();
+        names.into_iter().take(limit).map(blob_name).collect()
     }
 
     /// The backend lost everything (its zone was deleted, another account): image files are

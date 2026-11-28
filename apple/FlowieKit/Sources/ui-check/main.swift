@@ -309,12 +309,18 @@ func checkPageHistory() {
     check(history.entries.map(\.page) == [.home, a, d] && history.index == 1 && history.current.opener == "y", "the page already next is gone forward to, keeping the rest")
     history.open(PageEntry(a), from: 1)
     check(history.entries.count == 3 && history.index == 1, "a link to the page itself opens nothing")
-    // The journal's days replace their entry, keeping its place.
+    // The journal's days and Up a Level replace their entry in place, keeping the other pane.
     var days = PageHistory(.day("2026-11-27"))
     let id = days.current.id
     days.update(id) { $0.topRow = "r"; $0.offset = 4 }
     days.replace(at: 0, with: .day("2026-11-28"))
     check(days.entries.count == 1 && days.current.id == id && days.current.page == .day("2026-11-28") && days.current.topRow == nil, "another day, the same entry")
+    var panes = PageHistory(.bullet("child"))
+    panes.push(PageEntry(.bullet("essay"), opener: "essay"))
+    let rightID = panes.current.id
+    panes.replace(at: 0, with: .bullet("parent"), opener: nil, reveal: "child")
+    check(panes.index == 1 && panes.current.id == rightID && panes.current.page == .bullet("essay"), "Up a Level on the left pane leaves the right pane alone")
+    check(panes.previous?.page == .bullet("parent") && panes.previous?.reveal == "child", "and switches the left pane in place, pointing out the bullet left")
     // Pages since deleted are left out, and the same page twice in a row becomes one.
     var gone = PageHistory(.home)
     for page in [a, b, a, c] { gone.push(PageEntry(page)) }
@@ -465,20 +471,34 @@ func checkRendering() throws {
 @MainActor
 func checkReadingMode() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("flowie-ui-check-\(UUID().uuidString)")
+    let prefs = UserDefaults(suiteName: "flowie-prefs-check-\(UUID().uuidString)")!
+    OutlineStore.defaults = prefs
     defer {
-        UserDefaults.standard.removeObject(forKey: "readingMode")
+        OutlineStore.defaults = .standard
+        LaunchMemory.defaults = .standard
         try? FileManager.default.removeItem(at: dir)
     }
     LaunchMemory.defaults = UserDefaults(suiteName: "flowie-hint-check-\(UUID().uuidString)")!
     let docs = try OutlineStore.open(databaseAt: dir.appendingPathComponent("outline.sqlite"))
     check(docs.showsHomeHint, "a new outline shows Home's hint")
+    check(docs.toolbarActions == [.fold], "only Fold is in the top-right toolbar by default")
+    docs.setToolbar(.upLevel, true)
+    docs.setToolbar(.fold, false)
+    check(OutlineStore(outline: docs.outline).toolbarActions == [.upLevel], "toolbar choices persist across launches")
+    docs.setToolbar(.upLevel, false)
+    check(OutlineStore(outline: docs.outline).toolbarActions.isEmpty, "an empty toolbar stays empty rather than falling back to default")
+    docs.resetToolbar()
+    check(docs.toolbarActions == [.fold] && OutlineStore(outline: docs.outline).toolbarActions == [.fold], "reset restores Fold alone")
     let home = docs.page(.home)
+    check(!home.canFold && !home.hasDeepLevels, "an empty page can't fold")
     home.add("parent")
     check(!docs.showsHomeHint && !OutlineStore(outline: docs.outline).showsHomeHint, "an edit hides it for good")
+    check(!home.canFold, "one flat level can't fold")
     _ = try docs.outline.create(parent: home.rows[0].id, index: 0, text: "child")
     home.reload()
+    check(home.canFold && !home.hasDeepLevels, "two levels fold without Expand All")
     docs.setReadingMode(true)
-    check(home.isReadOnly && UserDefaults.standard.bool(forKey: "readingMode"), "reading mode is on, and kept")
+    check(home.isReadOnly && prefs.bool(forKey: "readingMode"), "reading mode is on, and kept")
     check(OutlineStore(outline: docs.outline).readingMode, "a new launch is still in reading mode")
     let rows = home.rows
     home.add("new", focus: true)
@@ -495,15 +515,23 @@ func checkReadingMode() throws {
     check(home.rows.map(\.text) == ["parent", "child"] && home.rows == rows && home.focus == nil, "nothing edits in reading mode: \(home.rows.map(\.text))")
     home.toggleFold(rows[0])
     check(home.rows.count == 1 && home.rows[0].collapsed, "folding still works")
+    check(home.canFold && !home.hasDeepLevels, "still knows its two levels while collapsed")
     check(home.foldState == nil, "folding a row by hand: the fold button goes neutral")
     home.fold(to: .expandAll)
-    check(home.rows.count == 2 && home.foldState == .expandAll, "unfolding still works")
-    check(FoldLevel.after(nil) == .collapseAll && FoldLevel.after(.collapseAll) == .two && FoldLevel.after(.two) == .expandAll && FoldLevel.after(.expandAll) == .collapseAll, "the fold button steps through three states")
+    check(home.rows.count == 2 && home.foldState == .two, "on a two-level page, Expand All lands on Show 2 Levels")
+    check(FoldLevel.after(nil, deep: false) == .collapseAll && FoldLevel.after(.collapseAll, deep: false) == .two && FoldLevel.after(.two, deep: false) == .collapseAll, "two levels step between Collapse All and Show 2 Levels")
+    check(FoldLevel.after(nil, deep: true) == .collapseAll && FoldLevel.after(.collapseAll, deep: true) == .two && FoldLevel.after(.two, deep: true) == .expandAll && FoldLevel.after(.expandAll, deep: true) == .collapseAll, "deeper pages step through all three states")
+    check(FoldLevel.available(deep: false) == [.collapseAll, .two] && FoldLevel.available(deep: true) == [.collapseAll, .two, .expandAll], "menu levels match page depth")
     docs.setStarred(rows[0].id, true)
     check(docs.bullet(rows[0].id)?.starred == true, "starring still works")
     check(try docs.appendToToday("from Siri") && docs.readingMode, "Add to Today's Journal writes, reading mode stays")
     try docs.captureToday()
-    check(!docs.readingMode && !UserDefaults.standard.bool(forKey: "readingMode"), "a capture turns reading mode off")
+    check(!docs.readingMode && !prefs.bool(forKey: "readingMode"), "a capture turns reading mode off")
+    _ = try docs.outline.create(parent: rows[1].id, index: 0, text: "grandchild")
+    home.reload()
+    check(home.hasDeepLevels, "a third level brings in Expand All")
+    home.fold(to: .expandAll)
+    check(home.foldState == .expandAll, "Expand All kept on a three-level page")
     home.setText(home.rows[0], "edited")
     check(home.rows[0].text == "edited", "editing works again")
     try docs.flush()

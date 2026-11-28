@@ -180,14 +180,18 @@ public struct PageHistory: Codable, Equatable, Sendable {
     }
 
     /// Show another page in the entry at `position`, without a new entry: the journal's previous
-    /// and next day, so turning days doesn't fill the history. How it was scrolled goes with it.
-    public mutating func replace(at position: Int, with page: PageRef) {
-        guard entries.indices.contains(position), entries[position].page != page else { return }
+    /// and next day, Up a Level, or a breadcrumb, so switching in place doesn't push onto the
+    /// history or wipe out the pane beside it. How it was scrolled goes with it.
+    public mutating func replace(at position: Int, with page: PageRef, opener: String? = nil, reveal: String? = nil) {
+        guard entries.indices.contains(position) else { return }
+        guard entries[position].page != page || reveal != nil else { return }
         entries[position].page = page
-        entries[position].reveal = nil
+        entries[position].opener = opener
+        entries[position].reveal = reveal
         entries[position].topRow = nil
         entries[position].offset = 0
         entries[position].focus = nil
+        entries[position].caret = 0
     }
 
     /// Change the entry with this id, wherever it is.

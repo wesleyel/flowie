@@ -26,6 +26,11 @@ public final class OutlineStore: ObservableObject {
     /// out what edits), while links, zooming in, folding and stars still work. This device's
     /// view setting for the whole app, kept across launches; a capture turns it off.
     @Published public private(set) var readingMode: Bool
+    /// Which buttons stay in a page's top-right toolbar besides its "…" menu, kept on this
+    /// device ("…" → Customize Toolbar…). Only Fold is on by default.
+    @Published public private(set) var toolbarActions: Set<ToolbarAction>
+    /// Where `readingMode` and `toolbarActions` are stored (swapped in tests).
+    public static var defaults: UserDefaults = .standard
     /// Whether Home shows "Tap a bullet to open it" under its rows: only for an outline made
     /// on this device that nothing synced into. It goes for good once anything is edited here,
     /// sync (iCloud or a self-hosted server) brings changes, or a bullet is opened.
@@ -47,7 +52,12 @@ public final class OutlineStore: ObservableObject {
     public init(outline: Outline) {
         self.outline = outline
         hideCompleted = outline.hideCompleted()
-        readingMode = UserDefaults.standard.bool(forKey: Self.readingModeKey)
+        readingMode = Self.defaults.bool(forKey: Self.readingModeKey)
+        if let saved = Self.defaults.stringArray(forKey: Self.toolbarActionsKey) {
+            toolbarActions = Set(saved.compactMap(ToolbarAction.init(rawValue:)))
+        } else {
+            toolbarActions = ToolbarAction.defaults
+        }
         showsHomeHint = !LaunchMemory.homeHintGone
     }
 
@@ -65,6 +75,7 @@ public final class OutlineStore: ObservableObject {
     }
 
     static let readingModeKey = "readingMode"
+    static let toolbarActionsKey = "toolbarActions"
 
     /// The outline in the database at `url` (made if it isn't there).
     public static func open(databaseAt url: URL) throws -> OutlineStore {
@@ -227,7 +238,22 @@ public final class OutlineStore: ObservableObject {
             finishEditing()
         }
         readingMode = on
-        UserDefaults.standard.set(on, forKey: Self.readingModeKey)
+        Self.defaults.set(on, forKey: Self.readingModeKey)
+    }
+
+    /// Show or hide `action` in a page's top-right toolbar ("…" → Customize Toolbar…).
+    public func setToolbar(_ action: ToolbarAction, _ shown: Bool) {
+        var next = toolbarActions
+        if shown { next.insert(action) } else { next.remove(action) }
+        guard next != toolbarActions else { return }
+        toolbarActions = next
+        Self.defaults.set(ToolbarAction.allCases.filter(next.contains).map(\.rawValue), forKey: Self.toolbarActionsKey)
+    }
+
+    /// Put the top-right toolbar back to its default (only Fold shown).
+    public func resetToolbar() {
+        toolbarActions = ToolbarAction.defaults
+        Self.defaults.removeObject(forKey: Self.toolbarActionsKey)
     }
 
     public func setHideCompleted(_ hide: Bool) {
@@ -362,6 +388,13 @@ public final class PageModel: ObservableObject {
     public let kind: PageKind
     /// The rows of the page.
     @Published public private(set) var rows: [RowView] = []
+    /// How many levels of bullets the page has when unfolded (`0`..`3`, where `3` means three or
+    /// more), leaving out completed ones when hidden: Fold shows at `2`+, Expand All only at `3`.
+    @Published public private(set) var maxLevels = 0
+    /// Whether the page has any foldable children (`2` or more visible levels).
+    public var canFold: Bool { maxLevels >= 2 }
+    /// Whether the page goes deeper than two levels (so Expand All goes further than Show 2 Levels).
+    public var hasDeepLevels: Bool { maxLevels > 2 }
     /// The page's own bullet (none: Home, or a day not made yet): its title and the path to it.
     @Published public private(set) var info: BulletView?
     /// What points at the page (the bullets linking to it, then its mirrors), listed read-only
@@ -430,6 +463,8 @@ public final class PageModel: ObservableObject {
             dayID = (try? store.outline.journalDay(date: date)) ?? nil
             if dayID == nil {
                 rows = []
+                maxLevels = 0
+                foldState = nil
                 info = nil
                 readBacklinks()
                 return
@@ -437,9 +472,14 @@ public final class PageModel: ObservableObject {
         }
         do {
             rows = try store.outline.pageRows(root: root)
+            maxLevels = Int((try? store.outline.pageLevels(root: root)) ?? 0)
         } catch {
             // The page's bullet is gone (deleted, maybe on another device).
             rows = []
+            maxLevels = 0
+        }
+        if !hasDeepLevels, foldState == .expandAll {
+            foldState = .two
         }
         readInfo()
     }
@@ -566,7 +606,7 @@ public final class PageModel: ObservableObject {
     public func fold(to level: FoldLevel) {
         guard !isUnmadeDay else { return }
         edit(writes: false) { try store.outline.expandToLevel(root: root, levels: level.levels) }
-        foldState = level
+        foldState = (!hasDeepLevels && level == .expandAll) ? .two : level
     }
 
     /// How many children a row has as the page would show them (completed ones left out when
@@ -757,17 +797,24 @@ extension BulletView {
 }
 
 /// The states of the page's fold button and ⌃-number keys, in the order a tap steps through
-/// them: Collapse All (the desktop's Show 1 Level), Show 2 Levels, Expand All.
+/// them: Collapse All (the desktop's Show 1 Level), Show 2 Levels, and — only when the page has
+/// more than two levels — Expand All.
 public enum FoldLevel: CaseIterable {
     case collapseAll, two, expandAll
 
-    /// The state a tap on the fold button goes to from `state` (nil: rows were folded or
-    /// unfolded by hand since, or the page wasn't folded from the button yet).
-    public static func after(_ state: FoldLevel?) -> FoldLevel {
+    /// The states offered on a page (`deep`: more than two levels).
+    public static func available(deep: Bool) -> [FoldLevel] {
+        deep ? [.collapseAll, .two, .expandAll] : [.collapseAll, .two]
+    }
+
+    /// The state a tap on the fold button goes to from `state` (`nil`: rows were folded or
+    /// unfolded by hand since, or the page wasn't folded from the button yet; `deep`: whether
+    /// the page has more than two levels).
+    public static func after(_ state: FoldLevel?, deep: Bool = true) -> FoldLevel {
         switch state {
         case nil, .expandAll: .collapseAll
         case .collapseAll: .two
-        case .two: .expandAll
+        case .two: deep ? .expandAll : .collapseAll
         }
     }
 
@@ -789,14 +836,14 @@ public enum FoldLevel: CaseIterable {
 
     var symbol: String {
         switch self {
-        case .collapseAll: "rectangle.compress.vertical"
+        case .collapseAll: "list.bullet"
         case .two: "list.bullet.indent"
-        case .expandAll: "rectangle.expand.vertical"
+        case .expandAll: "arrow.up.and.line.horizontal.and.arrow.down"
         }
     }
 
     /// The fold button's symbol when the page isn't in one of the states.
-    static let neutralSymbol = "chevron.up.chevron.down"
+    static let neutralSymbol = "arrow.down.and.line.horizontal.and.arrow.up"
 
     /// The desktop's key, with ⌃.
     var key: String {
@@ -804,6 +851,41 @@ public enum FoldLevel: CaseIterable {
         case .collapseAll: "1"
         case .two: "2"
         case .expandAll: "0"
+        }
+    }
+}
+
+/// A button that can sit in a page's top-right toolbar besides its "…" menu, turned on or off
+/// from "…" → Customize Toolbar… and kept on this device. Only Fold is on by default.
+public enum ToolbarAction: String, CaseIterable, Sendable {
+    case upLevel, star, readingMode, hideCompleted, twoPanes, copyLink, fold
+
+    public static let defaults: Set<ToolbarAction> = [.fold]
+
+    /// Order listed in the Customize Toolbar sheet (Fold first, as the default).
+    public static let sheetOrder: [ToolbarAction] = [.fold, .upLevel, .star, .readingMode, .hideCompleted, .twoPanes, .copyLink]
+
+    public var title: String {
+        switch self {
+        case .fold: NSLocalizedString("Fold", comment: "Navigation bar button that folds the page a step further each tap")
+        case .upLevel: NSLocalizedString("Up a Level", comment: "Navigation bar button that opens the page of the bullet above this one")
+        case .star: NSLocalizedString("Star", comment: "Menu item")
+        case .readingMode: NSLocalizedString("Reading Mode", comment: "Page menu toggle: nothing can be edited while on")
+        case .hideCompleted: NSLocalizedString("Hide Completed", comment: "Menu item")
+        case .twoPanes: NSLocalizedString("Two Panes", comment: "Page menu toggle: the page before shows beside the current one (iPad landscape)")
+        case .copyLink: NSLocalizedString("Copy Link", comment: "Menu item")
+        }
+    }
+
+    public var symbol: String {
+        switch self {
+        case .fold: FoldLevel.neutralSymbol
+        case .upLevel: "arrow.turn.left.up"
+        case .star: "star"
+        case .readingMode: "eyeglasses"
+        case .hideCompleted: "checklist"
+        case .twoPanes: "rectangle.split.2x1"
+        case .copyLink: "link"
         }
     }
 }

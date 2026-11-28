@@ -55,8 +55,14 @@ final class Navigation: ObservableObject {
     /// The pages are moving (dragged, or sliding after Back or Forward): the pages beside those
     /// on screen are there to slide in or out. Settled, they go (and VoiceOver can't reach them).
     @Published private(set) var moving = false
+    /// Target history index pre-mounted without animation one frame before a button slide, so
+    /// the incoming pane lays out at its final width before sliding in.
+    @Published private(set) var staged: Int?
     /// The last move went back: pages come in from the left.
     private(set) var wentBack = false
+    /// When the left pane was expanded to fill the window (two-finger spread), the right pane's
+    /// entry id so a two-finger pinch puts the pair back as they were.
+    private var expandedFromLeft: UUID?
     private var settle: DispatchWorkItem?
     weak var store: OutlineStore?
 
@@ -78,9 +84,37 @@ final class Navigation: ObservableObject {
         let before = self.history(key)
         if history.index != before.index || history.current.id != before.current.id {
             wentBack = history.index < before.index
+            expandedFromLeft = nil
             move()
         }
         histories[key] = history
+    }
+
+    /// Pre-mount the incoming pane unanimated when starting from rest, then slide on the next
+    /// run-loop turn so its UIKit list never animates from an initial width.
+    private func slide(_ key: HistoryKey, staging target: Int?, _ body: @escaping (inout PageHistory) -> Void) {
+        if moving {
+            staged = nil
+            withAnimation(.snappy) {
+                change(key, body)
+                focused = nil
+            }
+            return
+        }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            staged = target
+            move(settling: false)
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            withAnimation(.snappy) {
+                self.staged = nil
+                self.change(key, body)
+                self.focused = nil
+            }
+        }
     }
 
     /// The pages start moving; `settling`: and stop once they have slid (the animation's length).
@@ -132,13 +166,20 @@ final class Navigation: ObservableObject {
         }
     }
 
-    /// Show another page in an entry without a new one (the journal's days, a search typed).
-    func replace(at position: Int, with page: PageRef, in key: HistoryKey) {
+    /// Show another page in an entry without a new one (the journal's days, Up a Level, a
+    /// breadcrumb, or a search typed).
+    func replace(at position: Int, with page: PageRef, opener: String? = nil, reveal: String? = nil, in key: HistoryKey) {
         let history = history(key)
         if history.entries.indices.contains(position), history.entries[position].page != page {
             memories[history.entries[position].id] = nil
         }
-        change(key) { $0.replace(at: position, with: page) }
+        change(key) { $0.replace(at: position, with: page, opener: opener, reveal: reveal) }
+    }
+
+    func clearReveal(_ id: UUID, in key: HistoryKey) {
+        guard var history = histories[key], let pos = history.position(of: id), history.entries[pos].reveal != nil else { return }
+        history.update(id) { $0.reveal = nil }
+        histories[key] = history
     }
 
     /// Pages whose bullet is gone are left out first, as the desktop's Back skips them.
@@ -154,44 +195,106 @@ final class Navigation: ObservableObject {
     var canGoForward: Bool { history(key).canGoForward }
 
     func back() {
-        withAnimation(.snappy) {
-            change(key) { history in
-                prune(&history)
-                history.goBack()
-            }
-            focused = nil
+        let current = history(key)
+        guard current.canGoBack else { return }
+        slide(key, staging: current.index - 1) { history in
+            self.prune(&history)
+            history.goBack()
         }
     }
 
     func forward() {
-        withAnimation(.snappy) {
-            change(key) { history in
-                prune(&history)
-                history.goForward()
-            }
-            focused = nil
+        let current = history(key)
+        guard current.canGoForward else { return }
+        slide(key, staging: current.index + 1) { history in
+            self.prune(&history)
+            history.goForward()
         }
     }
 
     /// Go to a page of the history, from the back or forward button's menu.
     func go(to position: Int) {
+        let current = history(key)
+        let clamped = min(max(0, position), current.entries.count - 1)
+        guard clamped != current.index else { return }
+        let id = current.entries[clamped].id
+        slide(key, staging: clamped) { history in
+            self.prune(&history)
+            history.go(to: history.position(of: id) ?? history.index)
+        }
+    }
+
+    /// Switch the focused pane in place to the page above it (⌘[, the desktop's Zoom Out),
+    /// pointing out the bullet just left.
+    func zoomOut() {
+        let key = key
+        let position = focusedPosition(key)
+        guard case .bullet(let id) = history(key).entries[position].page,
+              let store, let bullet = store.bullet(id) else { return }
+        let parent = bullet.path.last.map { store.pageRef(bullet: $0.id) } ?? .home
+        let opener: String? = if case .bullet(let pid) = parent { pid } else { nil }
+        replace(at: position, with: parent, opener: opener, reveal: id, in: key)
+    }
+
+    var canExpandToSinglePane: Bool {
+        twoPanes && history(.window).index > 0
+    }
+
+    var canCollapseToTwoPanes: Bool {
+        guard wide && canSplit && singlePane else { return false }
+        let history = history(.window)
+        return history.index > 0 || history.canGoForward
+    }
+
+    /// Two-finger spread on the left or right pane: fill the window with that pane's page.
+    func expandPane(left: Bool) {
+        guard canExpandToSinglePane else { return }
+        let current = history(.window)
+        let rememberedRight = left ? current.current.id : nil
+        move()
         withAnimation(.snappy) {
-            change(key) { history in
-                let id = history.entries[min(position, history.entries.count - 1)].id
-                prune(&history)
-                history.go(to: history.position(of: id) ?? history.index)
+            if left {
+                var next = current
+                next.goBack()
+                histories[.window] = next
             }
+            expandedFromLeft = rememberedRight
+            singlePane = true
             focused = nil
         }
     }
 
-    /// The page above the focused one (⌘[, the desktop's Zoom Out), opened from it, the row
-    /// of the page left pointed out.
-    func zoomOut() {
-        let key = key
-        let position = focusedPosition(key)
-        guard case .bullet(let id) = history(key).entries[position].page, let bullet = store?.bullet(id) else { return }
-        open(PageEntry(bullet.path.last.map { .bullet($0.id) } ?? .home, reveal: id), from: position, in: key)
+    /// Two-finger pinch in single-pane mode: restore two panes side by side.
+    func collapseToTwoPanes() {
+        guard canCollapseToTwoPanes else { return }
+        let current = history(.window)
+        let restoreRight: Bool
+        if let rightID = expandedFromLeft, current.index + 1 < current.entries.count, current.entries[current.index + 1].id == rightID {
+            restoreRight = true
+        } else {
+            restoreRight = current.index == 0 && current.canGoForward
+        }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            staged = restoreRight ? current.index + 1 : current.index
+            move(settling: false)
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            withAnimation(.snappy) {
+                self.staged = nil
+                if restoreRight {
+                    var next = self.history(.window)
+                    next.goForward()
+                    self.histories[.window] = next
+                }
+                self.expandedFromLeft = nil
+                self.singlePane = false
+                self.focused = nil
+                self.move()
+            }
+        }
     }
 
     /// Give the focus to the left or the right pane (⌃⌘← ⌃⌘→).
@@ -573,14 +676,30 @@ struct PagesView: View {
             let step = layout.step
             // A swipe goes part of the way to the page before or after, if there is one.
             let target = drag.value > 0 ? (history.canGoBack ? history.index - 1 : nil) : (drag.value < 0 && history.canGoForward ? history.index + 1 : nil)
-            // While the pages move, those beside the ones on screen are there to slide in.
-            let range = nav.moving ? max(0, first - 1)...min(history.entries.count - 1, history.index + 1) : first...history.index
+            // While the pages move, those beside the ones on screen (plus any staged target) are
+            // kept in the tree to slide in without mounting mid-animation.
+            let baseRange = nav.moving ? max(0, first - 1)...min(history.entries.count - 1, history.index + 1) : first...history.index
+            let entries: [PageEntry] = {
+                var indices = Set(baseRange)
+                if let staged = nav.staged {
+                    let willSplit = key == .window && nav.wide && nav.canSplit
+                    let low = willSplit ? max(0, staged - 1) : staged
+                    for i in low...min(history.entries.count - 1, staged) where history.entries.indices.contains(i) {
+                        indices.insert(i)
+                    }
+                    if willSplit, history.index > 0 {
+                        indices.insert(history.index - 1)
+                    }
+                }
+                return indices.sorted().map { history.entries[$0] }
+            }()
             ZStack(alignment: .topLeading) {
-                ForEach(history.entries[range]) { entry in
+                ForEach(entries) { entry in
                     let position = history.position(of: entry.id) ?? 0
                     let shown = position >= first && position <= history.index
                     let left = two && position == first
                     let place = layout.place(position, at: history.index, dragged: drag.value, towards: target)
+                    let contentWidth = drag.value == 0 ? layout.place(position, at: history.index).width : place.width
                     PaneContent(
                         store: store, nav: nav,
                         slot: PaneSlot(
@@ -591,8 +710,17 @@ struct PagesView: View {
                             onSettings: onSettings),
                         entry: entry
                     )
-                    .frame(width: place.width, height: size.height)
+                    .frame(width: contentWidth, height: size.height)
+                    .transaction { transaction in
+                        // Size the pane's UIKit list once at its resting width instead of
+                        // reflowing text across every animation frame.
+                        if drag.value == 0 {
+                            transaction.animation = nil
+                        }
+                    }
+                    .frame(width: place.width, height: size.height, alignment: .topLeading)
                     .background(Color(uiColor: .systemBackground))
+                    .clipped()
                     .overlay(alignment: .leading) {
                         if layout.twoUp && position > 0 {
                             Rectangle().fill(Color(uiColor: .separator)).frame(width: 1 / UIScreen.main.scale).ignoresSafeArea()
@@ -624,6 +752,18 @@ struct PagesView: View {
                     nav.move()
                 }
             }))
+            .gesture(PagePinch(
+                canExpand: { key == .window && nav.canExpandToSinglePane },
+                canCollapse: { key == .window && nav.canCollapseToTwoPanes },
+                trigger: { expand, leftHalf in
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    if expand {
+                        nav.expandPane(left: leftHalf)
+                    } else {
+                        nav.collapseToTwoPanes()
+                    }
+                }
+            ))
             // VoiceOver's three-finger swipes go back and forward too.
             .accessibilityScrollAction { edge in
                 switch edge {
@@ -904,6 +1044,7 @@ public struct FlowieCommands: Commands {
 struct PageScreen: View {
     @ObservedObject var store: OutlineStore
     @StateObject private var page: PageModel
+    @StateObject private var customizingToolbar = Local(false)
     @ObservedObject var nav: Navigation
     let slot: PaneSlot
     let entry: PageEntry
@@ -921,7 +1062,7 @@ struct PageScreen: View {
         self.slot = slot
     }
 
-    /// The first page of a tab: a large title, and on Home the settings button.
+    /// The first page of a tab: a large title, and on Home the settings entry.
     private var top: Bool {
         if case .tab = slot.key { return slot.position == 0 }
         return false
@@ -947,6 +1088,19 @@ struct PageScreen: View {
         nav.open(PageEntry(page, opener: opener), from: slot.position, in: slot.key)
     }
 
+    /// Switch this pane in place (Up a Level, breadcrumbs), keeping the other pane and the rest
+    /// of the history untouched.
+    private func replaceWith(_ target: PageRef, reveal: String? = nil) {
+        let opener: String? = if case .bullet(let id) = target { id } else { nil }
+        nav.replace(at: slot.position, with: target, opener: opener, reveal: reveal, in: slot.key)
+    }
+
+    private func upLevel() {
+        guard case .bullet = page.kind, let info = page.info else { return }
+        let parent = info.path.last.map { store.pageRef(bullet: $0.id) } ?? .home
+        replaceWith(parent, reveal: info.id)
+    }
+
     var body: some View {
         OutlinePage(
             page: page,
@@ -968,52 +1122,47 @@ struct PageScreen: View {
             .navigationTitle(title)
             .modifier(Subtitle(text: subtitle))
             .navigationBarTitleDisplayMode(top ? .large : .inline)
-            .modifier(Breadcrumbs(info: page.root.flatMap { page.kind == .bullet($0) ? page.info : nil }) { page, opener in open(page, opener: opener) })
+            .modifier(Breadcrumbs(info: page.root.flatMap { page.kind == .bullet($0) ? page.info : nil }, store: store) { target, reveal in
+                replaceWith(target, reveal: reveal)
+            })
+            .onAppear {
+                if entry.reveal != nil {
+                    nav.clearReveal(entry.id, in: slot.key)
+                }
+            }
             // While typing, the keyboard bar takes the bottom: with a hardware keyboard it
             // would sit on the tab bar.
             .toolbar(page.isEditing ? .hidden : .automatic, for: .tabBar)
             .toolbar {
                 if case .day(let day) = page.kind {
                     ToolbarItemGroup(placement: .topBarLeading) {
-                        Button(NSLocalizedString("Previous Day", comment: "Journal toolbar button"), systemImage: "chevron.left") {
+                        Button(NSLocalizedString("Previous Day", comment: "Journal toolbar button"), systemImage: "calendar.day.timeline.left") {
                             nav.replace(at: slot.position, with: .day(LaunchMemory.day(day, offset: -1)), in: slot.key)
                         }
-                        Button(NSLocalizedString("Next Day", comment: "Journal toolbar button"), systemImage: "chevron.right") {
+                        Button(NSLocalizedString("Next Day", comment: "Journal toolbar button"), systemImage: "calendar.day.timeline.right") {
                             nav.replace(at: slot.position, with: .day(LaunchMemory.day(day, offset: 1)), in: slot.key)
                         }
                     }
                 }
-                if store.readingMode {
-                    // Reading mode is on (for the whole app): tapping turns it off.
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(NSLocalizedString("Turn Off Reading Mode", comment: "Navigation bar button shown while reading mode is on"), systemImage: "book") {
-                            store.setReadingMode(false)
-                        }
-                    }
-                }
-                if case .bullet = page.kind, let info = page.info {
-                    // Up a level: the page of the bullet above (Home at the top), the bullet
-                    // just left pointed out there.
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(NSLocalizedString("Up a Level", comment: "Navigation bar button that opens the page of the bullet above this one"), systemImage: "arrow.up") {
-                            open(info.path.last.map { .bullet($0.id) } ?? .home, opener: info.id)
-                        }
-                    }
-                }
-                if page.rows.contains(where: \.hasChildren) {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        FoldButton(page: page)
-                    }
+                ForEach(ToolbarAction.allCases.filter(store.toolbarActions.contains), id: \.self) { action in
+                    toolbarButton(for: action)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    PageMenu(store: store, page: page, nav: nav) { day in
+                    PageMenu(
+                        store: store,
+                        page: page,
+                        nav: nav,
+                        onUpLevel: upLevel,
+                        onCustomizeToolbar: { customizingToolbar.value = true },
+                        onSettings: top && page.kind == .home ? slot.onSettings : nil
+                    ) { day in
                         nav.replace(at: slot.position, with: .day(day), in: slot.key)
                     }
                 }
-                if top, case .home = page.kind, let onSettings = slot.onSettings {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(NSLocalizedString("Settings", comment: "Opens the settings sheet"), systemImage: "gearshape", action: onSettings)
-                    }
+            }
+            .sheet(isPresented: $customizingToolbar.value) {
+                ToolbarSettingsView(store: store, showsTwoPanes: UIDevice.current.userInterfaceIdiom == .pad) {
+                    customizingToolbar.value = false
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -1031,23 +1180,92 @@ struct PageScreen: View {
                 }
             }
     }
+
+    @ToolbarContentBuilder
+    private func toolbarButton(for action: ToolbarAction) -> some ToolbarContent {
+        switch action {
+        case .upLevel:
+            if case .bullet = page.kind, page.info != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(NSLocalizedString("Up a Level", comment: "Navigation bar button that opens the page of the bullet above this one"), systemImage: "arrow.turn.left.up", action: upLevel)
+                }
+            }
+        case .star:
+            if let info = page.info {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(
+                        info.starred ? NSLocalizedString("Unstar", comment: "Menu item") : NSLocalizedString("Star", comment: "Menu item"),
+                        systemImage: info.starred ? "star.fill" : "star"
+                    ) {
+                        store.setStarred(info.id, !info.starred)
+                    }
+                }
+            }
+        case .readingMode:
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(
+                    store.readingMode
+                        ? NSLocalizedString("Turn Off Reading Mode", comment: "Navigation bar button shown while reading mode is on")
+                        : NSLocalizedString("Reading Mode", comment: "Page menu toggle: nothing can be edited while on"),
+                    systemImage: "eyeglasses"
+                ) {
+                    store.setReadingMode(!store.readingMode)
+                }
+                .tint(store.readingMode ? .accentColor : nil)
+            }
+        case .hideCompleted:
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(
+                    store.hideCompleted ? NSLocalizedString("Show Completed", comment: "Menu item") : NSLocalizedString("Hide Completed", comment: "Menu item"),
+                    systemImage: store.hideCompleted ? "eye.slash" : "checklist"
+                ) {
+                    store.setHideCompleted(!store.hideCompleted)
+                }
+                .tint(store.hideCompleted ? .accentColor : nil)
+            }
+        case .twoPanes:
+            if nav.wide && nav.canSplit {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(NSLocalizedString("Two Panes", comment: "Page menu toggle: the page before shows beside the current one (iPad landscape)"), systemImage: "rectangle.split.2x1") {
+                        withAnimation(.snappy) { nav.singlePane.toggle() }
+                    }
+                    .tint(!nav.singlePane ? .accentColor : nil)
+                }
+            }
+        case .copyLink:
+            if let id = page.root {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(NSLocalizedString("Copy Link", comment: "Menu item"), systemImage: "link") {
+                        if let link = store.link(id) { UIPasteboard.general.string = link }
+                    }
+                }
+            }
+        case .fold:
+            if page.canFold {
+                ToolbarItem(placement: .topBarTrailing) {
+                    FoldButton(page: page)
+                }
+            }
+        }
+    }
 }
 
-/// The breadcrumbs of a bullet's page: its title is a menu of the pages above it, each opened
-/// in the same pane when chosen (wiki: Sliding-Panes §3), its row there pointed out.
+/// The breadcrumbs of a bullet's page: its title is a menu of the pages above it, each shown in
+/// place in the same pane when chosen (wiki: Sliding-Panes §3), its row there pointed out.
 private struct Breadcrumbs: ViewModifier {
     let info: BulletView?
-    let open: (PageRef, String) -> Void
+    let store: OutlineStore
+    let select: (PageRef, String) -> Void
 
     func body(content: Content) -> some View {
         if let info {
             content.toolbarTitleMenu {
                 Button(NSLocalizedString("Home", comment: "Title of the outline's top page"), systemImage: "house") {
-                    open(.home, info.path.first?.id ?? info.id)
+                    select(.home, info.path.first?.id ?? info.id)
                 }
                 ForEach(Array(info.path.enumerated()), id: \.element.id) { index, crumb in
                     Button(crumb.text.isEmpty ? NSLocalizedString("Untitled", comment: "Title of a page whose bullet has no text") : crumb.text, systemImage: "circle.fill") {
-                        open(.bullet(crumb.id), index + 1 < info.path.count ? info.path[index + 1].id : info.id)
+                        select(store.pageRef(bullet: crumb.id), index + 1 < info.path.count ? info.path[index + 1].id : info.id)
                     }
                 }
             }
@@ -1071,13 +1289,14 @@ private struct Subtitle: ViewModifier {
 }
 
 /// Fold the whole page, beside its "…" menu: each tap goes to the next of Collapse All, Show 2
-/// Levels and Expand All, the symbol showing the state the page is in (a neutral one once rows
-/// were folded by hand, the next tap then collapsing all). Works in reading mode.
+/// Levels and (when the page goes deeper than two levels) Expand All, the symbol showing the
+/// state the page is in (a neutral one once rows were folded by hand, the next tap collapsing
+/// all). Works in reading mode.
 struct FoldButton: View {
     @ObservedObject var page: PageModel
 
     var body: some View {
-        let next = FoldLevel.after(page.foldState)
+        let next = FoldLevel.after(page.foldState, deep: page.hasDeepLevels)
         Button {
             page.fold(to: next)
         } label: {
@@ -1088,18 +1307,23 @@ struct FoldButton: View {
     }
 }
 
-/// A page's "…" menu, at its top right beside the Up a Level and fold buttons (§4.4): star, show or hide completed,
-/// reading mode, copy link, and in iPad landscape one pane or two.
-/// `showDay`: show another day in its place.
+/// A page's "…" menu, at its top right: actions not pinned to the toolbar, submenus for folding
+/// and view options, and "Customize Toolbar…" to pick which buttons stay beside "…".
 struct PageMenu: View {
     @ObservedObject var store: OutlineStore
     @ObservedObject var page: PageModel
     @ObservedObject var nav: Navigation
+    let onUpLevel: () -> Void
+    let onCustomizeToolbar: () -> Void
+    let onSettings: (() -> Void)?
     let showDay: (String) -> Void
 
     var body: some View {
         Menu {
-            if let info = page.info {
+            if case .bullet = page.kind, page.info != nil, !store.toolbarActions.contains(.upLevel) {
+                Button(NSLocalizedString("Up a Level", comment: "Navigation bar button that opens the page of the bullet above this one"), systemImage: "arrow.turn.left.up", action: onUpLevel)
+            }
+            if let info = page.info, !store.toolbarActions.contains(.star) {
                 Button(
                     info.starred ? NSLocalizedString("Unstar", comment: "Menu item") : NSLocalizedString("Star", comment: "Menu item"),
                     systemImage: info.starred ? "star.slash" : "star"
@@ -1107,22 +1331,7 @@ struct PageMenu: View {
                     store.setStarred(info.id, !info.starred)
                 }
             }
-            Button(
-                store.hideCompleted ? NSLocalizedString("Show Completed", comment: "Menu item") : NSLocalizedString("Hide Completed", comment: "Menu item"),
-                systemImage: store.hideCompleted ? "eye" : "eye.slash"
-            ) {
-                store.setHideCompleted(!store.hideCompleted)
-            }
-            Toggle(isOn: Binding(get: { store.readingMode }, set: { store.setReadingMode($0) })) {
-                Label(NSLocalizedString("Reading Mode", comment: "Page menu toggle: nothing can be edited while on"), systemImage: "book")
-            }
-            if nav.wide && nav.canSplit {
-                // Landscape only: portrait has one pane anyway (wiki: Sliding-Panes §3).
-                Toggle(isOn: Binding(get: { !nav.singlePane }, set: { two in withAnimation(.snappy) { nav.singlePane = !two } })) {
-                    Label(NSLocalizedString("Two Panes", comment: "Page menu toggle: the page before shows beside the current one (iPad landscape)"), systemImage: "rectangle.split.2x1")
-                }
-            }
-            if let id = page.root {
+            if let id = page.root, !store.toolbarActions.contains(.copyLink) {
                 Button(NSLocalizedString("Copy Link", comment: "Menu item"), systemImage: "link") {
                     if let link = store.link(id) { UIPasteboard.general.string = link }
                 }
@@ -1132,9 +1341,86 @@ struct PageMenu: View {
                     showDay(LaunchMemory.today)
                 }
             }
+            if page.canFold {
+                Menu(NSLocalizedString("Folding", comment: "Submenu in the page … menu for folding levels"), systemImage: "list.bullet.indent") {
+                    ForEach(FoldLevel.available(deep: page.hasDeepLevels), id: \.self) { level in
+                        Button {
+                            page.fold(to: level)
+                        } label: {
+                            Label(level.title, systemImage: page.foldState == level ? "checkmark" : level.symbol)
+                        }
+                    }
+                }
+            }
+            Menu(NSLocalizedString("View Options", comment: "Submenu in the page … menu for reading mode, completed rows and panes"), systemImage: "eyeglasses") {
+                Toggle(isOn: Binding(get: { store.readingMode }, set: { store.setReadingMode($0) })) {
+                    Label(NSLocalizedString("Reading Mode", comment: "Page menu toggle: nothing can be edited while on"), systemImage: "eyeglasses")
+                }
+                Toggle(isOn: Binding(get: { store.hideCompleted }, set: { store.setHideCompleted($0) })) {
+                    Label(NSLocalizedString("Hide Completed", comment: "Menu item"), systemImage: "checklist")
+                }
+                if nav.wide && nav.canSplit {
+                    // Landscape only: portrait has one pane anyway (wiki: Sliding-Panes §3).
+                    Toggle(isOn: Binding(get: { !nav.singlePane }, set: { two in withAnimation(.snappy) { nav.singlePane = !two } })) {
+                        Label(NSLocalizedString("Two Panes", comment: "Page menu toggle: the page before shows beside the current one (iPad landscape)"), systemImage: "rectangle.split.2x1")
+                    }
+                }
+            }
+            Divider()
+            Button(NSLocalizedString("Customize Toolbar…", comment: "Page menu item: opens a sheet to pick top-right toolbar buttons"), systemImage: "slider.horizontal.3", action: onCustomizeToolbar)
+            if let onSettings {
+                Button(NSLocalizedString("Settings", comment: "Opens the settings sheet"), systemImage: "gearshape", action: onSettings)
+            }
         } label: {
             Label(NSLocalizedString("More", comment: "The page menu's button"), systemImage: "ellipsis")
         }
+    }
+}
+
+/// Half-height card opened from "…" → Customize Toolbar…: toggles for which buttons sit beside
+/// "…" in the top-right navigation bar (default: only Fold).
+struct ToolbarSettingsView: View {
+    @ObservedObject var store: OutlineStore
+    let showsTwoPanes: Bool
+    let close: () -> Void
+
+    private var items: [ToolbarAction] {
+        ToolbarAction.sheetOrder.filter { showsTwoPanes || $0 != .twoPanes }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    ForEach(items, id: \.self) { action in
+                        Toggle(isOn: Binding(
+                            get: { store.toolbarActions.contains(action) },
+                            set: { store.setToolbar(action, $0) }
+                        )) {
+                            Label(action.title, systemImage: action.symbol)
+                        }
+                    }
+                } footer: {
+                    Text("Choose which buttons stay in the top-right toolbar. Everything else stays in the … menu.")
+                }
+                if store.toolbarActions != ToolbarAction.defaults {
+                    Section {
+                        Button(NSLocalizedString("Reset to Default", comment: "Customize Toolbar sheet button")) {
+                            store.resetToolbar()
+                        }
+                    }
+                }
+            }
+            .navigationTitle(NSLocalizedString("Customize Toolbar", comment: "Title of the Customize Toolbar sheet"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(NSLocalizedString("Done", comment: "Closes the settings sheet"), systemImage: "checkmark", action: close)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 

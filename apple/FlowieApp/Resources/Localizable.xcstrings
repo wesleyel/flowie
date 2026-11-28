@@ -378,6 +378,23 @@
         }
       }
     },
+    "Choose which buttons stay in the top-right toolbar. Everything else stays in the … menu." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which buttons stay in the top-right toolbar. Everything else stays in the … menu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择常驻在右上角工具栏的按钮，其余功能仍可在「…」菜单中使用。"
+          }
+        }
+      }
+    },
     "Collapse" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -493,6 +510,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法检查 iCloud（%@），Flowie 会自动重试。"
+          }
+        }
+      }
+    },
+    "Customize Toolbar" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Customize Toolbar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置工具栏"
+          }
+        }
+      }
+    },
+    "Customize Toolbar…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Customize Toolbar…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置工具栏…"
           }
         }
       }
@@ -834,6 +885,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "折叠"
+          }
+        }
+      }
+    },
+    "Folding" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folding"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开与折叠"
           }
         }
       }
@@ -1774,6 +1842,23 @@
         }
       }
     },
+    "Reset to Default" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset to Default"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复默认"
+          }
+        }
+      }
+    },
     "Restore" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2552,6 +2637,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "查看图片"
+          }
+        }
+      }
+    },
+    "View Options" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View Options"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示与布局"
           }
         }
       }

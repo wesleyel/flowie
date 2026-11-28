@@ -77,6 +77,89 @@ struct PageSwipe: UIGestureRecognizerRepresentable {
     }
 }
 
+/// Two-finger spread on a pane in two-pane mode widens that pane to fill the window; a
+/// two-finger pinch in single-pane mode brings the two panes back. Works on a trackpad too.
+struct PagePinch: UIGestureRecognizerRepresentable {
+    let canExpand: () -> Bool
+    let canCollapse: () -> Bool
+    /// `(expand, leftHalf)`: true to fill the window with the pane on that half, false to show
+    /// two panes again.
+    let trigger: (Bool, Bool) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UIPinchGestureRecognizer {
+        let recognizer = UIPinchGestureRecognizer()
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPinchGestureRecognizer, context: Context) {
+        context.coordinator.canExpand = canExpand
+        context.coordinator.canCollapse = canCollapse
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPinchGestureRecognizer, context: Context) {
+        let coordinator = context.coordinator
+        switch recognizer.state {
+        case .began:
+            coordinator.fired = false
+            if let view = recognizer.view, view.bounds.width > 0 {
+                coordinator.leftHalf = recognizer.location(in: view).x < view.bounds.width / 2
+            } else {
+                coordinator.leftHalf = false
+            }
+        case .changed:
+            guard !coordinator.fired else { return }
+            if recognizer.scale >= 1.25, canExpand() {
+                coordinator.fired = true
+                trigger(true, coordinator.leftHalf)
+            } else if recognizer.scale <= 0.78, canCollapse() {
+                coordinator.fired = true
+                trigger(false, coordinator.leftHalf)
+            }
+        case .ended:
+            guard !coordinator.fired else { return }
+            let v = recognizer.velocity
+            if (recognizer.scale >= 1.12 || (recognizer.scale > 1.04 && v > 0.6)), canExpand() {
+                coordinator.fired = true
+                trigger(true, coordinator.leftHalf)
+            } else if (recognizer.scale <= 0.88 || (recognizer.scale < 0.96 && v < -0.6)), canCollapse() {
+                coordinator.fired = true
+                trigger(false, coordinator.leftHalf)
+            }
+        default:
+            break
+        }
+    }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator(canExpand: canExpand, canCollapse: canCollapse)
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var canExpand: () -> Bool
+        var canCollapse: () -> Bool
+        var fired = false
+        var leftHalf = false
+
+        init(canExpand: @escaping () -> Bool, canCollapse: @escaping () -> Bool) {
+            self.canExpand = canExpand
+            self.canCollapse = canCollapse
+        }
+
+        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            guard canExpand() || canCollapse() else { return false }
+            if let editor = UIResponder.first as? UITextView, editor.markedTextRange != nil {
+                return false
+            }
+            return true
+        }
+
+        func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            other.view is UIScrollView && other is UIPanGestureRecognizer
+        }
+    }
+}
+
 extension UIResponder {
     @MainActor private static weak var found: UIResponder?
 

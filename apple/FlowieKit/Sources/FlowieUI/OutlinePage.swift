@@ -103,6 +103,14 @@ struct RowMetrics: Equatable {
         maxIndent = max(0, Int(floor(room / indent)))
     }
 
+    /// Whether everything except `maxIndent` (which depends on width) is the same.
+    func sameStyle(as other: RowMetrics) -> Bool {
+        font == other.font && lineHeight == other.lineHeight &&
+        noteFont == other.noteFont && noteLineHeight == other.noteLineHeight &&
+        pad == other.pad && leading == other.leading && trailing == other.trailing &&
+        slot == other.slot && bullet == other.bullet && ring == other.ring && indent == other.indent
+    }
+
     /// How far right a row at `depth` sits, in levels.
     func shown(_ depth: Int) -> Int {
         min(depth, maxIndent)
@@ -411,10 +419,19 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // The rows first, so the hint and the backlinks go below where they end.
-        collectionView.layoutIfNeeded()
-        layoutHint()
-        layoutBacklinks()
+        // Before the page has appeared, size the list without inheriting an outer slide
+        // animation, so a newly mounted pane never animates its rows from an initial width.
+        if !shownOnce {
+            UIView.performWithoutAnimation {
+                collectionView.layoutIfNeeded()
+                layoutHint()
+                layoutBacklinks()
+            }
+        } else {
+            collectionView.layoutIfNeeded()
+            layoutHint()
+            layoutBacklinks()
+        }
     }
 
     /// Room below the last row, to tap for a new one.
@@ -458,23 +475,43 @@ public final class OutlinePageController: UIViewController, UICollectionViewDele
 
     public override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        if metrics != RowMetrics(width: view.bounds.width, traits: traitCollection) {
-            remeasure()
+        let next = RowMetrics(width: view.bounds.width, traits: traitCollection)
+        if metrics != next {
+            remeasure(to: next)
         }
     }
 
-    /// The text size, the width or the width class changed: every row is measured again.
-    private func remeasure() {
+    /// The text size, the width or the width class changed: rows whose metrics changed are
+    /// measured again.
+    private func remeasure(to next: RowMetrics? = nil) {
         guard isViewLoaded, dataSource != nil else { return }
-        metrics = RowMetrics(width: view.bounds.width, traits: traitCollection)
+        let old = metrics
+        let next = next ?? RowMetrics(width: view.bounds.width, traits: traitCollection)
+        metrics = next
         // Before the first layout no row is shown yet, so none was measured: reconfiguring them
         // all took 150 ms of opening a 20 000-row page (wiki: TODO-ios ios:24).
         if !collectionView.visibleCells.isEmpty {
-            var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems(snapshot.itemIdentifiers)
-            placing = true
-            dataSource.apply(snapshot, animatingDifferences: false)
-            placing = false
+            let ids: [String]
+            if old.sameStyle(as: next) {
+                // Only the width changed: rows no deeper than both caps draw the same way.
+                let cap = min(old.maxIndent, next.maxIndent)
+                ids = order.filter { Int(rowsByID[$0]?.depth ?? 0) > cap }
+            } else {
+                ids = dataSource.snapshot().itemIdentifiers
+            }
+            if !ids.isEmpty {
+                var snapshot = dataSource.snapshot()
+                let valid = Set(snapshot.itemIdentifiers)
+                let shown = ids.filter(valid.contains)
+                if !shown.isEmpty {
+                    snapshot.reconfigureItems(shown)
+                    placing = true
+                    UIView.performWithoutAnimation {
+                        dataSource.apply(snapshot, animatingDifferences: false)
+                    }
+                    placing = false
+                }
+            }
         }
         layoutBacklinks()
     }

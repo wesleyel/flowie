@@ -660,6 +660,37 @@ fn pack_rows(rows: &[RowView]) -> Vec<u8> {
     out
 }
 
+/// How many levels of bullets the page at `root` can show (`0`, `1`, `2`, or `3` for three or
+/// more), regardless of what is currently collapsed, leaving out completed bullets when
+/// `hide_completed`. Used by the fold button: "Expand All" is offered only past two levels.
+fn page_levels(tree: &Tree, root: NodeId, hide_completed: bool) -> u8 {
+    let visible = |id: NodeId| !(hide_completed && tree.node(tree.source(id)).completed);
+    let root_src = tree.source(root);
+    let mut levels = 0u8;
+    for &c0 in tree.children(root_src) {
+        if !visible(c0) {
+            continue;
+        }
+        levels = levels.max(1);
+        let s0 = tree.source(c0);
+        let m0 = (s0 != c0).then_some(s0);
+        for &c1 in tree.children(s0) {
+            if !visible(c1) {
+                continue;
+            }
+            levels = levels.max(2);
+            let s1 = tree.source(c1);
+            if s1 != c1 && m0 == Some(s1) {
+                continue;
+            }
+            if tree.children(s1).iter().any(|&c2| visible(c2)) {
+                return 3;
+            }
+        }
+    }
+    levels
+}
+
 /// The depth of bullet `id`'s row on the page at `root`, found by walking up from it: none if
 /// it isn't under `root`, a collapsed bullet hides it, or (with `hide_completed`) it or a bullet
 /// above it is completed. Rows inside mirrors (virtual ids) are not found this way.
@@ -716,6 +747,15 @@ impl Outline {
     /// for an image its width and height (u32) and file path (a string, with flag 16).
     pub fn page_packed(&self, root: Option<String>) -> Result<Vec<u8>, FlowieError> {
         Ok(pack_rows(&self.page(root)?))
+    }
+
+    /// How many levels of bullets the page at `root` (none: Home) has when unfolded, capped at `3`
+    /// (`0`: empty, `1`: flat rows, `2`: two levels, `3`: three or more), leaving out completed
+    /// ones when [`hide_completed`](Self::hide_completed).
+    pub fn page_levels(&self, root: Option<String>) -> Result<u8, FlowieError> {
+        let state = self.lock();
+        let root = page_root(&state.ws.tree, root)?;
+        Ok(page_levels(&state.ws.tree, root, state.hide_completed))
     }
 
     /// The rows with these ids on the page at `root` (none: Home), as [`page`](Self::page)
@@ -2243,5 +2283,27 @@ mod tests {
         drop(outline);
         let outline = Outline::open(db).unwrap();
         assert_eq!(outline.page(None).unwrap()[0].text, "saved, edited");
+    }
+
+    #[test]
+    fn page_levels_counts_unfolded_visible_depth_up_to_three() {
+        let outline = Outline::in_memory();
+        assert_eq!(outline.page_levels(None).unwrap(), 0);
+        let a = add(&outline, None, 0, "a");
+        assert_eq!(outline.page_levels(None).unwrap(), 1);
+        let b = add(&outline, Some(&a), 0, "b");
+        assert_eq!(outline.page_levels(None).unwrap(), 2);
+        // Collapsing `a` leaves only depth-0 rows on screen, yet the page still has 2 levels.
+        outline.set_collapsed(a.clone(), true).unwrap();
+        assert_eq!(outline.page_levels(None).unwrap(), 2);
+        let c = add(&outline, Some(&b), 0, "c");
+        assert_eq!(outline.page_levels(None).unwrap(), 3);
+        assert_eq!(outline.page_levels(Some(a.clone())).unwrap(), 2);
+        assert_eq!(outline.page_levels(Some(b.clone())).unwrap(), 1);
+        assert_eq!(outline.page_levels(Some(c.clone())).unwrap(), 0);
+        // Hiding completed rows drops levels whose only bullets are completed.
+        outline.set_completed(c, true).unwrap();
+        outline.set_hide_completed(true);
+        assert_eq!(outline.page_levels(None).unwrap(), 2);
     }
 }

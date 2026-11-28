@@ -13,6 +13,7 @@ pub use native::{Fetched, FileTaken, NativeSaved, NativeSync, Wire, WireFile};
 pub use outcome::Outcome;
 pub use sync::{LostCopy, SyncState};
 
+pub mod api;
 pub mod capture;
 #[cfg(feature = "native")]
 mod driver;

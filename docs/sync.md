@@ -53,7 +53,7 @@ The server can also serve Flowie's browser version, which syncs with it like any
 
 ```bash
 scripts/build-web.sh
-./target/release/flowie-server serve --web web
+./target/release/flowie-server serve --web web/dist
 ```
 
 Open the server's address and paste a device token. The browser version shows and edits the

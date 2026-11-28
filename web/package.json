@@ -1,13 +1,21 @@
 {
   "name": "flowie-web",
   "private": true,
-  "description": "Flowie in the browser: the page and its worker, over flowie-wasm (scripts/build-web.sh builds both).",
+  "description": "Flowie in the browser: the page and its worker (Preact, built with Vite), over flowie-wasm (scripts/build-web.sh builds both).",
   "type": "module",
   "scripts": {
-    "build": "tsc -p .",
-    "check": "tsc -p . --noEmit"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "tsc -p . && tsc -p tsconfig.node.json"
   },
   "devDependencies": {
-    "typescript": "7.0.2"
+    "@types/node": "22.19.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
+  },
+  "dependencies": {
+    "@preact/signals": "2.11.4",
+    "preact": "11.2.0"
   }
 }

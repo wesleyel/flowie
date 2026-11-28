@@ -1,7 +1,7 @@
 # Workspace layout
 
 Flowie is a Rust Cargo workspace paired with a Swift package (`apple/`) for iOS and macOS CloudKit,
-a TypeScript browser client (`web/`) over wasm, and supporting build/release directories.
+a TypeScript browser client (`web/`, Preact + Vite) over wasm, and supporting build/release directories.
 
 ## Crates
 
@@ -10,7 +10,7 @@ a TypeScript browser client (`web/`) over wasm, and supporting build/release dir
 | `crates/flowie-core` | Model and persistence, **no UI**: `tree/` (`NodeId` UUIDs, `Node`, `Tree`, edit ops), `rank.rs` (fractional-index sibling keys: base-62 strings compared as bytes, never renumbered), `store/` (SQLite schema in `store/mod.rs`, `formats/v*.sql` snapshots, background `Writer` batching changes ~200 ms, Trash, imports, image metadata), `history.rs` (undo), `flatten.rs` (tree → visible `Row`/`DisplayRow`), `markup.rs` (inline formatting), `search.rs`, `journal.rs`, `hlc.rs`, `short_id.rs`, `io/` (text/Markdown/OPML), `package/` (`.flowie` share packages, three-way merge), `images.rs` (sha256 content-addressed `ImageDir`), `imports.rs`. Default features `store` (store, package, `ImageDir`) and `writer-thread` (`Writer`); without them it compiles for `wasm32-unknown-unknown`. |
 | `crates/flowie-doc` | Document layer, **no GPUI**: `Workspace` owns the open outline's `tree`, `history`, `writer`, `imports`, `blobs`, `image_dir`, `prefs`, and `sync` (`SyncState`), opens the database, and runs the commit/undo/tracking path (`Outcome`) every edit takes; also holds `SyncDriver`, `NativeSync`, `capture`, `find`, `keys`, and `utf16`. |
 | `crates/flowie-sync` | Per-node sync, **no IO, no GPUI**, builds for wasm: `wire` (JSON `Envelope`/`NodeRecord`/`PrefsRecord`, golden vectors in `testdata/`), `merge` (field-by-field LWW by `flowie_core::hlc`), `engine` (`Engine`, `RecordStore`, `Backend`, `sync_once`), `memory`/`store` (in-memory backend and store for tests), and `http` (`HttpBackend`, behind the `http` feature). |
-| `crates/flowie-server` | Self-hosted sync backend (binary `flowie-server`, see [sync.md](sync.md)): axum + SQLite, stores envelopes without reading them, conditional saves (`seq`), long-polling change feed, sha256-named blob files, device tokens (`token add` / `list` / `revoke`); optionally serves `web/` with `--web`. |
+| `crates/flowie-server` | Self-hosted sync backend (binary `flowie-server`, see [sync.md](sync.md)): axum + SQLite, stores envelopes without reading them, conditional saves (`seq`), long-polling change feed, sha256-named blob files, device tokens (`token add` / `list` / `revoke`); optionally serves the browser build (`web/dist`) with `--web`. |
 | `crates/flowie-ffi` | Native bindings through UniFFI for Apple apps: an open outline, a page's rows, edits, journal capture, search, and self-hosted sync, all routed through `flowie-doc`. `scripts/ffi-swift-smoke.sh` builds Swift bindings and runs a smoke test. |
 | `crates/flowie-cloudkit` | iCloud sync for macOS: `build.rs` compiles `apple/FlowieKit/Sources/FlowieCloudKit` and `swift/Bridge.swift` (C API) with `swiftc` into a static library linked into the GPUI binary; `CloudDriver` drives `CKSyncEngine` through `flowie-doc`'s `NativeSync`. Elsewhere, or with `FLOWIE_CLOUDKIT=0`, it builds without Swift and reports iCloud unavailable; only builds signed with Flowie's iCloud entitlements (Mac App Store / TestFlight) can sync. |
 | `crates/flowie-wasm` | Browser preview core: `flowie-doc` and `flowie-sync` compiled to wasm with SQLite (`sqlite-wasm-rs` / OPFS). `scripts/wasm-check.sh` runs its tests under Node. |
@@ -51,8 +51,15 @@ GPUI re-renders.
     and `Share` share extension)
     over `FlowieUI` and `build/ios/FlowieFFI.xcframework` (`scripts/build-ios-ffi.sh`,
     `scripts/package-ios.sh`; see [building.md](building.md)).
-- `web/`: browser preview TypeScript app (`web/src`, worker + `fetch` sync, `sw.js`) built against
-  `web/pkg` (`flowie-wasm`) by `scripts/build-web.sh` and served by `flowie-server serve --web web`.
+- `web/`: browser preview, a Preact + `@preact/signals` app bundled by Vite (`web/vite.config.ts`)
+  against `web/pkg` (`flowie-wasm`). `web/src` is split by feature: `core/` (typed worker RPC:
+  `protocol.ts` lists the calls, `rpc.ts` makes them), `worker/` (the module worker running
+  flowie-wasm on OPFS, and `fetch` sync), `state/` (signals for the page, rows, search, session
+  and focus), `outline/`, `chrome/` (top bar, starred, breadcrumbs), `setup/`, `app/`, and
+  `styles/` (`tokens.css` holds the CSS custom properties). `scripts/build-web.sh` builds the
+  wasm and then `web/dist` (hashed assets, plus `sw.js` generated from `web/sw.js` with the list
+  of built files), served by `flowie-server serve --web web/dist`; `npm run dev` in `web/` serves
+  the sources and proxies `/v1/` to a local `flowie-server`.
 - `scripts/`: build, packaging, CI verification, icon, screenshot, and setup scripts (including
   `setup-wiki.sh`, `check-formats.sh`, `release-notes.sh`).
 - `appstore/`: Mac App Store release config: fastlane metadata, screenshots, privacy manifest,

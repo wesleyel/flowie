@@ -1,9 +1,9 @@
 // The outline and its sync run here, in a dedicated worker: OPFS gives SQLite synchronous file
 // access only in one, so the outline is kept across reloads. The page sends calls and gets
 // answers, and events when the outline changed from the server or sync's status did.
-import init, { Outline, install_opfs } from "../pkg/flowie_wasm.js";
-import type { Calls, Op, Reply, Request } from "./protocol.js";
-import { Sync } from "./sync.js";
+import init, { Outline, install_opfs } from "../../pkg/flowie_wasm.js";
+import type { Calls, Op, Reply, Request } from "../core/protocol";
+import { Sync } from "./sync";
 
 const scope = self as unknown as { postMessage(message: Reply): void; onmessage: ((event: MessageEvent<Request>) => void) | null };
 

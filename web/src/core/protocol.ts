@@ -1,4 +1,6 @@
-// What the page and the worker say to each other.
+// What the page and the worker say to each other. A new call is a line in `Calls` and its
+// handler in worker/index.ts (type-checked against flowie-wasm's bindings); the page then
+// reaches it with `call` from core/rpc.ts.
 
 /** One row of a page (flowie-wasm's `RowView`). */
 export interface Row {
@@ -50,8 +52,7 @@ export interface Request<K extends Op = Op> {
   args: Calls[K]["args"];
 }
 
-export type Reply =
-  | { id: number; result: unknown }
-  | { id: number; error: string }
-  | { event: "changed" }
-  | { event: "status"; text: string };
+/** What the worker says on its own: the outline changed from the server, or sync's status did. */
+export type WorkerEvent = { event: "changed" } | { event: "status"; text: string };
+
+export type Reply = { id: number; result: unknown } | { id: number; error: string } | WorkerEvent;

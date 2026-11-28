@@ -236,7 +236,14 @@ cargo test --workspace
 # flowie-core's model, without its default `store` and `writer-thread` features, builds for the browser
 rustup target add wasm32-unknown-unknown
 cargo check -p flowie-core --no-default-features --target wasm32-unknown-unknown
+# the browser version: flowie-wasm into web/pkg, then web/dist (Node 22, npm ci, type check, Vite)
+rustup target add wasm32-unknown-unknown && rustup component add llvm-tools
+scripts/build-web.sh
 ```
+
+`npm run check` and `npm run build` in `web/` type-check and bundle against an existing `web/pkg`;
+`npm run dev` serves it with Vite, passing `/v1/` to the `flowie-server` at `FLOWIE_SERVER`
+(default `http://127.0.0.1:8787`).
 
 Handy extras:
 

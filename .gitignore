@@ -27,8 +27,8 @@ __pycache__/
 /apple/FlowieApp/*.xcodeproj/
 /apple/FlowieApp/*.xcworkspace/
 
-# Built by scripts/build-web.sh
+# Built by scripts/build-web.sh (icon.png copied from assets/ by web/vite.config.ts)
 /web/pkg/
 /web/node_modules/
 /web/dist/
-/web/icon.png
+/web/public/icon.png

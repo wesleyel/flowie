@@ -2,7 +2,7 @@
 // with fetch (per-node-sync.md §5.1). Saves go out as soon as there are any; one fetch waits
 // on the server for new records (long polling). A failed call is tried again after a wait
 // that doubles from a second up to a minute.
-import type { Outline } from "../pkg/flowie_wasm.js";
+import type { Outline } from "../../pkg/flowie_wasm.js";
 
 const LONG_POLL = 30;
 

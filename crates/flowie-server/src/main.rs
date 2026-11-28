@@ -17,7 +17,7 @@ const USAGE: &str = "usage:
   flowie-server token add NAME | list | revoke NAME   [--db PATH]
 
 defaults: --db flowie-server.sqlite  --listen 127.0.0.1:8787  --blobs blobs
---web serves the browser version (scripts/build-web.sh builds it into web/)";
+--web serves the browser version (scripts/build-web.sh builds it into web/dist)";
 
 struct Options {
     db: PathBuf,

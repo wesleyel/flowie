@@ -25,7 +25,9 @@ and in debug builds -FlowieSearch and -FlowieCapture
 language, its status bar is fixed at 9:41 with full bars, and the appearance is light.
 
 Writes appstore/fastlane/ios/screenshots/<locale>/iPhone-NN-name.png (1320×2868, iPhone 6.9")
-and iPad-NN-name.png (2752×2064, iPad 13" in landscape); `fastlane ios screenshots` uploads them. Dates
+and iPad-NN-name.png (2752×2064, iPad 13" in landscape); `fastlane ios screenshots` uploads them.
+The home shot also goes to the website's device stage as website/images/iphone-01-home-<locale>.jpg
+(600×1304) and ipad-01-home-<locale>.jpg (1200×900). Dates
 follow today. Your own outline and Simulators are never touched.
 """
 
@@ -50,6 +52,8 @@ APP_DIR = ROOT / "apple" / "FlowieApp"
 DERIVED = ROOT / "build" / "ios" / "DerivedData"
 APP = DERIVED / "Build" / "Products" / "Debug-iphonesimulator" / "Flowie.app"
 OUT = ROOT / "appstore" / "fastlane" / "ios" / "screenshots"
+WEBSITE = ROOT / "website" / "images"  # the home shot, for the home page's device stage
+WEB_WIDTH = {"iphone": 600, "ipad": 1200}
 BUNDLE_ID = "flowie.spokey.cn"
 GROUP = "group.flowie.spokey.cn"
 SETTLE = 1.0  # seconds after launch before looking whether the screen has settled
@@ -319,6 +323,12 @@ def take(kind, locale, outline, today, shots):
         if size(path) != expected:
             sys.exit(f"{path} is {size(path)}, App Store Connect wants {expected}")
         print(f"[{_job.name}] {path.relative_to(ROOT)} ({frames} frames, {time.monotonic() - began:.1f} s)", flush=True)
+        if shot[1] == "home":
+            web = WEBSITE / f"{kind}-{shot[0]}-{shot[1]}-{locale}.jpg"
+            image = Image.open(path).convert("RGB")
+            width = WEB_WIDTH[kind]
+            image.resize((width, round(image.height * width / image.width)), Image.Resampling.LANCZOS).save(web, quality=82)
+            print(f"[{_job.name}] {web.relative_to(ROOT)}", flush=True)
     subprocess.run(["xcrun", "simctl", "terminate", udid, BUNDLE_ID], capture_output=True)
     run("xcrun", "simctl", "shutdown", udid)
     print(f"[{_job.name}] done in {time.monotonic() - start:.0f} s", flush=True)

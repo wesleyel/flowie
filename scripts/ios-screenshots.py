@@ -29,6 +29,7 @@ follow today. Your own outline and Simulators are never touched.
 
 import argparse
 import datetime as dt
+import hashlib
 import io
 import json
 import shutil
@@ -47,9 +48,10 @@ APP = DERIVED / "Build" / "Products" / "Debug-iphonesimulator" / "Flowie.app"
 OUT = ROOT / "appstore" / "fastlane" / "ios" / "screenshots"
 BUNDLE_ID = "flowie.spokey.cn"
 GROUP = "group.flowie.spokey.cn"
-SETTLE = 2.0  # seconds after launch before looking whether the screen has settled
-STEADY = 6  # frames, half a second apart, that show a settled screen
-STEADY_TRIES = 30
+SETTLE = 1.0  # seconds after launch before looking whether the screen has settled
+STEADY = 3  # frames in a row that show a settled screen (each capture takes about half a second)
+STEADY_GAP = 0.2  # seconds between frames
+STEADY_TRIES = 40
 
 # The Simulators used: their own, so nothing of yours is in them. App Store Connect's sizes:
 # iPhone 6.9" (1320×2868, portrait) and iPad 13" (2752×2064, landscape).
@@ -75,13 +77,14 @@ LOCALES = {
     },
 }
 
-# (number, name, tab, path of demo ids pushed on the tab, extra launch arguments by locale)
+# (number, name, tab, path of demo ids pushed on the tab, extra launch arguments by locale,
+#  whether a caret blinks on screen)
 SHOTS = [
-    ("01", "home", "home", [], lambda l: []),
-    ("02", "today", "today", [], lambda l: []),
-    ("03", "page", "home", ["web", "milestones"], lambda l: []),
-    ("04", "search", "search", [], lambda l: ["-FlowieSearch", l["search"]]),
-    ("05", "capture", "today", [], lambda l: ["-FlowieCapture", l["capture"]]),
+    ("01", "home", "home", [], lambda l: [], False),
+    ("02", "today", "today", [], lambda l: [], False),
+    ("03", "page", "home", ["web", "milestones"], lambda l: [], False),
+    ("04", "search", "search", [], lambda l: ["-FlowieSearch", l["search"]], False),
+    ("05", "capture", "today", [], lambda l: ["-FlowieCapture", l["capture"]], True),
 ]
 
 
@@ -162,16 +165,39 @@ def prepare(udid, wide):
     # The keyboard's first-run tip (slide to type) would cover the capture shot.
     for key in ("DidShowContinuousPathIntroduction", "DidShowGestureKeyboardIntroduction"):
         run("xcrun", "simctl", "spawn", udid, "defaults", "write", "com.apple.Preferences", key, "-bool", "YES")
-    run("xcrun", "simctl", "install", udid, APP)
+    fresh = installed(udid) != bundle_hash(APP)
+    if fresh:
+        run("xcrun", "simctl", "install", udid, APP)
     if wide:
         landscape(udid)
-    # The first launch after installing is slow: get it over with before the shots.
-    run("xcrun", "simctl", "launch", udid, BUNDLE_ID, stdout=subprocess.DEVNULL)
-    time.sleep(2 * SETTLE)
+    if fresh:
+        # The first launch after installing is slow: get it over with before the shots.
+        run("xcrun", "simctl", "launch", udid, BUNDLE_ID, stdout=subprocess.DEVNULL)
+        time.sleep(4)
+
+
+def bundle_hash(app):
+    """A hash of every file in an app bundle (None if there is none)."""
+    if not app or not app.is_dir():
+        return None
+    h = hashlib.blake2b()
+    for f in sorted(p for p in app.rglob("*") if p.is_file() and not p.is_symlink()):
+        h.update(str(f.relative_to(app)).encode())
+        with f.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    return h.hexdigest()
+
+
+def installed(udid):
+    """The hash of the app installed on the Simulator, so an unchanged build isn't reinstalled."""
+    out = subprocess.run(["xcrun", "simctl", "get_app_container", udid, BUNDLE_ID, "app"],
+                         capture_output=True, text=True)
+    return bundle_hash(Path(out.stdout.strip())) if out.returncode == 0 else None
 
 
 def shoot(udid, db, ids, today, locale, shot, path):
-    number, name, tab, pushed, extra = shot
+    number, name, tab, pushed, extra, caret = shot
     subprocess.run(["xcrun", "simctl", "terminate", udid, BUNDLE_ID], capture_output=True)
     container = Path(output("xcrun", "simctl", "get_app_container", udid, BUNDLE_ID, GROUP).strip())
     data = container / "Library" / "Application Support" / "Flowie"
@@ -199,13 +225,16 @@ def shoot(udid, db, ids, today, locale, shot, path):
         frames.append(capture(udid, path))
         recent = frames[-STEADY:]
         if len(recent) == STEADY and caret_only(recent):
+            if not caret:
+                path.write_bytes(recent[-1])
+                return
             # The caret fades in and out: a few quick frames more, for one with it solid.
             for _ in range(8):
                 time.sleep(0.12)
                 recent.append(capture(udid, path))
             path.write_bytes(with_caret([f for f in recent if caret_only([recent[0], f])]))
             return
-        time.sleep(0.5)
+        time.sleep(STEADY_GAP)
     sys.exit(f"{path}: the screen didn't settle")
 
 

@@ -13,6 +13,7 @@ Zoom into any bullet, link and mirror ideas, write math, and search your outline
   <a href="https://github.com/wesleyel/flowie/actions/workflows/ci.yml"><img src="https://github.com/wesleyel/flowie/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13+">
+  <img src="https://img.shields.io/badge/iOS%20%26%20iPadOS-26%2B-black" alt="iPhone and iPad, iOS 26+">
   <img src="https://img.shields.io/badge/Windows-preview-black" alt="Windows preview (10 and 11, x64)">
 </p>
 
@@ -63,7 +64,8 @@ you scroll.
 - Search with filters: phrases, tags, people, to-dos, completed, headings, notes, dates and "changed in the last N days".
 
 **Keep and share your notes**
-- Flowie stores the outline in a local SQLite database. No account, no cloud service, no tracking.
+- Flowie stores the outline in a local SQLite database. No account, no cloud service of its own, no tracking.
+- iCloud sync in the App Store versions keeps your Macs, iPhone and iPad in step through your own private iCloud database, with nothing to set up (macOS 14 or later on the Mac).
 - Sync your computers through a Flowie server you run yourself (`flowie-server`, see [docs/sync.md](docs/sync.md)): each bullet syncs on its own, offline edits included.
 - Import OPML, Markdown and text (Workflowy exports work); export Markdown, OPML or text.
 - Flowie's OPML exports keep internal links and mirrors. To take images with you, use a `.flowie` package or keep the `images` folder with your Markdown export.
@@ -94,6 +96,10 @@ The Homebrew and GitHub builds are not notarized, so macOS may initially prevent
 ```sh
 xattr -dr com.apple.quarantine /Applications/Flowie.app
 ```
+
+### iPhone and iPad (iOS 26+)
+
+- [App Store](https://apps.apple.com/app/id6835913837): one purchase covers the Mac, iPhone and iPad versions. Journal, quick capture, search, side-by-side pages on iPad, and iCloud sync with the Mac.
 
 ### Windows 10/11 (x64) preview
 

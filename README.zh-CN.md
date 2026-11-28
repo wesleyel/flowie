@@ -13,6 +13,7 @@
   <a href="https://github.com/wesleyel/flowie/actions/workflows/ci.yml"><img src="https://github.com/wesleyel/flowie/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="许可证：GPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13+">
+  <img src="https://img.shields.io/badge/iOS%20%26%20iPadOS-26%2B-black" alt="iPhone 和 iPad，iOS 26+">
   <img src="https://img.shields.io/badge/Windows-preview-black" alt="Windows 预览版（10 和 11，x64）">
 </p>
 
@@ -62,7 +63,8 @@ Flowie 是原生 Rust 应用，用 [GPUI](https://gpui.rs) 在 GPU 上绘制。�
 - 带条件的搜索：短语、标签、人名、待办、已完成、标题、备注、日期，以及「最近 N 天修改过」。
 
 **保存和分享笔记**
-- 大纲存在本地 SQLite 数据库。无需账号，没有云服务，没有追踪。
+- 大纲存在本地 SQLite 数据库。无需账号，没有自己的云服务，没有追踪。
+- App Store 版支持 iCloud 同步：通过你自己的 iCloud 私有数据库，让 Mac、iPhone 和 iPad 上的大纲保持一致，无需任何设置（Mac 需 macOS 14 或更高版本）。
 - 通过你自己运行的 Flowie 服务器（`flowie-server`，见 [docs/sync.md](docs/sync.md)）在几台电脑之间同步：每个条目单独同步，离线时的修改也不会丢。
 - 导入 OPML、Markdown 和纯文本（支持 Workflowy 导出文件）；导出 Markdown、OPML 或纯文本。
 - Flowie 导出的 OPML 会保留内部链接和镜像。要一起带走图片，可以用 `.flowie` 分享包，或者带上 Markdown 导出时附带的 `images` 文件夹。
@@ -93,6 +95,10 @@ Homebrew 和 GitHub 提供的版本未经公证，macOS 一开始会拒绝打开
 ```sh
 xattr -dr com.apple.quarantine /Applications/Flowie.app
 ```
+
+### iPhone 和 iPad（iOS 26+）
+
+- [App Store](https://apps.apple.com/app/id6835913837)：一次购买，同时获得 Mac、iPhone 和 iPad 版。支持日记、速记、搜索、iPad 双栏并排查看，并通过 iCloud 与 Mac 同步。
 
 ### Windows 10/11（x64）预览版
 

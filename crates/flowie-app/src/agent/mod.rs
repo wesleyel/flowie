@@ -145,10 +145,16 @@ const WRITES: [&str; 8] = ["create", "update", "move", "delete", "journal", "com
 impl Outline {
     pub fn handle_agent(&mut self, method: &str, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
         #[cfg(feature = "screenshots")]
-        if let Some(m) = method.strip_prefix("shot.") {
-            let result = self.handle_shot(m, p, cx);
-            cx.notify();
-            return result;
+        {
+            if method == "shot.idle" {
+                return self.handle_shot("idle", p, cx);
+            }
+            crate::dev::shots::called();
+            if let Some(m) = method.strip_prefix("shot.") {
+                let result = self.handle_shot(m, p, cx);
+                cx.notify();
+                return result;
+            }
         }
         match self.config.agent {
             AgentMode::Off => return Err("Agent access is turned off in Flowie → Settings → Agent.".into()),

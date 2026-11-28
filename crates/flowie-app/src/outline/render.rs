@@ -317,6 +317,8 @@ impl Outline {
 
 impl Render for Outline {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(feature = "screenshots")]
+        crate::dev::shots::drew();
         self.tick();
         let theme = self.theme;
 
@@ -517,6 +519,8 @@ impl Render for Outline {
         }
         if self.is_animating() {
             window.request_animation_frame();
+            #[cfg(feature = "screenshots")]
+            crate::dev::shots::animating();
         }
 
         let outline = div()

@@ -5,6 +5,10 @@
 //! calendar, settings…) so App Store and website screenshots can be retaken
 //! from a script. Never part of a release build.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
+use std::time::Instant;
+
 use flowie_core::{BlockKind, NodeId, ROOT};
 use gpui::{point, px, Context};
 use serde_json::Value;
@@ -13,6 +17,40 @@ use crate::outline::{BlockSel, Outline, Target};
 use crate::overlays::context_menu::ContextMenu;
 use crate::overlays::palette::Mode;
 use crate::settings::Tab;
+
+// `shot.idle`: the window is idle once it has drawn a frame since the last agent call and no
+// animation has asked for a frame lately. Every animation (rows, zoom, search, the scrollbar's
+// linger and fade) keeps itself going with `request_animation_frame`, which calls `animating`.
+static FRAMES: AtomicU64 = AtomicU64::new(0);
+static CALL_FRAME: AtomicU64 = AtomicU64::new(0);
+static ANIMATED_AT: AtomicU64 = AtomicU64::new(0);
+/// No animation frame asked for in this long counts as idle (several frames at 60 Hz).
+const QUIET_MS: u64 = 100;
+
+fn now_ms() -> u64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+/// The outline drew a frame.
+pub fn drew() {
+    FRAMES.fetch_add(1, Ordering::Relaxed);
+}
+
+/// An animation asked for another frame.
+pub fn animating() {
+    ANIMATED_AT.store(now_ms(), Ordering::Relaxed);
+}
+
+/// An agent call (other than `shot.idle`) may have changed what's on screen.
+pub fn called() {
+    CALL_FRAME.store(FRAMES.load(Ordering::Relaxed), Ordering::Relaxed);
+}
+
+fn idle() -> bool {
+    FRAMES.load(Ordering::Relaxed) > CALL_FRAME.load(Ordering::Relaxed)
+        && now_ms().saturating_sub(ANIMATED_AT.load(Ordering::Relaxed)) >= QUIET_MS
+}
 
 fn s<'a>(p: &'a Value, k: &str) -> Option<&'a str> {
     p.get(k).and_then(Value::as_str)
@@ -25,6 +63,8 @@ fn f(p: &Value, k: &str) -> Result<f32, String> {
 impl Outline {
     pub fn handle_shot(&mut self, method: &str, p: &Value, cx: &mut Context<Self>) -> Result<String, String> {
         match method {
+            // Whether animations have finished: the script captures once this says `idle`.
+            "idle" => Ok(if idle() { "idle" } else { "busy" }.into()),
             // Delete everything (no Trash), stars, saved searches and the journal.
             "wipe" => {
                 self.shot_close_ui();

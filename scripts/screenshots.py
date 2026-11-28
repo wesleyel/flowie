@@ -9,7 +9,8 @@
 Builds Flowie with the `screenshots` feature (target/screenshots), starts it on a
 throwaway database with a 1200×750 window, fills it with demo pages through the
 agent socket, puts the window into each state with the `shot.*` methods
-(crates/flowie-app/src/dev/shots.rs) and captures it with `screencapture -l`.
+(crates/flowie-app/src/dev/shots.rs), waits until its animations have finished
+(`shot.idle`) and captures it with `screencapture -l`.
 
 Writes
     appstore/fastlane/macos/screenshots-source/<locale>/NN-name.png   2400×1500 captures (10 per locale);
@@ -43,7 +44,7 @@ APPSTORE = ROOT / "appstore" / "fastlane" / "macos" / "screenshots-source"  # fr
 WEBSITE = ROOT / "website" / "images"
 WINDOW = (1200, 750)  # points with the title bar; 2400×1500 pixels on a Retina display (16:10)
 TITLEBAR = 32  # points; FLOWIE_WINDOW_SIZE is the content size
-SETTLE = 1.6  # seconds for animations (zoom, flashes, popups, overlay scrollbars) to finish
+IDLE_TIMEOUT = 10  # seconds to wait for animations (zoom, flashes, popups, overlay scrollbars)
 
 # --------------------------------------------------------------------- content
 
@@ -336,8 +337,19 @@ w ? String(w.kCGWindowNumber) : '';
             time.sleep(0.1)
         sys.exit("Couldn't find Flowie's window")
 
+    def wait_idle(self):
+        """Wait until the window has drawn the last call's result and its animations have
+        finished: `shot.idle` twice in a row, a moment apart."""
+        deadline = time.monotonic() + IDLE_TIMEOUT
+        streak = 0
+        while streak < 2:
+            if time.monotonic() > deadline:
+                raise RuntimeError("Flowie's window never settled; is it hidden behind another window?")
+            time.sleep(0.05)
+            streak = streak + 1 if self.call("shot.idle") == "idle" else 0
+
     def capture(self, path):
-        time.sleep(SETTLE)
+        self.wait_idle()
         subprocess.run(["screencapture", "-x", "-o", "-l", self.window_id, str(path)], check=True)
 
     def quit(self):
@@ -394,7 +406,7 @@ def seed(app, c):
     app.call("shot.mirror", source=first_id(ids["launch/all"], "A weekly review" if c is EN else "每周回顾"),
              parent=ids["ideas"])
     app.call("shot.reset")
-    time.sleep(1.5)  # let the creation flashes fade
+    app.wait_idle()
     return ids
 
 
@@ -423,7 +435,7 @@ def shot_commands(app, c, ids):
     made = app.create("- x", after=after)
     node = next(iter(made.values()))
     app.call("update", id=node, text="")
-    time.sleep(1.2)
+    app.call("shot.reset")  # no creation flash
     app.call("shot.caret", id=node)
     app.call("shot.type", text=c["slash"])
     return lambda: app.call("delete", ids=[node])
@@ -456,7 +468,7 @@ def shot_links(app, c, ids):
     made = app.create("- x", after=today_id(ids, c["journal_caret"]))
     node = next(iter(made.values()))
     app.call("update", id=node, text=c["link_text"])
-    time.sleep(1.2)
+    app.call("shot.reset")  # no creation flash
     app.call("shot.caret", id=node)
     app.call("shot.type", text=c["link_query"])
     return lambda: app.call("delete", ids=[node])

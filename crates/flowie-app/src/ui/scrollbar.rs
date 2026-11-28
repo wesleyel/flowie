@@ -165,6 +165,8 @@ pub fn scrollbar(id: impl Into<ElementId>, source: impl Into<Source>, theme: The
             };
             if alpha > 0. && !active {
                 window.request_animation_frame();
+                #[cfg(feature = "screenshots")]
+                crate::dev::shots::animating();
             }
             let fg: Hsla = if theme.dark { gpui::white() } else { gpui::black() };
             if alpha > 0. {

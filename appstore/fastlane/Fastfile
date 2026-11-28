@@ -11,7 +11,8 @@ PKG_DIR = File.join(ROOT, "build/appstore")
 # with metadata/<locale>/ and screenshots/<locale>/. Text both listings share (name, subtitle, URLs,
 # categories, copyright, the review contact) is kept in macos/ and symlinked from ios/.
 def listing(platform)
-  dir = File.join(__dir__, platform)
+  # Actions run from appstore/, one directory above the Fastfile's evaluation context.
+  dir = File.join(ROOT, "appstore", "fastlane", platform)
   { metadata_path: File.join(dir, "metadata"), screenshots_path: File.join(dir, "screenshots") }
 end
 

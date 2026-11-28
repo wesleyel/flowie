@@ -1,3 +1,7 @@
-Flowie is an outliner. No account or sign-in is needed: the outline is stored on the device and every feature works offline, without a Mac (4.2.3).
-Optional: sync with Flowie for Mac through the user's own iCloud account (CloudKit private database). Nothing is sent anywhere else.
-To try the app: type to add bullets, use the toolbar above the keyboard to indent, outdent and move them, tap a bullet's dot to open it as a page, and use the Today tab for the daily journal. Quick capture: long-press the app icon → Write in Today's Journal, or add Flowie's control in Control Center. Settings (gear on Home) has iCloud status and Recently Deleted.
+Flowie works on a single iPhone or iPad without a Flowie account, a Mac or an internet connection. You can use these steps offline.
+
+1. Open Today from the tab bar on iPhone or from the sidebar on a wide iPad. Tap below the last entry and type “Trail notes #hike”. Press Return, type “Pack a map” and use Indent above the keyboard to make it a child of the first bullet.
+2. Tap the dot beside “Trail notes #hike” to open its page. In landscape on iPad, the journal and the new page can appear side by side. Open Search and enter #hike to find the entry across the outline.
+3. For quick capture, touch and hold the Flowie icon on the Home Screen and choose “Write in Today’s Journal”. To try the share extension, share text or a web link to Flowie, tap “Add to Today”, then open Today in Flowie.
+
+Settings is under Home → … → Settings on iPhone and in the sidebar on a wide iPad. It shows Recently Deleted and the iCloud sync status. If the device is signed in to iCloud, Flowie syncs the outline through the user's private CloudKit database.

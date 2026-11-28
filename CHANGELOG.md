@@ -10,6 +10,10 @@ Homebrew cask follows the newest version, including candidates.
 
 ## [Unreleased]
 
+### Changed
+
+- **iPhone and iPad App Store listing**: updated the English and Simplified Chinese screenshots and descriptions to show the daily journal, tag search, quick capture and side-by-side pages on iPad.
+
 ## [1.1.0-rc.2] - 2026-11-28
 
 ### Fixed

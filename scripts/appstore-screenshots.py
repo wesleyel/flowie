@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter
+
+from appstore_style import INK, PALETTES, SECONDARY, typefaces
 
 ROOT = Path(__file__).resolve().parent.parent
 SCREENSHOTS = ROOT / "appstore/fastlane/macos/screenshots"
 SOURCES = ROOT / "appstore/fastlane/macos/screenshots-source"
 SIZE = (2880, 1800)
-EN_FONT = "/System/Library/Fonts/Supplemental/Avenir Next.ttc"
-ZH_FONT = "/System/Library/Fonts/Hiragino Sans GB.ttc"
 
 COPY = {
     "en-US": {
@@ -46,41 +46,6 @@ COPY = {
     },
 }
 
-PALETTES = [
-    ((231, 244, 236), (31, 104, 78)),
-    ((239, 237, 250), (86, 72, 151)),
-    ((250, 239, 222), (159, 94, 33)),
-    ((224, 241, 243), (31, 111, 127)),
-    ((247, 231, 232), (157, 63, 75)),
-    ((233, 239, 249), (57, 93, 153)),
-    ((241, 237, 225), (131, 99, 43)),
-    ((231, 238, 228), (73, 111, 64)),
-    ((239, 231, 245), (112, 69, 135)),
-    ((247, 237, 222), (155, 91, 34)),
-]
-
-
-def font(path: str, size: int, index: int = 0) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(path, size, index=index)
-
-
-def wrap_text(text: str, draw: ImageDraw.ImageDraw, selected_font: ImageFont.FreeTypeFont,
-              max_width: int, chinese: bool) -> list[str]:
-    units = list(text) if chinese else text.split()
-    lines: list[str] = []
-    current = ""
-    for unit in units:
-        candidate = current + unit if chinese else (current + " " + unit).strip()
-        if current and draw.textlength(candidate, font=selected_font) > max_width:
-            lines.append(current)
-            current = unit
-        else:
-            current = candidate
-    if current:
-        lines.append(current)
-    return lines
-
-
 def rounded_window(image: Image.Image, dark: bool, width: int) -> Image.Image:
     """The capture scaled to `width`, with rounded corners and a hairline edge."""
     height = round(image.height * width / image.width)
@@ -102,11 +67,9 @@ def compose(source: Path, destination: Path, locale: str, key: str, index: int) 
     background, accent = PALETTES[index % len(PALETTES)]
     if dark:
         background, accent = (24, 27, 36), (167, 139, 250)
-    ink = (246, 247, 250) if dark else (23, 35, 39)
-    secondary = (190, 198, 210) if dark else (72, 86, 90)
-    # Demi Bold / W6 headline, Regular / W3 subtitle.
-    display = font(ZH_FONT if chinese else EN_FONT, 100 if chinese else 96, 2)
-    detail = font(ZH_FONT if chinese else EN_FONT, 42 if chinese else 40, 0 if chinese else 7)
+    ink = (246, 247, 250) if dark else INK
+    secondary = (190, 198, 210) if dark else SECONDARY
+    display, detail = typefaces(locale, 100 if chinese else 96, 42 if chinese else 40)
 
     canvas = Image.new("RGBA", SIZE, background + (255,))
     draw = ImageDraw.Draw(canvas)

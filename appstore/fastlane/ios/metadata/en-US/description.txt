@@ -1,27 +1,27 @@
-Flowie keeps everything in one outline of nested bullets: plans, research notes, lists and a daily journal. Tap any bullet to open it as its own page when you want to focus on one part.
+Flowie keeps your plans, research notes, lists and daily journal in one outline. Tap the dot beside a bullet to open that branch as a page.
 
 WRITE AND ORGANIZE
-• Nest bullets as deep as you like. Indent, outdent and move them from the toolbar above the keyboard
-• Collapse and expand branches, and complete to-dos or hide them
-• Move a bullet anywhere with Move to…, which finds the place as you type
-• Add a note to any bullet
-• Undo and redo every change
+• Nest bullets as deep as you like. Use the toolbar above the keyboard to indent, outdent or move a row
+• Fold branches, check off tasks and hide completed items
+• Move a whole branch at once. Choose “Move To…” and type part of its destination’s name
+• Add a note to any bullet. Undo or redo your edits
 
 FOCUS ON ONE PAGE
-• Tap a bullet to open it as a page. The path back to Home shows under its title
+• See where a page fits in the outline from the path beneath its title
+• On iPad in landscape, keep the project on the left and open a detail beside it
 • Star the pages you use most
 
 JOURNAL AND QUICK CAPTURE
-• Today opens on today's journal page. Go back a day or forward a day
-• Write in today's journal from the Home Screen, Control Center or the Action Button
-• Add to today's journal with Siri or Shortcuts without opening the app
+• Open Today to write in your journal, or step back to an earlier day
+• Start writing from the Home Screen, Control Center or the Action Button on a supported iPhone
+• Add a line with Siri or Shortcuts, or share text and web links to your journal from other apps
 
 SEARCH
-• Search the whole outline with words, #tags, dates and filters like is:todo or changed:7d
+• Search the whole outline by word, #tag or date. Try is:todo to find tasks or changed:7d to revisit recent edits
 
 YOUR OUTLINE, ON YOUR DEVICE
-• Your outline is kept on your iPhone or iPad and works offline. No account needed
-• Sync your bullets, notes and images with Flowie on your Mac through iCloud
+• Write and search offline on your iPhone or iPad without a Flowie account
+• When signed in to iCloud, sync your bullets, notes and images between devices. To include your Mac, choose iCloud in the Mac App Store version of Flowie
 • Restore deleted bullets from Recently Deleted
 
-Text formatting, tags, dates and links show as they do on the Mac. Available in English and Simplified Chinese.
+Available in English and Simplified Chinese.

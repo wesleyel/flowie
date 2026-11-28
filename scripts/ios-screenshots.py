@@ -9,6 +9,7 @@
     scripts/ios-screenshots.py --device iphone     # one device (iphone or ipad)
     scripts/ios-screenshots.py --locale zh-Hans    # one locale
     scripts/ios-screenshots.py --only 03 search    # some shots (by number or name)
+    scripts/ios-screenshots.py --frame-only        # reframe saved captures, without a Simulator
     scripts/ios-screenshots.py --no-build          # reuse the last Simulator build
     scripts/ios-screenshots.py --jobs 2            # at most two Simulators at a time
 
@@ -24,11 +25,11 @@ and in debug builds -FlowieSearch and -FlowieCapture
 (apple/FlowieKit/Sources/FlowieUI/ScreenshotArguments.swift). The Simulator speaks the locale's
 language, its status bar is fixed at 9:41 with full bars, and the appearance is light.
 
-Writes appstore/fastlane/ios/screenshots/<locale>/iPhone-NN-name.png (1320×2868, iPhone 6.9")
-and iPad-NN-name.png (2752×2064, iPad 13" in landscape); `fastlane ios screenshots` uploads them.
-The home shot also goes to the website's device stage as website/images/iphone-01-home-<locale>.jpg
-(600×1304) and ipad-01-home-<locale>.jpg (1200×900). Dates
-follow today. Your own outline and Simulators are never touched.
+Saves captures in appstore/fastlane/ios/screenshots-source/<locale>/ and frames them with the
+headlines in ios_store_artwork.py for screenshots/<locale>/iPhone-NN-name.png (1320×2868,
+iPhone 6.9") and iPad-NN-name.png (2752×2064, iPad 13" landscape). `fastlane ios screenshots`
+uploads the framed set. The raw home shot also goes to website/images/iphone-01-home-<locale>.jpg
+(600×1304) and ipad-01-home-<locale>.jpg (1200×900). Dates follow today.
 """
 
 import argparse
@@ -47,11 +48,15 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageStat
 
+from ios_store_artwork import compose
+
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "apple" / "FlowieApp"
 DERIVED = ROOT / "build" / "ios" / "DerivedData"
 APP = DERIVED / "Build" / "Products" / "Debug-iphonesimulator" / "Flowie.app"
-OUT = ROOT / "appstore" / "fastlane" / "ios" / "screenshots"
+LISTING = ROOT / "appstore" / "fastlane" / "ios"
+SOURCES = LISTING / "screenshots-source"
+OUT = LISTING / "screenshots"
 WEBSITE = ROOT / "website" / "images"  # the home shot, for the home page's device stage
 WEB_WIDTH = {"iphone": 600, "ipad": 1200}
 BUNDLE_ID = "flowie.spokey.cn"
@@ -289,7 +294,10 @@ def caret_only(frames):
     empty launch screen (nothing below the status bar). A flash of the Dynamic Island, a page
     still loading or the keyboard coming in all differ by more."""
     image = gray(frames[0])
-    low, high = image.crop((0, image.height // 8, image.width, image.height)).getextrema()
+    # A blank iPad launch screen still has the window's resize handle in the bottom corner.
+    # Look inside the page, clear of all status, window and tab bar chrome.
+    w, h = image.size
+    low, high = image.crop((w // 50, h // 7, w - w // 50, h * 4 // 5)).getextrema()
     if high - low < 32:
         return False
     box = caret_box(frames)
@@ -313,15 +321,20 @@ def take(kind, locale, outline, today, shots):
     udid = device(kind, locale)
     speak(udid, locale)
     prepare(udid, wide=expected[0] > expected[1])
-    folder = OUT / locale
+    folder = SOURCES / locale
     folder.mkdir(parents=True, exist_ok=True)
     print(f"[{_job.name}] ready in {time.monotonic() - start:.0f} s", flush=True)
     for shot in shots:
         path = folder / f"{prefix}-{shot[0]}-{shot[1]}.png"
         began = time.monotonic()
-        frames = shoot(udid, db, ids, today, locale, shot, path)
-        if size(path) != expected:
-            sys.exit(f"{path} is {size(path)}, App Store Connect wants {expected}")
+        # Only replace the saved source once the new shot has settled at the expected size.
+        with tempfile.TemporaryDirectory(dir=folder) as tmp:
+            candidate = Path(tmp) / path.name
+            frames = shoot(udid, db, ids, today, locale, shot, candidate)
+            with Image.open(candidate) as captured:
+                if captured.size != expected:
+                    sys.exit(f"{path} is {captured.size}, App Store Connect wants {expected}")
+            candidate.replace(path)
         print(f"[{_job.name}] {path.relative_to(ROOT)} ({frames} frames, {time.monotonic() - began:.1f} s)", flush=True)
         if shot[1] == "home":
             web = WEBSITE / f"{kind}-{shot[0]}-{shot[1]}-{locale}.jpg"
@@ -334,35 +347,41 @@ def take(kind, locale, outline, today, shots):
     print(f"[{_job.name}] done in {time.monotonic() - start:.0f} s", flush=True)
 
 
-def size(path):
-    out = output("sips", "-g", "pixelWidth", "-g", "pixelHeight", path).split()
-    return int(out[out.index("pixelWidth:") + 1]), int(out[out.index("pixelHeight:") + 1])
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--device", choices=sorted(DEVICES), action="append")
     parser.add_argument("--locale", choices=sorted(LOCALES), action="append")
     parser.add_argument("--only", nargs="+", help="shot numbers or names")
     parser.add_argument("--no-build", action="store_true")
+    parser.add_argument("--frame-only", action="store_true", help="use the existing screenshots-source PNGs")
     parser.add_argument("--jobs", type=int, help="Simulators running at once (default: all)")
     args = parser.parse_args()
 
     shots = [s for s in SHOTS if not args.only or s[0] in args.only or s[1] in args.only]
     if not shots:
         sys.exit(f"No such shot: {' '.join(args.only)}")
-    if not args.no_build:
-        build()
-    if not APP.exists():
-        sys.exit(f"No Simulator build at {APP}: run without --no-build")
+    # Keep one job per Simulator even if a selector appears twice.
+    locales = dict.fromkeys(args.locale or LOCALES)
+    jobs = [(kind, locale) for kind in dict.fromkeys(args.device or DEVICES) for locale in locales]
+    if not args.frame_only:
+        if not args.no_build:
+            build()
+        if not APP.exists():
+            sys.exit(f"No Simulator build at {APP}: run without --no-build")
 
-    today = dt.date.today()
-    with tempfile.TemporaryDirectory(prefix="flowie-ios-shots-") as tmp:
-        outlines = {locale: seed(locale, today, Path(tmp)) for locale in args.locale or LOCALES}
-        jobs = [(kind, locale) for kind in args.device or DEVICES for locale in outlines]
-        with ThreadPoolExecutor(max_workers=args.jobs or len(jobs)) as pool:
-            # list(): re-raise the first job that failed.
-            list(pool.map(lambda job: take(*job, outlines[job[1]], today, shots), jobs))
+        today = dt.date.today()
+        with tempfile.TemporaryDirectory(prefix="flowie-ios-shots-") as tmp:
+            outlines = {locale: seed(locale, today, Path(tmp)) for locale in locales}
+            with ThreadPoolExecutor(max_workers=args.jobs or len(jobs)) as pool:
+                # list(): re-raise the first job that failed.
+                list(pool.map(lambda job: take(*job, outlines[job[1]], today, shots), jobs))
+
+    for kind, locale in jobs:
+        _, _, prefix, expected = DEVICES[kind]
+        for number, name, *_ in shots:
+            file = Path(locale) / f"{prefix}-{number}-{name}.png"
+            compose(SOURCES / file, OUT / file, locale, name, kind, expected)
+            print(f"Framed {file}")
     print(f"Screenshots in {OUT.relative_to(ROOT)}")
 
 

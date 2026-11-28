@@ -158,9 +158,11 @@ Simulator of its own (`Flowie Screenshots iPhone en-US` and so on, made on first
 language), and they run at once (`--jobs N` for fewer); an unchanged build isn't reinstalled. simctl can't
 turn a Simulator, so the `ScreenshotTests` UI-test target (only that) turns the iPad to
 landscape. Launch arguments open each state: the launch rule's keys for the page, and, in debug
-builds, `-FlowieSearch <query>` and `-FlowieCapture <text>` (`ScreenshotArguments.swift`). The PNGs go to
-`appstore/fastlane/ios/screenshots/<locale>/`; `fastlane ios screenshots` uploads them (see
-`appstore/README.md`).
+builds, `-FlowieSearch <query>` and `-FlowieCapture <text>` (`ScreenshotArguments.swift`). Captures go to
+`appstore/fastlane/ios/screenshots-source/<locale>/`. Home also supplies the website’s device images.
+The same command frames the captures with localized headlines in `appstore/fastlane/ios/screenshots/<locale>/`.
+To change just the artwork, run `scripts/ios-screenshots.py --frame-only` on macOS. The
+`fastlane ios screenshots` lane uploads the framed PNGs. [Submission checklist](../appstore/README.md#ios-submission-checklist)
 
 For the App Store:
 

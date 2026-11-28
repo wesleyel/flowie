@@ -1,4 +1,4 @@
-# Mac App Store release
+# App Store releases
 
 Everything for the App Store lives in this folder: the Mac app, and the iPhone and iPad app
 that ships under the same record. The Mac app's code is the same as the open-source build.
@@ -13,8 +13,8 @@ appstore/
     ios/               the iPhone and iPad listing (same App Store record: Universal Purchase)
       metadata/        its own description, keywords, promotional text, release notes and review
                        notes; everything both listings share is a symlink into macos/metadata/
-      screenshots/     iPhone 6.9" (portrait) and iPad 13" (landscape) screenshots per locale
-                       (scripts/ios-screenshots.py)
+      screenshots-source/  full-resolution Simulator captures (scripts/ios-screenshots.py)
+      screenshots/     framed iPhone 6.9" portrait and iPad 13" landscape PNGs for upload
   macos/               sandbox entitlements, privacy manifest, cargo-about notices
                        (+ embedded.provisionprofile, git-ignored)
 ```
@@ -103,10 +103,26 @@ It needs a Retina display and Screen Recording permission for the terminal, and 
 mouse kept off the Flowie window while it runs. Dates follow today, so the journal and
 calendar show the current month. Then `fastlane mac screenshots` uploads them.
 
-The iPhone and iPad screenshots need no screen recording: `scripts/ios-screenshots.py` takes
-all of them in the iOS Simulator, from a demo outline, into `fastlane/ios/screenshots/<locale>/`
-(see [docs/building.md](../docs/building.md#ios-in-development)). Then `fastlane ios
-screenshots` uploads them.
+The iOS listing has five shots per device for both English and Simplified Chinese. They show
+Home, Today, a bullet opened as a page (two pages on iPad), tag search and quick capture.
+From the repository root, run one of these commands on macOS:
+
+```bash
+scripts/ios-screenshots.py
+scripts/ios-screenshots.py --frame-only
+```
+
+The first command takes fresh captures in the Simulator, updates the website’s four unframed
+Home images and frames the store set. The second reads the saved captures. Both accept
+`--device`, `--locale` and `--only`. Edit the headlines in `scripts/ios_store_artwork.py`.
+The upload directory is `fastlane/ios/screenshots/<locale>/`. [Simulator setup](../docs/building.md#ios-in-development)
+
+## iOS submission checklist
+
+- Review the five PNGs in order for each device and locale. iPhone files are 1320×2868 and iPad files are 2752×2064. Match the two-pane view and keyboard layout to the build selected for review.
+- Check the description, promotional text, keywords and release notes in `fastlane/ios/metadata/<locale>/`. Confirm the shared support, marketing and privacy links, and the local App Review contact. The reviewer walkthrough is in [review notes](fastlane/ios/metadata/review_information/notes.txt). Sign-in is optional and the reviewer can try the outline offline.
+- Test the candidate on a physical iPhone and iPad. Try editing offline, sharing text or a web link to Today, and syncing through production iCloud. Check that the same journal day appears once on iPhone, iPad and Mac. The iOS launch is scheduled after the iCloud-capable Mac version goes live.
+- When ready to update App Store Connect, run `fastlane ios metadata` and `fastlane ios screenshots` from this folder. Select the tested iOS build on the shared app record. Verify App Privacy, age rating, content rights, availability and release timing before submitting the iOS version for review. [Build and TestFlight instructions](../docs/building.md#ios-in-development)
 
 ## Releasing with fastlane
 
@@ -127,7 +143,7 @@ ASC_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_….p8
 The App Review contact (`first_name.txt`, `last_name.txt`, `phone_number.txt`,
 `email_address.txt` in `appstore/fastlane/macos/metadata/review_information/`) is git-ignored so the
 public repository doesn't carry a phone number; create those four files locally
-before running `fastlane mac metadata`.
+before running either platform’s metadata lane.
 
 | Lane | What it does |
 |---|---|

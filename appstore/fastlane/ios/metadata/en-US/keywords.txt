@@ -1,1 +1,1 @@
-outline,outliner,notes,lists,bullet,journal,daily,todo,tasks,capture,zettelkasten,writing,plan
+outline,bullet,journal,daily,tasks,checklist,capture,writing,planner,research,projects,offline,tags

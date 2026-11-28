@@ -15,6 +15,7 @@ Zoom into any bullet, link and mirror ideas, write math, and search your outline
   <img src="https://img.shields.io/badge/macOS-13%2B-007AFF" alt="macOS 13+">
   <img src="https://img.shields.io/badge/iOS%20%26%20iPadOS-26%2B-AF52DE" alt="iPhone and iPad, iOS 26+">
   <img src="https://img.shields.io/badge/Windows-preview-F97316" alt="Windows preview (10 and 11, x64)">
+  <img src="https://img.shields.io/badge/Linux-preview-16A34A" alt="Linux preview (x86_64)">
 </p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="https://wesleyel.github.io/flowie/">Website</a> · <a href="website/images">Screenshots</a></p>

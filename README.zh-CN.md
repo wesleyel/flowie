@@ -15,6 +15,7 @@
   <img src="https://img.shields.io/badge/macOS-13%2B-007AFF" alt="macOS 13+">
   <img src="https://img.shields.io/badge/iOS%20%26%20iPadOS-26%2B-AF52DE" alt="iPhone 和 iPad，iOS 26+">
   <img src="https://img.shields.io/badge/Windows-preview-F97316" alt="Windows 预览版（10 和 11，x64）">
+  <img src="https://img.shields.io/badge/Linux-preview-16A34A" alt="Linux 预览版（x86_64）">
 </p>
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b> · <a href="https://wesleyel.github.io/flowie/">官网</a> · <a href="website/images">截图</a></p>

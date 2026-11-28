@@ -10,6 +10,12 @@ Homebrew cask follows the newest version, including candidates.
 
 ## [Unreleased]
 
+## [1.1.0-rc.2] - 2026-11-28
+
+### Fixed
+
+- **iCloud sync (Mac App Store version)**: the build now names CloudKit's production environment, which App Store Connect requires before it accepts a build that syncs through iCloud.
+
 ## [1.1.0-rc.1] - 2026-11-28
 
 ### Added
@@ -236,7 +242,8 @@ Flowie 1.0.0's first release candidate, free software under GPL-3.0-or-later. Th
 
 - **Dependencies**: bundle SQLite 3.54.1 through rusqlite 0.43 to fix CVE-2026-119375.
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.1.0-rc.1...HEAD
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.1.0-rc.2...HEAD
+[1.1.0-rc.2]: https://github.com/wesleyel/flowie/compare/v1.1.0-rc.1...v1.1.0-rc.2
 [1.1.0-rc.1]: https://github.com/wesleyel/flowie/compare/v1.0.1...v1.1.0-rc.1
 [1.0.1]: https://github.com/wesleyel/flowie/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.6...v1.0.0

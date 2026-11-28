@@ -6,6 +6,12 @@ Flowie 的重要变更记录于此。
 
 ## [Unreleased]
 
+## [1.1.0-rc.2] - 2026-11-28
+
+### 修复
+
+- **iCloud 同步（Mac App Store 版）**: 构建现在声明了 CloudKit 的正式环境，App Store Connect 要求通过 iCloud 同步的构建必须声明它才会接收。
+
 ## [1.1.0-rc.1] - 2026-11-28
 
 ### 新增
@@ -232,7 +238,8 @@ Flowie 1.0.0 的首个候选版本，以 GPL-3.0-or-later 授权。1.0.0 正式�
 
 - **依赖**: 通过 rusqlite 0.43 内置 SQLite 3.54.1，修复 CVE-2026-119375。
 
-[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.1.0-rc.1...HEAD
+[Unreleased]: https://github.com/wesleyel/flowie/compare/v1.1.0-rc.2...HEAD
+[1.1.0-rc.2]: https://github.com/wesleyel/flowie/compare/v1.1.0-rc.1...v1.1.0-rc.2
 [1.1.0-rc.1]: https://github.com/wesleyel/flowie/compare/v1.0.1...v1.1.0-rc.1
 [1.0.1]: https://github.com/wesleyel/flowie/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/wesleyel/flowie/compare/v1.0.0-rc.6...v1.0.0

@@ -35,3 +35,12 @@ header h1 { font-size: var(--title); margin: 0; flex: 1; }
 .add input { flex: 1; font: inherit; padding: 4px 8px; }
 .setup { flex-direction: column; max-width: 360px; }
 .setup input { font: inherit; padding: 4px 8px; }
+
+.settings { border: none; border-radius: var(--radius); padding: 0; width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 64px); display: flex; background: var(--bg); color: var(--text); }
+.settings:not([open]) { display: none; }
+.settings::backdrop { background: rgb(0 0 0 / 0.3); }
+.settings-tabs { display: flex; flex-direction: column; gap: 2px; padding: var(--gap); border-right: 1px solid color-mix(in srgb, var(--muted) 30%, transparent); min-width: 9em; }
+.settings-tabs button { text-align: left; border: none; background: none; color: inherit; padding: 4px 8px; border-radius: var(--radius); cursor: pointer; font: inherit; }
+.settings-tabs button.on { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.settings-body { flex: 1; padding: 16px; overflow: auto; }
+#settings { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 16px; }

@@ -1,5 +1,7 @@
 // The top bar: title, search, today's journal page and sync's status.
 import { openToday, search } from "../state/page";
+import { t } from "../i18n";
+import { openSettings } from "../settings/state";
 import { phase, status, statusTitle } from "../state/session";
 
 export function Header() {
@@ -22,6 +24,9 @@ export function Header() {
       <span id="status" title={statusTitle.value}>
         {status.value}
       </span>
+      <button id="settings" title={t("settings.heading")} aria-label={t("settings.heading")} onClick={() => openSettings()}>
+        ⚙
+      </button>
     </header>
   );
 }
